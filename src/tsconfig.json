@@ -1,0 +1,9 @@
+{
+    "exclude": ["*.js"],
+    "compilerOptions": {
+        "target": "ES6",
+        "lib": ["ES2016", "dom"],
+        // "strictNullChecks": true,
+        // "strictPropertyInitialization": true
+    }
+}

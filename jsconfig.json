@@ -1,0 +1,11 @@
+{
+    "typeAcquisition": {
+        "include": ["jquery"]
+    },
+    "compilerOptions": {
+        "lib": ["DOM", "ES2016"],
+        "target": "ES6",
+        "strictNullChecks": true
+    },
+    "exclude": ["./dist", "*.js"]
+}

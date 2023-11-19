@@ -1,0 +1,44 @@
+@font-face {
+    font-family: "phigros";
+    src: url(./cmdysj.ttf);
+}
+
+body, html {
+    font-family: "cmdysj";
+    margin: 0;
+    height: 100%
+}
+
+#main {
+    display: grid;
+    grid-template-rows: 2em 1fr 1fr;
+    grid-template-columns: 6fr 4fr;
+    height: 100%;
+    width: 100%;
+}
+
+#topbar {
+    grid-column: 1 / 3;
+}
+
+#preview {
+    grid-row: 2 / 3;
+    grid-column: 1 / 2;
+}
+
+#itemInfo {
+    grid-row: 2 / 3;
+    grid-column: 2 / 3;
+}
+
+#eventSequence {
+    grid-row: 3 / 4;
+    grid-column: 1 / 2;
+}
+
+#lineInfo {
+    grid-row: 3 / 4;
+    grid-column: 2 / 3;
+}
+
+
