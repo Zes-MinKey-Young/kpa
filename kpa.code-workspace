@@ -6,6 +6,9 @@
 	],
 	"settings": {
 		"compile-hero.disable-compile-files-on-did-save-code": true,
-		"git.enabled": true
+		"git.enabled": true,
+		"cSpell.words": [
+			"easings"
+		]
 	}
 }

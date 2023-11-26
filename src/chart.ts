@@ -27,8 +27,8 @@ interface MetaData {
     song: string;
 }
 
-interface NoteData {
-    above: Bool;
+interface NoteDataRPE {
+    above: Bool | 2;
     alpha: number;
     endTime: TimeT
     isFake: Bool;
@@ -41,7 +41,7 @@ interface NoteData {
     yOffset: number
 }
 
-interface EventData {
+interface EventDataRPE {
     bezier: Bool;
     bezierPoints: [number, number, number, number];
     easingLeft: number;
@@ -54,24 +54,25 @@ interface EventData {
     startTime: TimeT;
 }
 
-interface EventLayerData {
-    moveXEvents: EventData[];
-    moveYEvents: EventData[];
-    rotateEvents: EventData[];
-    alphaEvents: EventData[];
-    speedEvents: EventData[];
+interface EventLayerDataRPE {
+    moveXEvents: EventDataRPE[];
+    moveYEvents: EventDataRPE[];
+    rotateEvents: EventDataRPE[];
+    alphaEvents: EventDataRPE[];
+    speedEvents: EventDataRPE[];
 }
 
-interface JudgeLineData {
-    notes: NoteData[];
+interface JudgeLineDataPRE {
+    notes: NoteDataRPE[];
     Group: number;
     Name: string;
     Texture: string;
     alphaControl: Array<any>; // ?
     bpmfactor: 1.0;
-    eventLayers: EventLayerData[];
-    extended: {inclineEvents: EventData[]};
+    eventLayers: EventLayerDataRPE[];
+    extended: {inclineEvents: EventDataRPE[]};
     father: number;
+    children: number[];
     isCover: Bool;
     numOfNotes: number;
     posControl: any[];
@@ -81,17 +82,19 @@ interface JudgeLineData {
     zOrder: number;
 }
 interface CustomEasingData {
-    content: EventData[];
-    name: string
+    content: EventDataRPE[];
+    name: string;
+    usedBy: string[];
+    dependencies: string[];
 }
-interface ChartData {
+interface ChartDataRPE {
     BPMList: BPMSegmentData[];
     META: MetaData;
     judgeLineGroup: string[];
-    judgeLineList: JudgeLineData[];
+    judgeLineList: JudgeLineDataPRE[];
     envEasings: CustomEasingData[]; // New!
 }
-function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => any): RT[] {
+function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boolean): RT[] {
     let ret: RT[] = []
     for (let each of arr) {
         if (!guard || guard && guard(each)) {
@@ -118,10 +121,10 @@ class Note {
      * 和打击位置的距离，与yOffset和上下无关，为负不可见
      */
     positionY: number;
-    endpositionY?: number;
+    endPositionY?: number;
     double: boolean;
-    constructor(data: NoteData) {
-        this.above = Boolean(data.above);
+    constructor(data: NoteDataRPE) {
+        this.above = data.above === 1;
         this.alpha = data.alpha;
         this.endTime = data.endTime;
         this.isFake = Boolean(data.isFake);
@@ -155,12 +158,15 @@ class JudgeLine {
     eventLayers: EventLayer[];
     notePosition: Float64Array;
     noteSpeeds: NoteSpeeds;
+    father: JudgeLine;
+    children: JudgeLine[];
     constructor() {
         this.notes = [];
         this.eventLayers = [];
+        this.children = [];
         this.noteSpeeds = {};
     }
-    static fromRPEJSON(data: JudgeLineData, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
+    static fromRPEJSON(data: JudgeLineDataPRE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
         let line = new JudgeLine()
         if (data.notes) {
             let notes = data.notes;
@@ -182,11 +188,11 @@ class JudgeLine {
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             const layer: EventLayer = {
-                moveX: EventNodeSequence.fromRPEJSON(layerData.moveXEvents, templates),
-                moveY: EventNodeSequence.fromRPEJSON(layerData.moveYEvents, templates),
-                rotate: EventNodeSequence.fromRPEJSON(layerData.rotateEvents, templates),
-                alpha: EventNodeSequence.fromRPEJSON(layerData.alphaEvents, templates),
-                speed: EventNodeSequence.fromRPEJSON(layerData.speedEvents, templates)
+                moveX: EventNodeSequence.fromRPEJSON(EventType.MoveX, layerData.moveXEvents, templates, undefined),
+                moveY: EventNodeSequence.fromRPEJSON(EventType.MoveY, layerData.moveYEvents, templates, undefined),
+                rotate: EventNodeSequence.fromRPEJSON(EventType.Rotate, layerData.rotateEvents, templates, undefined),
+                alpha: EventNodeSequence.fromRPEJSON(EventType.Alpha, layerData.alphaEvents, templates, undefined),
+                speed: EventNodeSequence.fromRPEJSON(EventType.Speed, layerData.speedEvents, templates, timeCalculator)
             };
             line.eventLayers[index] = layer;
             for (let each in layerData) {
@@ -202,11 +208,11 @@ class JudgeLine {
         for (let each of this.notes) {
             // console.log("inte", this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator))
             each.positionY = this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator) * each.speed;
-            each.endpositionY = this.getStackedIntegral(TimeCalculator.toBeats(each.endTime), timeCalculator) * each.speed;
+            each.endPositionY = this.getStackedIntegral(TimeCalculator.toBeats(each.endTime), timeCalculator) * each.speed;
         }
     }
     updateNoteSpeeds() {
-        let noteSpeed = this.noteSpeeds = {}
+        let noteSpeed = this.noteSpeeds
         for (let note of this.notes) {
             if (!noteSpeed[note.speed]) {
                 noteSpeed[note.speed] = []
@@ -250,24 +256,49 @@ class Chart {
     templateEasingLib: TemplateEasingLib;
     bpmList: BPMSegmentData[];
     timeCalculator: TimeCalculator;
+    orphanLines: JudgeLine[]
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
-        this.templateEasingLib = {};
+        this.orphanLines = [];
+        this.templateEasingLib = new TemplateEasingLib();
     }
-    static fromRPEJSON(data: ChartData) {
+    static fromRPEJSON(data: ChartDataRPE) {
         let chart = new Chart();
         chart.bpmList = data.BPMList;
         chart.updateCalculator()
         if (data.envEasings) {
-            for (let easing of data.envEasings) {
-                chart.templateEasingLib[easing.name] = new TemplateEasing(EventNodeSequence.fromRPEJSON(easing.content, chart.templateEasingLib)) // 大麻烦！
-            }
+            chart.templateEasingLib.add(...data.envEasings)
 
         }
         // let line = data.judgeLineList[0];
-        for (let line of data.judgeLineList) {
-            chart.judgeLines.push(JudgeLine.fromRPEJSON(line, chart.templateEasingLib, chart.timeCalculator))
+        const length = data.judgeLineList.length
+        const orphanLines: JudgeLineDataPRE[] = [];
+        for (let i = 0; i < length; i++) {
+            const lineData = data.judgeLineList[i];
+            if (lineData.father === -1) {
+                orphanLines.push(lineData);
+                continue;
+            }
+            const father = data.judgeLineList[lineData.father];
+            const children = father.children || (father.children = []);
+            children.push(i);
+        }
+        const readOne = (lineData: JudgeLineDataPRE) => {
+            const line: JudgeLine = JudgeLine.fromRPEJSON(lineData, chart.templateEasingLib, chart.timeCalculator)
+            chart.judgeLines.push(line)
+            if (lineData.children) {
+                for (let each of lineData.children) {
+                    const child = readOne(data.judgeLineList[each]);
+                    child.father = line;
+                    line.children.push(child)
+                }
+            }
+            return line;
+        }
+        for (let lineData of data.judgeLineList) {
+            const line = readOne(lineData);
+            chart.orphanLines.push(line)
         }
         return chart
     }

@@ -1,3 +1,162 @@
+class Settings {
+    constructor() {
+        let json;
+        if (json = localStorage.getItem("settings")) {
+            this.cache = JSON.parse(json);
+        }
+        else {
+            this.cache = {
+                lineColor: [200, 200, 120]
+            };
+        }
+    }
+    get(item) {
+        return this.cache[item];
+    }
+    set(item, val) {
+        this.cache[item] = val;
+        localStorage.setItem("settings", JSON.stringify(this.cache));
+    }
+}
+class EventCurveEditor {
+    constructor(sequence) {
+        this.sequence = sequence;
+        this.canvas = document.createElement("canvas");
+        this.canvas.width = 400; //this.canvas.parentElement.clientWidth;
+        this.canvas.height = 100;
+        this.context = this.canvas.getContext("2d");
+        this.halfRange = 5;
+        this.halfCent = this.halfRange * 100;
+        this.valueRange = 20;
+        this.basis = -this.canvas.height / 2;
+        this.valueRatio = this.canvas.height / this.valueRange;
+        this.timeRatio = this.canvas.width / 2 / this.halfCent;
+        this.update();
+    }
+    update() {
+        this.context.translate(this.canvas.width / 2, this.canvas.height / 2);
+        this.context.scale(1, -1);
+        this.context.strokeStyle = "#EEE";
+        this.context.fillStyle = "#333";
+        this.context.lineWidth = 3;
+    }
+    draw(beats) {
+        const { height, width } = this.canvas;
+        this.context.fillRect(-width / 2, height / 2, width, -height);
+        const beatCents = beats * 100;
+        const stop = beatCents + this.halfCent;
+        let b = beatCents - this.halfCent;
+        if (b < 10) {
+            b = 10;
+        }
+        let lastValue = this.sequence.getValueAt((b - 10) / 100);
+        for (; b < stop; b += 10) {
+            let nowValue = this.sequence.getValueAt(b / 100);
+            this.context.beginPath();
+            this.context.moveTo((b - 10 - beatCents) * this.timeRatio, lastValue * this.valueRatio + this.basis);
+            this.context.lineTo((b - beatCents) * this.timeRatio, nowValue * this.valueRatio + this.basis);
+            this.context.stroke();
+            debugger;
+            lastValue = nowValue;
+        }
+    }
+}
+class Editor {
+    constructor() {
+        // @ts-ignore
+        this.player = new Player(document.getElementById("player"));
+        // @ts-ignore
+        this.fileInput = document.getElementById("fileInput");
+        // @ts-ignore
+        this.musicInput = document.getElementById("musicInput");
+        // @ts-ignore
+        this.backgroundInput = document.getElementById("backgroundInput");
+        // @ts-ignore
+        this.topbarEle = document.getElementById("topbar");
+        // @ts-ignore
+        this.previewEle = document.getElementById("preview");
+        // @ts-ignore
+        this.eventSequenceEle = document.getElementById("eventSequence");
+        // @ts-ignore
+        this.noteInfoEle = document.getElementById("noteInfo");
+        // @ts-ignore
+        this.lineInfoEle = document.getElementById("lineInfo");
+        // @ts-ignore
+        this.playButton = document.getElementById("playButton");
+        this.playButton.addEventListener("click", (event) => {
+            if (!this.playing) {
+                this.play();
+                this.playButton.innerHTML = "暂停";
+            }
+            else {
+                this.player.pause();
+                this.playButton.innerHTML = "继续";
+            }
+        });
+        this.fileInput.addEventListener("change", () => {
+            const reader = new FileReader();
+            reader.readAsText(this.fileInput.files[0]);
+            reader.addEventListener("load", () => {
+                if (typeof reader.result !== "string") {
+                    return;
+                }
+                let data = JSON.parse(reader.result);
+                let chart = Chart.fromRPEJSON(data);
+                this.player.chart = chart;
+                this.chart = chart;
+                this.player.render();
+                this.eventCurveEditors = [];
+                let eventCurveEditor = new EventCurveEditor(chart.judgeLines[0].eventLayers[0].speed);
+                this.eventSequenceEle.appendChild(eventCurveEditor.canvas);
+                this.eventCurveEditors.push(eventCurveEditor);
+                eventCurveEditor.draw(0);
+                /**
+                player.background = new Image();
+                player.background.src = "../cmdysjtest.jpg";
+                player.audio.src = "../cmdysjtest.mp3"; */
+            });
+        });
+        this.musicInput.addEventListener("change", () => {
+            const reader = new FileReader();
+            reader.readAsDataURL(this.musicInput.files[0]);
+            reader.addEventListener("load", () => {
+                // @ts-ignore
+                this.player.audio.src = reader.result;
+            });
+        });
+        this.backgroundInput.addEventListener("change", () => {
+            const reader = new FileReader();
+            reader.readAsDataURL(this.backgroundInput.files[0]);
+            reader.addEventListener("load", () => {
+                this.player.background = new Image();
+                // @ts-ignore
+                this.player.background.src = reader.result;
+            });
+        });
+    }
+    update() {
+        requestAnimationFrame(() => {
+            if (this.playing) {
+                this.updateEventSequences();
+            }
+            console.log("updated");
+            this.update();
+        });
+    }
+    updateEventSequences() {
+        this.eventCurveEditors[0].draw(this.player.beats);
+    }
+    get playing() {
+        return this.player.playing;
+    }
+    play() {
+        if (this.playing) {
+            return;
+        }
+        this.player.play();
+        this.update();
+    }
+}
 var NoteType;
 (function (NoteType) {
     NoteType[NoteType["Tap"] = 1] = "Tap";
@@ -16,7 +175,7 @@ function arrayForIn(arr, expr, guard) {
 }
 class Note {
     constructor(data) {
-        this.above = Boolean(data.above);
+        this.above = data.above === 1;
         this.alpha = data.alpha;
         this.endTime = data.endTime;
         this.isFake = Boolean(data.isFake);
@@ -33,6 +192,7 @@ class JudgeLine {
     constructor() {
         this.notes = [];
         this.eventLayers = [];
+        this.children = [];
         this.noteSpeeds = {};
     }
     static fromRPEJSON(data, templates, timeCalculator) {
@@ -57,11 +217,11 @@ class JudgeLine {
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             const layer = {
-                moveX: EventNodeSequence.fromRPEJSON(layerData.moveXEvents, templates),
-                moveY: EventNodeSequence.fromRPEJSON(layerData.moveYEvents, templates),
-                rotate: EventNodeSequence.fromRPEJSON(layerData.rotateEvents, templates),
-                alpha: EventNodeSequence.fromRPEJSON(layerData.alphaEvents, templates),
-                speed: EventNodeSequence.fromRPEJSON(layerData.speedEvents, templates)
+                moveX: EventNodeSequence.fromRPEJSON(EventType.MoveX, layerData.moveXEvents, templates, undefined),
+                moveY: EventNodeSequence.fromRPEJSON(EventType.MoveY, layerData.moveYEvents, templates, undefined),
+                rotate: EventNodeSequence.fromRPEJSON(EventType.Rotate, layerData.rotateEvents, templates, undefined),
+                alpha: EventNodeSequence.fromRPEJSON(EventType.Alpha, layerData.alphaEvents, templates, undefined),
+                speed: EventNodeSequence.fromRPEJSON(EventType.Speed, layerData.speedEvents, templates, timeCalculator)
             };
             line.eventLayers[index] = layer;
             for (let each in layerData) {
@@ -77,11 +237,11 @@ class JudgeLine {
         for (let each of this.notes) {
             // console.log("inte", this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator))
             each.positionY = this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator) * each.speed;
-            each.endpositionY = this.getStackedIntegral(TimeCalculator.toBeats(each.endTime), timeCalculator) * each.speed;
+            each.endPositionY = this.getStackedIntegral(TimeCalculator.toBeats(each.endTime), timeCalculator) * each.speed;
         }
     }
     updateNoteSpeeds() {
-        let noteSpeed = this.noteSpeeds = {};
+        let noteSpeed = this.noteSpeeds;
         for (let note of this.notes) {
             if (!noteSpeed[note.speed]) {
                 noteSpeed[note.speed] = [];
@@ -122,20 +282,44 @@ class Chart {
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
-        this.templateEasingLib = {};
+        this.orphanLines = [];
+        this.templateEasingLib = new TemplateEasingLib();
     }
     static fromRPEJSON(data) {
         let chart = new Chart();
         chart.bpmList = data.BPMList;
         chart.updateCalculator();
         if (data.envEasings) {
-            for (let easing of data.envEasings) {
-                chart.templateEasingLib[easing.name] = new TemplateEasing(EventNodeSequence.fromRPEJSON(easing.content, chart.templateEasingLib)); // 大麻烦！
-            }
+            chart.templateEasingLib.add(...data.envEasings);
         }
         // let line = data.judgeLineList[0];
-        for (let line of data.judgeLineList) {
-            chart.judgeLines.push(JudgeLine.fromRPEJSON(line, chart.templateEasingLib, chart.timeCalculator));
+        const length = data.judgeLineList.length;
+        const orphanLines = [];
+        for (let i = 0; i < length; i++) {
+            const lineData = data.judgeLineList[i];
+            if (lineData.father === -1) {
+                orphanLines.push(lineData);
+                continue;
+            }
+            const father = data.judgeLineList[lineData.father];
+            const children = father.children || (father.children = []);
+            children.push(i);
+        }
+        const readOne = (lineData) => {
+            const line = JudgeLine.fromRPEJSON(lineData, chart.templateEasingLib, chart.timeCalculator);
+            chart.judgeLines.push(line);
+            if (lineData.children) {
+                for (let each of lineData.children) {
+                    const child = readOne(data.judgeLineList[each]);
+                    child.father = line;
+                    line.children.push(child);
+                }
+            }
+            return line;
+        };
+        for (let lineData of data.judgeLineList) {
+            const line = readOne(lineData);
+            chart.orphanLines.push(line);
         }
         return chart;
     }
@@ -144,15 +328,15 @@ class Chart {
         this.timeCalculator.update();
     }
 }
-function easeOutElastic(x) {
+const easeOutElastic = (x) => {
     const c4 = (2 * Math.PI) / 3;
     return x === 0
         ? 0
         : x === 1
             ? 1
             : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
-}
-function easeOutBounce(x) {
+};
+const easeOutBounce = (x) => {
     const n1 = 7.5625;
     const d1 = 2.75;
     if (x < 1 / d1) {
@@ -167,36 +351,22 @@ function easeOutBounce(x) {
     else {
         return n1 * (x -= 2.625 / d1) * x + 0.984375;
     }
-}
-function easeOutExpo(x) {
+};
+const easeOutExpo = (x) => {
     return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
-}
-function easeOutBack(x) {
+};
+const easeOutBack = (x) => {
     const c1 = 1.70158;
     const c3 = c1 + 1;
     return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-}
-function linear(x) {
-    return x;
-}
-function easeOutSine(x) {
-    return Math.sin((x * Math.PI) / 2);
-}
-function easeInQuad(x) {
-    return Math.pow(x, 2);
-}
-function easeInCubic(x) {
-    return Math.pow(x, 3);
-}
-function easeInQuart(x) {
-    return Math.pow(x, 4);
-}
-function easeInQuint(x) {
-    return Math.pow(x, 5);
-}
-function easeInCirc(x) {
-    return 1 - Math.sqrt(1 - Math.pow(x, 2));
-}
+};
+const linear = (x) => x;
+const easeOutSine = (x) => Math.sin((x * Math.PI) / 2);
+const easeInQuad = (x) => Math.pow(x, 2);
+const easeInCubic = (x) => Math.pow(x, 3);
+const easeInQuart = (x) => Math.pow(x, 4);
+const easeInQuint = (x) => Math.pow(x, 5);
+const easeInCirc = (x) => 1 - Math.sqrt(1 - Math.pow(x, 2));
 function mirror(easeOut) {
     return (x) => 1 - easeOut(1 - x);
 }
@@ -248,8 +418,9 @@ class NormalEasing extends Easing {
     getValue(t) {
         if (t > 1 || t < 0) {
             console.warn("缓动超出定义域！");
+            debugger;
         }
-        console.log("t:", t, "rat", this._getValue(t));
+        // console.log("t:", t, "rat", this._getValue(t))
         return this._getValue(t);
     }
 }
@@ -284,7 +455,7 @@ class TemplateEasing extends Easing {
     }
     get valueDelta() {
         let seq = this.eventNodeSequence;
-        return seq.endNodes[seq.endNodes.length - 1].value - seq.startNodes[0].value;
+        return seq.tail.value - seq.head.value;
     }
 }
 class ParametricEquationEasing extends Easing {
@@ -297,8 +468,59 @@ class ParametricEquationEasing extends Easing {
         return this._getValue(t);
     }
 }
+class TemplateEasingLib {
+    constructor() {
+        this.easings = {};
+    }
+    add(...customEasingData) {
+        const easings = {};
+        for (let each of customEasingData) {
+            easings[each.name] = each;
+        }
+        for (let each of customEasingData) {
+            if (each.dependencies.length !== 0) {
+                for (let dependency of each.dependencies) {
+                    if (easings[dependency].usedBy.includes(each.name)) {
+                        continue;
+                    }
+                    easings[dependency].usedBy.push(each.name);
+                }
+            }
+        }
+        for (let each of customEasingData) {
+            this.addOne(each, easings);
+        }
+    }
+    addOne(customEasingData, mayDepend) {
+        if (customEasingData.dependencies.length !== 0) {
+            return;
+        }
+        this.easings[customEasingData.name] = new TemplateEasing(EventNodeSequence.fromRPEJSON(EventType.Easing, customEasingData.content, this, undefined));
+        if (customEasingData.usedBy) {
+            for (let name of customEasingData.usedBy) {
+                const dependencies = mayDepend[name].dependencies;
+                dependencies.splice(dependencies.indexOf(customEasingData.name));
+                if (dependencies.length === 0) {
+                    this.addOne(mayDepend[name], mayDepend);
+                }
+            }
+        }
+    }
+    /**
+     * 有顺序不用考虑依赖处理
+     * @param customEasingData
+     */
+    addOrdered(customEasingData) {
+        for (let each of customEasingData) {
+            this.easings[each.name] = new TemplateEasing(EventNodeSequence.fromRPEJSON(EventType.Easing, each.content, this, undefined));
+        }
+    }
+    get(key) {
+        return this.easings[key];
+    }
+}
 const linearEasing = new NormalEasing(linear);
-const fixedEasing = new NormalEasing(linear);
+const fixedEasing = new NormalEasing((x) => (x === 1 ? 1 : 0));
 const easingMap = {
     "linear": { out: linearEasing, in: linearEasing, inout: linearEasing },
     "sine": { in: new NormalEasing(easeInSine), out: new NormalEasing(easeOutSine), inout: new NormalEasing(easeInOutSine) },
@@ -380,6 +602,9 @@ const rpeEasingArray = [
     easingMap.bounce.inout,
     easingMap.elastic.inout // 29
 ];
+// interface TemplateEasingLib {[name: string]: TemplateEasing}
+const MAX_LENGTH = 1024;
+const MINOR_PARTS = 16;
 function arrEq(arr1, arr2) {
     let length;
     if ((length = arr1.length) !== arr2.length) {
@@ -393,19 +618,18 @@ function arrEq(arr1, arr2) {
     return true;
 }
 class EventNode {
-    constructor() {
+    constructor(time, value) {
+        this.time = time;
+        this.value = value;
         this.previous = null;
         this.next = null;
         this.ratio = 1;
+        this.easing = linearEasing;
     }
     static fromEvent(data, templates) {
-        let start = new EventStartNode, end = new EventEndNode();
-        start.time = data.startTime;
-        start.value = data.start;
-        end.previous = start;
-        start.next = end;
-        end.time = data.endTime;
-        end.value = data.end;
+        let start = new EventStartNode(data.startTime, data.start);
+        let end = new EventEndNode(data.endTime, data.end);
+        EventNode.connect(start, end);
         if (data.bezier) {
             let bp = data.bezierPoints;
             let easing = new BezierEasing();
@@ -414,17 +638,30 @@ class EventNode {
             start.easing = easing;
         }
         else if (typeof data.easingType === "string") {
-            start.easing = templates[data.easingType];
+            start.easing = templates.get(data.easingType);
         }
-        else if (data.easingType !== 0) {
+        else if (typeof data.easingType === "number" && data.easingType !== 0) {
             start.easing = rpeEasingArray[data.easingType];
         }
+        else if (start.value === end.value) {
+            start.easing = fixedEasing;
+        }
+        else {
+            start.easing = linearEasing;
+        }
+        if (!start.easing)
+            debugger;
         return [start, end];
+    }
+    // static connect(node1: EventStartNode, node2: EventEndNode): void
+    static connect(node1, node2) {
+        node1.next = node2;
+        node2.previous = node1;
     }
 }
 class EventStartNode extends EventNode {
-    constructor() {
-        super();
+    constructor(time, value) {
+        super(time, value);
     }
     getValueAt(beats) {
         // 除了尾部的开始节点，其他都有下个节点
@@ -446,6 +683,9 @@ class EventStartNode extends EventNode {
         if (valueDelta === 0 && this.easing instanceof TemplateEasing) {
             return this.value + this.easing.getValue(current / timeDelta) * this.ratio;
         }
+        if (!this.easing) {
+            debugger;
+        }
         // 其他类型，包括普通缓动和非钩定模板缓动
         return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
     }
@@ -466,6 +706,7 @@ class EventStartNode extends EventNode {
     }
     getFullIntegral(timeCalculator) {
         if (!this.next) {
+            console.log(this);
             throw new Error("getFullIntegral不可用于尾部节点");
         }
         let end = this.next;
@@ -476,123 +717,226 @@ class EventStartNode extends EventNode {
     }
 }
 class EventEndNode extends EventNode {
-    constructor() {
-        super();
+    constructor(time, value) {
+        super(time, value);
     }
     getValueAt(beats) {
         return this.previous.getValueAt(beats);
     }
 }
+var EventType;
+(function (EventType) {
+    EventType[EventType["MoveX"] = 0] = "MoveX";
+    EventType[EventType["MoveY"] = 1] = "MoveY";
+    EventType[EventType["Rotate"] = 2] = "Rotate";
+    EventType[EventType["Alpha"] = 3] = "Alpha";
+    EventType[EventType["Speed"] = 4] = "Speed";
+    EventType[EventType["Easing"] = 5] = "Easing";
+})(EventType || (EventType = {}));
+/**
+ * 为一个链表结构。会有一个数组进行快跳。
+ */
 class EventNodeSequence {
-    constructor() {
+    // nodes: EventNode[];
+    // startNodes: EventStartNode[];
+    // endNodes: EventEndNode[];
+    // eventTime: Float64Array;
+    constructor(type) {
+        this.type = type;
+        // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
-        this.startNodes = [];
-        this.endNodes = [];
+        // this.startNodes = [];
+        // this.endNodes = [];
     }
-    static fromRPEJSON(data, templates) {
-        let seq = new EventNodeSequence();
+    static fromRPEJSON(type, data, templates, timeCalculator) {
         const length = data.length;
+        const isSpeed = type === EventType.Speed;
+        // console.log(isSpeed)
+        const seq = new EventNodeSequence(type);
+        let listLength = length;
         let lastEnd = null;
-        for (let index = 0; index < length; index++) {
+        // console.log(seq);
+        [seq.head, lastEnd] = EventNode.fromEvent(data[0], templates);
+        let lastIntegral = 0;
+        for (let index = 1; index < length; index++) {
             const event = data[index];
             let [start, end] = EventNode.fromEvent(event, templates);
-            if (lastEnd) {
-                if (lastEnd.value === lastEnd.previous.value) {
-                    lastEnd.time = start.time;
-                }
-                else if (!arrEq(lastEnd.time, start.time)) {
-                    let val = lastEnd.value;
-                    let midStart = new EventStartNode();
-                    let midEnd = new EventEndNode();
-                    midStart.time = lastEnd.time;
-                    midEnd.time = start.time;
-                    midStart.value = midEnd.value = val;
-                    seq.startNodes.push(midStart);
-                    seq.endNodes.push(midEnd);
-                }
+            if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
+                lastEnd.time = start.time;
+                EventNode.connect(lastEnd, start);
             }
-            seq.startNodes.push(start);
-            seq.endNodes.push(end);
+            else if (TimeCalculator.toBeats(lastEnd.time) !== TimeCalculator.toBeats(start.time)) {
+                let val = lastEnd.value;
+                let midStart = new EventStartNode(lastEnd.time, val);
+                let midEnd = new EventEndNode(start.time, val);
+                midStart.easing = lastEnd.previous.easing;
+                EventNode.connect(lastEnd, midStart);
+                EventNode.connect(midStart, midEnd);
+                EventNode.connect(midEnd, start);
+                if (isSpeed) {
+                    midStart.cachedIntegral = lastIntegral;
+                    lastIntegral += midStart.getFullIntegral(timeCalculator);
+                }
+                // seq.startNodes.push(midStart);
+                // seq.endNodes.push(midEnd);
+                listLength++;
+            }
+            else {
+                EventNode.connect(lastEnd, start);
+            }
+            if (isSpeed) { // 这个接上再算
+                lastEnd.previous.cachedIntegral = lastIntegral;
+                lastIntegral += lastEnd.previous.getFullIntegral(timeCalculator);
+                // console.log("lig",lastIntegral)
+            }
+            // seq.startNodes.push(start);
+            // seq.endNodes.push(end);
             lastEnd = end;
             // seq.nodes.push(start, end);
         }
-        let last = seq.endNodes[length - 1];
-        let tail = new EventStartNode();
-        tail.previous = last;
-        last.next = tail;
-        tail.time = last.time;
-        tail.value = last.value;
-        seq.startNodes.push(tail);
-        seq.update();
-        seq.validate();
+        // let last = seq.endNodes[length - 1];
+        // let last = seq.endNodes[seq.endNodes.length - 1];
+        const last = lastEnd;
+        if (isSpeed) { // 这个接上再算
+            last.previous.cachedIntegral = lastIntegral;
+            lastIntegral += lastEnd.previous.getFullIntegral(timeCalculator);
+            // console.log("lig",lastIntegral)
+        }
+        let tail = new EventStartNode(last.time, last.value);
+        EventNode.connect(last, tail);
+        tail.easing = last.previous.easing;
+        tail.cachedIntegral = lastIntegral;
+        seq.tail = tail;
+        seq.listLength = listLength;
+        // seq.startNodes.push(tail);
+        // seq.update();
+        // seq.validate();
+        seq.initJump();
         return seq;
     }
-    validate() {
-        /**
+    /** validate() {
+        /*
          * 奇谱发生器中事件都是首尾相连的
-         */
+         //
         const length = this.endNodes.length;
         for (let index = 0; index < length; index++) {
             let end = this.endNodes[index];
-            let start = this.startNodes[index + 1];
+            let start = this.startNodes[index + 1]
             if (!arrEq(end.time, start.time)) {
-                start.time = end.time;
+                start.time = end.time
             }
             start.previous = end;
             end.next = start;
             // 这个就是真的该这么写了（
         }
     }
+    **/
     /** 有效浮点拍数：最后一个结束节点的时间 */
     get effectiveBeats() {
-        return TimeCalculator.toBeats(this.endNodes[this.endNodes.length - 1].time);
+        return TimeCalculator.toBeats(this.tail.time);
     }
-    update() {
-        let { startNodes, endNodes } = this;
-        startNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time));
-        endNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time));
+    /*update() {
+        let {startNodes, endNodes} = this;
+        startNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
+        endNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
         const length = this.endNodes.length;
         // this.nodes = new Array(length * 2 + 1);
-        let eventTime;
+        let eventTime: Float64Array;
         this.eventTime = eventTime = new Float64Array(length);
         for (let i = 0; i < length; i++) {
             eventTime[i] = TimeCalculator.getDelta(endNodes[i].time, startNodes[i].time);
         }
+    }*/
+    initJump() {
+        const fillMinor = (startTime, endTime) => {
+            // @ts-ignore
+            const minorArray = jumpArray[jumpIndex];
+            const currentJumpBeats = jumpIndex * averageBeats;
+            const startsFrom = startTime < currentJumpBeats ? 0 : Math.ceil((startTime - currentJumpBeats) / minorBeats);
+            const endsBefore = endTime > currentJumpBeats + averageBeats ? MINOR_PARTS : Math.ceil((endTime - currentJumpBeats) / minorBeats);
+            for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
+                minorArray[minorIndex] = currentNode;
+            }
+        };
+        const originalListLength = this.listLength;
+        const listLength = Math.min(originalListLength * 4, MAX_LENGTH);
+        const effectiveBeats = this.effectiveBeats;
+        const averageBeats = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
+        const minorBeats = averageBeats / MINOR_PARTS;
+        const exactLength = Math.floor(effectiveBeats / averageBeats) + 1;
+        // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
+        const jumpArray = new Array(exactLength);
+        let jumpIndex = 0;
+        let lastMinorJumpIndex = -1;
+        let currentNode = this.head;
+        for (let i = 0; i < originalListLength; i++) {
+            let endNode = currentNode.next;
+            let nextNode = endNode.next;
+            let startTime = TimeCalculator.toBeats(currentNode.time);
+            let endTime = TimeCalculator.toBeats(endNode.time);
+            const currentJumpBeats = jumpIndex * averageBeats;
+            while (endTime >= (jumpIndex + 1) * averageBeats) {
+                if (lastMinorJumpIndex === jumpIndex) {
+                    fillMinor(startTime, endTime);
+                }
+                else {
+                    jumpArray[jumpIndex] = currentNode;
+                }
+                jumpIndex++;
+            }
+            if (endTime > currentJumpBeats) {
+                if (lastMinorJumpIndex !== jumpIndex) {
+                    jumpArray[jumpIndex] = new Array(MINOR_PARTS);
+                    lastMinorJumpIndex = jumpIndex;
+                }
+                fillMinor(startTime, endTime);
+            }
+            currentNode = nextNode;
+        }
+        if (lastMinorJumpIndex === jumpIndex) {
+            fillMinor(TimeCalculator.toBeats(this.tail.time), Infinity);
+        }
+        else {
+            jumpArray[exactLength - 1] = this.tail;
+        }
+        // console.log("jumpArray", jumpArray, "index", jumpIndex)
+        if (jumpIndex !== exactLength - 1) {
+            debugger;
+        }
+        this.jump = jumpArray;
+        this.jumpAverageBeats = averageBeats;
     }
     insert() {
     }
-    getValueAt(beats) {
-        let eventTime = this.eventTime;
-        const length = this.endNodes.length;
-        let i = 0;
-        let rest = beats;
-        for (; i < length; i++) {
-            rest -= eventTime[i];
-            if (rest < 0) {
-                break;
-            }
-            /**
-            if (beats < 0) {
-                break
-            }
-            */
+    getNodeAt(beats) {
+        if (beats >= this.effectiveBeats) {
+            return this.tail;
         }
-        return this.startNodes[i].getValueAt(beats);
+        const jumpAverageBeats = this.jumpAverageBeats;
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        let canBeNodeOrArray = this.jump[jumpPos];
+        let node = Array.isArray(canBeNodeOrArray) ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))] : canBeNodeOrArray;
+        // console.log(this, node, jumpPos, beats)
+        if (!node) {
+            debugger;
+        }
+        for (; node.next && TimeCalculator.toBeats(node.next.time) < beats;) {
+            node = node.next.next;
+        }
+        // node = node.previous.previous
+        // console.log(node, beats)
+        if (beats < TimeCalculator.toBeats(node.time) || node.next && TimeCalculator.toBeats(node.next.time) < beats) {
+            debugger;
+        }
+        return node;
+    }
+    getValueAt(beats) {
+        return this.getNodeAt(beats).getValueAt(beats);
     }
     getIntegral(beats, timeCalculator) {
-        let total = 0;
-        const length = this.endNodes.length;
-        let i = 0;
-        for (; i < length; i++) {
-            if (TimeCalculator.toBeats(this.endNodes[i].time) >= beats) {
-                break;
-            }
-            total += this.startNodes[i].getFullIntegral(timeCalculator);
-        }
-        console.log(total, this);
-        total += this.startNodes[i].getIntegral(beats, timeCalculator);
-        console.log(total);
-        return total;
+        const node = this.getNodeAt(beats);
+        return node.getIntegral(beats, timeCalculator) + node.cachedIntegral;
     }
 }
 const TAP = new Image(135);
@@ -621,19 +965,9 @@ class Player {
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
         this.initCoordinate();
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar");
-        // @ts-ignore
-        this.previewEle = document.getElementById("preview");
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar");
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar");
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar");
     }
     get time() {
-        return this.audio.currentTime;
+        return this.audio.currentTime || 0;
     }
     get beats() {
         return this.chart.timeCalculator.secondsToBeats(this.time);
@@ -669,7 +1003,7 @@ class Player {
         context.lineTo(0, -900);
         context.stroke();
         // console.log("rendering")
-        for (let line of this.chart.judgeLines) {
+        for (let line of this.chart.orphanLines) {
             this.renderLine(line);
             context.restore();
             context.save();
@@ -684,10 +1018,18 @@ class Player {
         let alpha = judgeLine.getStackedValue("alpha", this.beats);
         // console.log(x, y, theta, alpha);
         context.translate(x, y);
+        if (judgeLine.children.length !== 0) {
+            context.save();
+            for (let line of judgeLine.children) {
+                this.renderLine(line);
+            }
+            context.restore();
+        }
         context.rotate(theta);
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
-        context.strokeStyle = `rgba(200, 200, 120, ${alpha / 255})`;
+        const lineColor = settings.get("lineColor");
+        context.strokeStyle = `rgba(${lineColor[0]}, ${lineColor[1]}, ${lineColor[2]}, ${alpha / 255})`;
         context.beginPath();
         context.moveTo(-1350, 0);
         context.lineTo(1350, 0);
@@ -700,11 +1042,14 @@ class Player {
             let currentPositionY = judgeLine.computeLinePositionY(this.beats, this.chart.timeCalculator) * speed;
             for (let eachNote of notes) {
                 /** Note在某一时刻与判定线的距离 */
-                let positionY = eachNote.positionY - currentPositionY;
-                let endpositionY;
-                if ((endpositionY = eachNote.endpositionY - currentPositionY) >= 0 && TimeCalculator.toBeats(eachNote.endTime) >= this.beats) {
+                const positionY = eachNote.positionY - currentPositionY;
+                const endPositionY = eachNote.endPositionY - currentPositionY;
+                if (!positionY && positionY !== 0 || !endPositionY && endPositionY !== 0) {
+                    debugger;
+                }
+                if (endPositionY >= 0 && TimeCalculator.toBeats(eachNote.endTime) >= this.beats) {
                     // 绑线Note=0不要忘了
-                    this.renderNote(eachNote, positionY < 0 ? 0 : positionY, endpositionY);
+                    this.renderNote(eachNote, positionY < 0 ? 0 : positionY, endPositionY);
                     console.log(eachNote, eachNote.above);
                     // console.log("pos:", eachNote.positionY, notes.indexOf(eachNote))
                 }
@@ -729,17 +1074,22 @@ class Player {
             default:
                 image = TAP;
         }
+        if (!note.above) {
+            positionY = -positionY;
+            endpositionY = -endpositionY;
+        }
+        let length = endpositionY - positionY;
         // console.log(NoteType[note.type])
         if (note.type === NoteType.Hold) {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY, this.noteSize, note.above ? endpositionY - positionY : positionY - endpositionY);
+            this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10, this.noteSize, length);
         }
         else {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY);
+            this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10);
             if (note.double) {
-                this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY);
+                this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
             }
             if (!note.above) {
-                this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY);
+                this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
             }
         }
     }
@@ -837,45 +1187,5 @@ class TimeCalculator {
         return TimeCalculator.toBeats(beaT1) - TimeCalculator.toBeats(beaT2);
     }
 }
-// @ts-ignore
-const player = globalThis.player = new Player(document.getElementById("player"));
-// @ts-ignore
-const fileInput = document.getElementById("fileInput");
-// @ts-ignore
-const musicInput = document.getElementById("musicInput");
-// @ts-ignore
-const backgroundInput = document.getElementById("backgroundInput");
-document.getElementById("playButton").addEventListener("click", () => {
-    player.play();
-});
-fileInput.addEventListener("change", () => {
-    const reader = new FileReader();
-    reader.readAsText(fileInput.files[0]);
-    reader.addEventListener("load", () => {
-        // @ts-ignore
-        let data = JSON.parse(reader.result);
-        let chart = Chart.fromRPEJSON(data);
-        player.chart = chart;
-        /**
-        player.background = new Image();
-        player.background.src = "../cmdysjtest.jpg";
-        player.audio.src = "../cmdysjtest.mp3"; */
-    });
-});
-musicInput.addEventListener("change", () => {
-    const reader = new FileReader();
-    reader.readAsDataURL(musicInput.files[0]);
-    reader.addEventListener("load", () => {
-        // @ts-ignore
-        player.audio.src = reader.result;
-    });
-});
-backgroundInput.addEventListener("change", () => {
-    const reader = new FileReader();
-    reader.readAsDataURL(backgroundInput.files[0]);
-    reader.addEventListener("load", () => {
-        player.background = new Image();
-        // @ts-ignore
-        player.background.src = reader.result;
-    });
-});
+const settings = new Settings();
+const editor = new Editor();

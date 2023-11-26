@@ -4,17 +4,25 @@
 }
 
 body, html {
-    font-family: "cmdysj";
+    font-family: "phigros";
+    color: white;
     margin: 0;
     height: 100%
 }
 
 #main {
     display: grid;
-    grid-template-rows: 2em 1fr 1fr;
+    grid-template-rows: 2em 6fr 4fr;
     grid-template-columns: 6fr 4fr;
     height: 100%;
     width: 100%;
+    gap: 4px;
+    background-color: #444;
+    padding: 4px
+}
+
+#main > div {
+    background-color: #666
 }
 
 #topbar {
@@ -41,4 +49,6 @@ body, html {
     grid-column: 2 / 3;
 }
 
-
+#player {
+    text-align: center;
+}

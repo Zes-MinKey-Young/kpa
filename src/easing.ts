@@ -1,4 +1,4 @@
-function easeOutElastic(x: number): number {
+const easeOutElastic = (x: number): number => {
     const c4 = (2 * Math.PI) / 3;
     
     return x === 0
@@ -8,7 +8,7 @@ function easeOutElastic(x: number): number {
       : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
 }
 
-function easeOutBounce(x: number): number {
+const easeOutBounce = (x: number): number => {
     const n1 = 7.5625;
     const d1 = 2.75;
     
@@ -23,45 +23,37 @@ function easeOutBounce(x: number): number {
     }
 }
 
-function easeOutExpo(x: number): number {
+const easeOutExpo = (x: number): number =>{
     return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
 }
 
-function easeOutBack(x: number): number {
+const easeOutBack = (x: number): number =>{
     const c1 = 1.70158;
     const c3 = c1 + 1;
     
     return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
 }
 
-function linear(x: number): number {
-    return x;
-}
+const linear = (x: number): number => x
 
 
-function easeOutSine(x: number): number {
-    return Math.sin((x * Math.PI) / 2);
-}
+const easeOutSine = (x: number): number => Math.sin((x * Math.PI) / 2);
 
-function easeInQuad(x: number): number {
-    return Math.pow(x, 2)
-}
 
-function easeInCubic(x: number): number {
-    return Math.pow(x, 3)
-}
+const easeInQuad = (x: number): number => Math.pow(x, 2)
 
-function easeInQuart(x: number): number {
-    return Math.pow(x, 4)
-}
 
-function easeInQuint(x: number): number {
-    return Math.pow(x, 5)
-}
+const easeInCubic = (x: number): number => Math.pow(x, 3)
 
-function easeInCirc(x: number): number {
-    return 1 - Math.sqrt(1 - Math.pow(x, 2))
-}
+
+const easeInQuart = (x: number): number => Math.pow(x, 4)
+
+
+const easeInQuint = (x: number): number => Math.pow(x, 5)
+
+
+const easeInCirc = (x: number): number => 1 - Math.sqrt(1 - Math.pow(x, 2))
+
 
 function mirror(easeOut: (x: number) => number) {
     return (x: number) => 1 - easeOut(1 - x);
@@ -127,8 +119,9 @@ class NormalEasing extends Easing {
     getValue(t: number): number {
         if (t > 1 || t < 0) {
             console.warn("缓动超出定义域！")
+            debugger;
         }
-        console.log("t:", t, "rat", this._getValue(t))
+        // console.log("t:", t, "rat", this._getValue(t))
         return this._getValue(t)
     }
 }
@@ -172,9 +165,9 @@ class TemplateEasing extends Easing {
         let frac = seq.getValueAt(t * this.eventNodeSequence.effectiveBeats)
         return delta === 0 ? frac : frac / delta;
     }
-    get valueDelta() {
+    get valueDelta(): number {
         let seq = this.eventNodeSequence;
-        return seq.endNodes[seq.endNodes.length - 1].value - seq.startNodes[0].value
+        return seq.tail.value - seq.head.value;
     }
 }
 
@@ -190,8 +183,69 @@ class ParametricEquationEasing extends Easing {
     }
 }
 
+class TemplateEasingLib {
+    easings: {
+        [name: string]: TemplateEasing
+    }
+    constructor() {
+        this.easings = {};
+    }
+    add(...customEasingData: CustomEasingData[]) {
+        const easings: {[name: string]: CustomEasingData} = {};
+        for (let each of customEasingData) {
+            easings[each.name] = each;
+        }
+        for (let each of customEasingData) {
+            if (each.dependencies.length !== 0) {
+                for (let dependency of each.dependencies) {
+                    if (easings[dependency].usedBy.includes(each.name)) {
+                        continue
+                    }
+                    easings[dependency].usedBy.push(each.name)
+                }
+            }
+        }
+        for (let each of customEasingData) {
+            this.addOne(each, easings);
+        }
+    }
+    private addOne(customEasingData: CustomEasingData, mayDepend: {[name: string]: CustomEasingData}) {
+
+        if (customEasingData.dependencies.length !== 0) {
+            return
+        }
+        this.easings[customEasingData.name] = new TemplateEasing(
+            EventNodeSequence.fromRPEJSON(EventType.Easing, customEasingData.content, this, undefined)
+            );
+        if (customEasingData.usedBy) {
+            for (let name of customEasingData.usedBy) {
+                const dependencies = mayDepend[name].dependencies;
+                dependencies.splice(dependencies.indexOf(customEasingData.name))
+                if (dependencies.length === 0) {
+                    this.addOne(mayDepend[name], mayDepend)
+                }
+            }
+        }
+    }
+    /**
+     * 有顺序不用考虑依赖处理
+     * @param customEasingData
+     */
+    addOrdered(customEasingData: CustomEasingData[]) {
+        for (let each of customEasingData) {
+            this.easings[each.name] = new TemplateEasing(
+            EventNodeSequence.fromRPEJSON(EventType.Easing, each.content, this, undefined)
+            );
+        }
+        
+    }
+    get(key: string) {
+        return this.easings[key];
+    }
+}
+
 const linearEasing = new NormalEasing(linear);
-const fixedEasing = new NormalEasing(linear);
+const fixedEasing = new NormalEasing((x: number): number => (x === 1 ? 1 : 0));
 
 const easingMap = {
     "linear": {out: linearEasing, in: linearEasing, inout: linearEasing},

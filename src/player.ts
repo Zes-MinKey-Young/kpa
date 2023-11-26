@@ -14,11 +14,6 @@ class Player {
     aspect: number;
     noteSize: number;
 
-    topBarEle: HTMLDivElement;
-    previewEle: HTMLDivElement;
-    noteInfoEle: HTMLDivElement;
-    eventSequenceEle: HTMLDivElement;
-    lineInfoEle: HTMLDivElement;
     
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
@@ -29,19 +24,9 @@ class Player {
         this.noteSize = 135;
         this.initCoordinate();
 
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar")
-        // @ts-ignore
-        this.previewEle = document.getElementById("preview")
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar")
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar")
-        // @ts-ignore
-        this.topBarEle = document.getElementById("topBar")
     }
     get time(): number {
-        return this.audio.currentTime
+        return this.audio.currentTime || 0
     }
     get beats(): number {
         return this.chart.timeCalculator.secondsToBeats(this.time)
@@ -78,11 +63,14 @@ class Player {
         context.lineTo(0, -900);
         context.stroke();
         // console.log("rendering")
-        for (let line of this.chart.judgeLines) {
+        for (let line of this.chart.orphanLines) {
             this.renderLine(line);
             context.restore()
             context.save()
         }
+
+        const showInfo = settings.get("playerShowInfo");
+        
     }
     renderLine(judgeLine: JudgeLine) {
         const context = this.context;
@@ -93,11 +81,19 @@ class Player {
         let alpha = judgeLine.getStackedValue("alpha", this.beats);
         // console.log(x, y, theta, alpha);
         context.translate(x, y);
+        if (judgeLine.children.length !== 0) {
+            context.save();
+            for (let line of judgeLine.children) {
+                this.renderLine(line);
+            }
+            context.restore();
+        }
         context.rotate(theta);
 
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
-        context.strokeStyle = `rgba(200, 200, 120, ${alpha / 255})`
+        const lineColor = settings.get("lineColor")
+        context.strokeStyle = `rgba(${lineColor[0]}, ${lineColor[1]}, ${lineColor[2]}, ${alpha / 255})`
         context.beginPath();
         context.moveTo(-1350, 0);
         context.lineTo(1350, 0);
@@ -110,11 +106,14 @@ class Player {
             let currentPositionY = judgeLine.computeLinePositionY(this.beats, this.chart.timeCalculator) * speed;
             for (let eachNote of notes) {
                 /** Note在某一时刻与判定线的距离 */
-                let positionY: number = eachNote.positionY - currentPositionY;
-                let endpositionY;
-                if ((endpositionY = eachNote.endpositionY - currentPositionY) >= 0 && TimeCalculator.toBeats(eachNote.endTime) >= this.beats) {
+                const positionY: number = eachNote.positionY - currentPositionY;
+                const endPositionY = eachNote.endPositionY - currentPositionY;
+                if (!positionY && positionY !== 0 || !endPositionY && endPositionY !== 0) {
+                    debugger;
+                }
+                if (endPositionY >= 0 && TimeCalculator.toBeats(eachNote.endTime) >= this.beats) {
                     // 绑线Note=0不要忘了
-                    this.renderNote(eachNote, positionY < 0 ? 0 : positionY, endpositionY)
+                    this.renderNote(eachNote, positionY < 0 ? 0 : positionY, endPositionY)
                     console.log(eachNote, eachNote.above)
                     // console.log("pos:", eachNote.positionY, notes.indexOf(eachNote))
                 }
@@ -139,16 +138,21 @@ class Player {
             default:
                 image = TAP;
         }
+        if (!note.above) {
+            positionY = -positionY;
+            endpositionY = -endpositionY
+        }
+        let length = endpositionY - positionY
         // console.log(NoteType[note.type])
         if (note.type === NoteType.Hold) {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2,  note.above ? positionY : -positionY, this.noteSize, note.above ? endpositionY - positionY : positionY - endpositionY)
+            this.context.drawImage(image, note.positionX - this.noteSize / 2,  positionY - 10, this.noteSize, length)
         } else {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY)
+            this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10)
             if (note.double) {
-                this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY);
+                this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
             }
             if (!note.above) {
-                this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, note.above ? positionY : -positionY);
+                this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
                 
             }
         }
