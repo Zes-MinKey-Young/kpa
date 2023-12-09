@@ -105,38 +105,6 @@ function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boole
 }
 
 
-class Note {
-    above: boolean;
-    alpha: number;
-    endTime: [number, number, number]
-    isFake: boolean;
-    positionX: number;
-    size: number;
-    speed: number;
-    startTime: [number, number, number];
-    type: NoteType;
-    visibleTime: number;
-    yOffset: number;
-    /**
-     * 和打击位置的距离，与yOffset和上下无关，为负不可见
-     */
-    positionY: number;
-    endPositionY?: number;
-    double: boolean;
-    constructor(data: NoteDataRPE) {
-        this.above = data.above === 1;
-        this.alpha = data.alpha;
-        this.endTime = data.endTime;
-        this.isFake = Boolean(data.isFake);
-        this.positionX = data.positionX;
-        this.size = data.size;
-        this.speed = data.speed;
-        this.startTime = data.startTime;
-        this.type = data.type;
-        this.visibleTime = data.visibleTime;
-        this.yOffset = data.yOffset;
-    }
-}
 
 interface EventLayer {
     moveX: EventNodeSequence;
@@ -148,39 +116,84 @@ interface EventLayer {
 
 /**
  * 根据Note的速度存储在不同字段
- */
 interface NoteSpeeds {
     [key: number]: Note[]
 }
 
+ */
 class JudgeLine {
-    notes: Note[];
+    holdTrees: {[key: number]: NoteTree};
+    noteTrees: {[key: number]: NoteTree};
     eventLayers: EventLayer[];
-    notePosition: Float64Array;
-    noteSpeeds: NoteSpeeds;
+    // notePosition: Float64Array;
+    // noteSpeeds: NoteSpeeds;
     father: JudgeLine;
     children: JudgeLine[];
+    moveX: number;
+    moveY: number;
+    rotate: number;
+    alpha: number;
     constructor() {
-        this.notes = [];
+        //this.notes = [];
         this.eventLayers = [];
         this.children = [];
-        this.noteSpeeds = {};
+        this.holdTrees = {};
+        this.noteTrees = {};
+        // this.noteSpeeds = {};
     }
     static fromRPEJSON(data: JudgeLineDataPRE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
         let line = new JudgeLine()
         if (data.notes) {
+            const holdTrees = line.holdTrees;
+            const noteTrees = line.noteTrees;
             let notes = data.notes;
-            const len = notes.length;
-            let lastNote = new Note(notes[0]);
-            line.notes.push(lastNote)
-            for (let i = 1; i < len; i++) {
-                let note = new Note(notes[i]);
-                if (arrEq(note.startTime, lastNote.startTime)) {
-                    note.double = true;
-                    lastNote.double = true;
+            notes.sort((n1: NoteDataRPE, n2: NoteDataRPE) => {
+                if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
+                    return TimeCalculator.gt(n1.startTime, n2.startTime) ? 1 : -1
                 }
-                line.notes.push(note)
-                lastNote = note
+                return TimeCalculator.gt(n1.endTime, n2.endTime) ? 1 : -1
+            })
+            const len = notes.length;
+            for (let i = 0; i < len; i++) {
+                const note: Note = new Note(notes[i]);
+                if (note.type === NoteType.Hold) {
+                    const speed = note.speed;
+                    const tree = speed in holdTrees ? holdTrees[speed] : (holdTrees[speed] = new NoteTree());
+                    const lastHold = tree.currentBranchPoint
+                    const lastHoldTime: TimeT = lastHold.startTime
+                    if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
+                        Note.connectSibling(lastHold, note);
+                        tree.currentBranchPoint = note;
+                    } else {
+                        Note.connect(tree.currentPoint, note)
+                        tree.currentPoint = note;
+                        tree.currentBranchPoint = note;
+                    }
+                    tree.timesWithNotes++
+                } else {
+                    
+                    const speed = note.speed;
+                    const tree = speed in noteTrees ? noteTrees[speed] : (noteTrees[speed] = new NoteTree());
+                    const lastNote = tree.currentBranchPoint
+                    const lastNoteTime: TimeT = lastNote.startTime
+                    if (TimeCalculator.eq(lastNoteTime, note.startTime)) {
+                        Note.connectSibling(lastNote, note);
+                        tree.currentBranchPoint = note;
+                    } else {
+                        Note.connect(tree.currentPoint, note)
+                        tree.currentPoint = note;
+                        tree.currentBranchPoint = note;
+                        tree.timesWithNotes++
+                    }
+                    
+                }
+            }
+            for (let trees of [holdTrees, noteTrees]) {
+                for (let speed in trees) {
+                    const tree: NoteTree = trees[speed];
+                    Note.connect(tree.currentPoint, tree.tail)
+                    tree.initJump();
+                }
             }
         }
         const eventLayers = data.eventLayers;
@@ -200,29 +213,114 @@ class JudgeLine {
                 line.eventLayers[index][type]
             }
         }
-        line.updateNoteSpeeds();
-        line.computeNotePositionY(timeCalculator);
+        // line.updateNoteSpeeds();
+        // line.computeNotePositionY(timeCalculator);
         return line;
     }
-    computeNotePositionY(timeCalculator: TimeCalculator) {
-        for (let each of this.notes) {
-            // console.log("inte", this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator))
-            each.positionY = this.getStackedIntegral(TimeCalculator.toBeats(each.startTime), timeCalculator) * each.speed;
-            each.endPositionY = this.getStackedIntegral(TimeCalculator.toBeats(each.endTime), timeCalculator) * each.speed;
+    updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
+        for (let eventLayer of this.eventLayers) {
+            eventLayer.speed.updateNodesIntegralFrom(beats, timeCalculator);
         }
     }
-    updateNoteSpeeds() {
-        let noteSpeed = this.noteSpeeds
-        for (let note of this.notes) {
-            if (!noteSpeed[note.speed]) {
-                noteSpeed[note.speed] = []
+    computeTimeRange(beats: number, timeCalculator: TimeCalculator , startY: number, endY: number): [number, number][] {
+        return [[0, Infinity]]
+        /*
+        let times: number[] = [];
+        let result: [number, number][] = [];
+        for (let eventLayer of this.eventLayers) {
+            const sequence = eventLayer.speed;
+            let node: EventStartNode | Tailer<EventStartNode> = sequence.getNodeAt(beats);
+            let endNode: EventEndNode | Tailer<EventStartNode>
+            while (true) {
+                times.push(TimeCalculator.toBeats(node.time))
+                if ("tailing" in (endNode = node.next)) {
+                    break;
+                }
+
+                node = endNode.next
             }
-            noteSpeed[note.speed].push(note)
         }
+        times = [...new Set(times)].sort((a, b) => a - b)
+        const len = times.length;
+        let nextTime = times[0]
+        let nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
+        let nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
+        let range: [number, number] = [undefined, undefined];
+        const computeTime = (speed: number, current: number, fore: number) => timeCalculator.secondsToBeats(current / (speed * 120) + timeCalculator.toSeconds(fore));
+        for (let i = 0; i < len - 1;) {
+            const thisTime = nextTime;
+            const thisPosY = nextPosY;
+            const thisSpeed = nextSpeed;
+            nextTime = times[i + 1]
+            nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+            nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
+            if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
+                nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
+                nextSpeed = 0
+                nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
+            } else {
+                i++
+            }
+            if (range[0] === undefined) {
+                // 变速区间直接全部囊括，匀速要算一下，因为好算
+                if (thisPosY < startY && startY <= nextPosY || thisPosY >= endY && endY > nextPosY) {
+                    range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(
+                        thisSpeed,
+                        (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime)
+                } else if (startY < thisPosY && thisPosY <= endY) {
+                    range[0] = thisTime;
+                }
+            }
+            // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
+            if (range[0] !== undefined) {
+                if (thisPosY < endY && endY <= nextPosY || thisPosY >= startY && startY > nextPosY) {
+                    range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(
+                        thisSpeed,
+                        (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime)
+                    if (range[0] > range[1]){
+                        debugger
+                    }
+                    result.push(range)
+                    range = [undefined, undefined];
+                }
+            }
+        }
+        const thisPosY = nextPosY;
+        const thisTime = nextTime;
+        const thisSpeed = nextSpeed;
+        const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY)
+        if (range[0] === undefined) {
+            // 变速区间直接全部囊括，匀速要算一下，因为好算
+            if (thisPosY < startY && startY <= inf || thisPosY >= endY && endY > inf) {
+                range[0] = computeTime(
+                    thisSpeed,
+                    (thisPosY < inf ? startY : endY) - thisPosY,
+                    thisTime)
+            } else if (thisSpeed === 0) {
+                range[0] = 0;
+            }
+        }
+        // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
+        if (range[0] !== undefined) {
+            if (thisPosY < endY && endY <= inf || thisPosY >= startY && startY > inf) {
+                range[1] = computeTime(
+                    thisSpeed,
+                    (thisPosY > inf ? startY : endY) - thisPosY,
+                    thisTime)
+                result.push(range)
+            } else if (thisSpeed === 0) {
+                range[1] = Infinity;
+                result.push(range)
+            }
+        }
+        return result;
+        */
     }
+    /*
     computeLinePositionY(beats: number, timeCalculator: TimeCalculator)  {
         return this.getStackedIntegral(beats, timeCalculator)
     }
+    */
     getStackedValue(type: keyof EventLayer, beats: number) {
         const length = this.eventLayers.length;
         let current = 0;

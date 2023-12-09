@@ -75,6 +75,18 @@ class TimeCalculator {
         return beaT[0] + beaT[1] / beaT[2]
     }
     static getDelta(beaT1: TimeT, beaT2: TimeT): number {
-        return TimeCalculator.toBeats(beaT1) - TimeCalculator.toBeats(beaT2)
+        return this.toBeats(beaT1) - this.toBeats(beaT2)
+    }
+    static eq(beaT1: TimeT, beaT2: TimeT): boolean {
+        return beaT1[0] === beaT2 [0] && beaT1[1] * beaT2[2] === beaT2[1] * beaT2[2]
+    }
+    static gt(beaT1:TimeT, beaT2: TimeT): boolean {
+        return beaT1[0] >beaT2[0] || beaT1[1] * beaT2[2] > beaT1[2] * beaT2[1]
+    }
+    static lt(beaT1:TimeT, beaT2: TimeT): boolean {
+        return beaT1[0] <beaT2[0] || beaT1[1] * beaT2[2] < beaT1[2] * beaT2[1]
+    }
+    static ne(beaT1:TimeT, beaT2: TimeT): boolean {
+        return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1]
     }
 }

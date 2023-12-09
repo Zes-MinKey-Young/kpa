@@ -35,6 +35,9 @@ const easeOutBack = (x: number): number =>{
 }
 
 const linear = (x: number): number => x
+const linearLine: CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) => 
+    drawLine(context, startX, startY, endX, endY);
+
 
 
 const easeOutSine = (x: number): number => Math.sin((x * Math.PI) / 2);
@@ -108,21 +111,49 @@ abstract class Easing {
      * @param t 一个0-1的浮点数，代表当前经过时间与总时间之比
      */
     abstract getValue(t: number): number;
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number): void {
+        const delta = endY - startY;
+        const timeDelta = endX - startX;
+        let last = startY;
+        for (let t = 1; t <= timeDelta; t++) {
+            const ratio = t / timeDelta
+            const curPosY = this.getValue(ratio) * delta + startY;
+            drawLine(context, startX + t - 1, last, startX + t, curPosY);
+            last = curPosY;
+        }
+    }
 }
+
+type TupleCoordinate = [number, number]
+
+type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) => void
 
 class NormalEasing extends Easing {
     _getValue: (t: number) => number;
-    constructor(fn: (x: number) => number) {
+    _drawCurve: CurveDrawer;
+    constructor(fn: (t: number) => number);
+    constructor(fn: (t: number) => number, curveDrawer?: CurveDrawer);
+    constructor(fn: (t: number) => number, curveDrawer?: CurveDrawer) {
         super()
         this._getValue = fn;
+        if (curveDrawer) {
+            this._drawCurve = curveDrawer;
+        }
     }
     getValue(t: number): number {
         if (t > 1 || t < 0) {
             console.warn("缓动超出定义域！")
-            debugger;
+            // debugger;
         }
         // console.log("t:", t, "rat", this._getValue(t))
         return this._getValue(t)
+    }
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) {
+        if (this._drawCurve) {
+            this._drawCurve(context, startX, startY, endX, endY)
+        } else {
+            super.drawCurve(context, startX, startY, endX, endY);
+        }
     }
 }
 
@@ -143,13 +174,26 @@ class BezierEasing extends Easing {
         // 使用贝塞尔曲线公式计算纵坐标
         // 具体计算方法可以参考数学相关的贝塞尔曲线公式
         // 这里只是一个示例，具体实现需要根据实际情况进行调整
-        const startx = 0;
-        const starty = 0;
-        const endx = 1;
-        const endy = 1;
-        const para = (t - startx) / (endx - startx);
-        const y = (1 - para) ** 3 * starty + 3 * (1 - para) ** 2 * para * this.cp1.y + 3 * (1 - para) * para ** 2 * this.cp2.y + para ** 3 * endy;
+        const startX = 0;
+        const startY = 0;
+        const endX = 1;
+        const endY = 1;
+        const para = (t - startX) / (endX - startX);
+        const y = (1 - para) ** 3 * startY + 3 * (1 - para) ** 2 * para * this.cp1.y + 3 * (1 - para) * para ** 2 * this.cp2.y + para ** 3 * endY;
         return y;
+    }
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number): void {
+        const {x: cp1x, y: cp1y} = this.cp1;
+        const {x: cp2x, y: cp2y} = this.cp2
+        const delta = endY - startY;
+        const timeDelta = endX - startX;
+        drawBezierCurve(
+            context,
+            startX, startY,
+            endX, endY,
+            startX + cp1x * timeDelta, startY + cp1y * delta,
+            endX + cp2x * timeDelta, endY + cp2y * delta,
+        )
     }
 }
 
@@ -167,7 +211,7 @@ class TemplateEasing extends Easing {
     }
     get valueDelta(): number {
         let seq = this.eventNodeSequence;
-        return seq.tail.value - seq.head.value;
+        return seq.tail.previous.value - seq.head.next.value;
     }
 }
 
@@ -244,7 +288,7 @@ class TemplateEasingLib {
     }
 }
 
-const linearEasing = new NormalEasing(linear);
+const linearEasing = new NormalEasing(linear, linearLine);
 const fixedEasing = new NormalEasing((x: number): number => (x === 1 ? 1 : 0));
 
 const easingMap = {

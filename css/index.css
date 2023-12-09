@@ -42,11 +42,13 @@ body, html {
 #eventSequence {
     grid-row: 3 / 4;
     grid-column: 1 / 2;
+    overflow: auto;
 }
 
 #lineInfo {
     grid-row: 3 / 4;
     grid-column: 2 / 3;
+    overflow: auto;
 }
 
 #player {

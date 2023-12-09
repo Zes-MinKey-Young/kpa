@@ -1,0 +1,117 @@
+// type EndBeats = number;
+
+class JumpArray<T extends TwoDirectionNode> {
+    header: Header<T>;
+    tailer: Tailer<T>;
+    array: (T[] | T)[];
+    averageBeats: number;
+    effectiveBeats: number;
+    endNextFn: (node: T) => [endBeats: number, next: T];
+    nextFn: (node: T, beats: number) => T | false;
+    constructor(
+        head: Header<T>,
+        tail: Tailer<T>,
+        originalListLength: number,
+        effectiveBeats: number,
+        endNextFn: (node: T) => [endBeats: number, next: T],
+        nextFn: (node: T, beats: number) => T | false
+        ) {
+        this.header = head;
+        this.tailer = tail;
+        this.effectiveBeats = effectiveBeats;
+        this.endNextFn = endNextFn;
+        this.nextFn = nextFn;
+        const fillMinor = (startTime: number, endTime: number) => {
+            const minorArray: T[] = <T[]>jumpArray[jumpIndex];
+            const currentJumpBeats: number = jumpIndex * averageBeats
+            const startsFrom: number = startTime < currentJumpBeats ? 0 : Math.ceil((startTime - currentJumpBeats) / minorBeats)
+            const endsBefore: number = endTime > currentJumpBeats + averageBeats ? MINOR_PARTS : Math.ceil((endTime - currentJumpBeats) / minorBeats)
+            for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
+                minorArray[minorIndex] = currentNode;
+            }
+        }
+        // const originalListLength = this.listLength
+        const listLength: number = Math.min(originalListLength * 4, MAX_LENGTH);
+        const averageBeats: number = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
+        const minorBeats: number = averageBeats / MINOR_PARTS;
+        const exactLength: number = Math.floor(effectiveBeats / averageBeats) + 1;
+        // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
+        const jumpArray: (T | T[])[] = new Array(exactLength);
+        let jumpIndex = 0;
+        let lastMinorJumpIndex = -1;
+        let currentNode: T = head.next;
+        let previousTime = 0;
+        for (let i = 0; i < originalListLength; i++) {
+            let [endTime, nextNode] = endNextFn(currentNode)
+            const currentJumpBeats: number = jumpIndex * averageBeats
+            while (endTime >= (jumpIndex + 1) * averageBeats) {
+                if (lastMinorJumpIndex === jumpIndex) {
+                    fillMinor(previousTime, endTime)
+                    
+                } else {
+                    jumpArray[jumpIndex] = currentNode;
+                }
+                jumpIndex++;
+            }
+            if (endTime > currentJumpBeats) {
+                if (lastMinorJumpIndex !== jumpIndex) {
+                    jumpArray[jumpIndex] = new Array(MINOR_PARTS);
+                    lastMinorJumpIndex = jumpIndex
+                }
+                fillMinor(previousTime, endTime)
+            }
+
+            currentNode = nextNode;
+            previousTime = endTime;
+            if (!currentNode) {
+                break;
+            }
+        }
+        /*
+        if (lastMinorJumpIndex === jumpIndex) {
+            fillMinor(TimeCalculator.toBeats(this.tail.time), Infinity)
+
+        } else {
+            jumpArray[exactLength - 1] = this.tail;
+        }
+        */
+        // console.log("jumpArray", jumpArray, "index", jumpIndex)
+        if (jumpIndex !== exactLength - 1) {
+            debugger
+        }
+        this.array = jumpArray;
+        this.averageBeats = averageBeats
+    }
+    getNodeAt(beats: number): T {
+        if (beats >= this.effectiveBeats) {
+            return this.tailer.previous;
+        }
+        const jumpAverageBeats = this.averageBeats
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        const nextFn = this.nextFn;
+        let canBeNodeOrArray: T | T[] = this.array[jumpPos]
+        let node: T = Array.isArray(canBeNodeOrArray)
+            ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
+            : canBeNodeOrArray;
+        // console.log(this, node, jumpPos, beats)
+        if (!node) {
+            debugger
+        }
+        let next: T | false;
+        // console.log(this)
+        while (next = nextFn(node, beats)) {
+            node = next;
+        }
+        // node = node.previous.previous
+        // console.log(node, beats)
+        /*
+        if (beats < TimeCalculator.toBeats(node.time || node.startTime)
+        || node.next && TimeCalculator.toBeats(node.next.time) < beats) {
+            debugger
+        }
+        */
+        return node
+    }
+}
+

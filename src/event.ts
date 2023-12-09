@@ -20,9 +20,9 @@ class EventNode {
     value: number;
     easing: Easing;
     /** 后一个事件节点 */
-    next?: EventNode;
+    next: EventNode | Tailer<EventNode>;
     /** 前一个事件节点 */
-    previous?: EventNode;
+    previous: EventNode | Header<EventNode>;
     /** 封装缓动如果钩定时采用的倍率，默认为1，不使用封装缓动则不起作用 */
     ratio: number;
     constructor(time: TimeT, value: number) {
@@ -56,14 +56,17 @@ class EventNode {
         return [start, end]
     }
     // static connect(node1: EventStartNode, node2: EventEndNode): void
-    static connect(node1: EventNode, node2: EventNode): void {
+    static connect(node1: EventNode | Header<EventNode>, node2: EventNode | Tailer<EventNode>): void {
         node1.next = node2;
         node2.previous = node1;
     }
 }
 class EventStartNode extends EventNode {
-    next?: EventEndNode;
+    next: EventEndNode | Tailer<EventStartNode>;
     previous: EventEndNode;
+    /** 
+     * 对于速度事件，从计算时的时刻到此节点的总积分
+     */
     cachedIntegral?: number;
     constructor(time: TimeT, value: number) {
         super(time, value);
@@ -71,7 +74,7 @@ class EventStartNode extends EventNode {
     getValueAt(beats: number) {
         // 除了尾部的开始节点，其他都有下个节点
         // 钩定型缓动也有
-        if (!this.next) {
+        if ("tailing" in this.next) {
             return this.value;
         }
         let timeDelta = TimeCalculator.getDelta(this.next.time, this.time)
@@ -95,12 +98,16 @@ class EventStartNode extends EventNode {
         return this.value + this.easing.getValue(current / timeDelta) * valueDelta
     }
     getSpeedValueAt(beats: number) {
-        if (!this.next) {
+        if ("tailing" in this.next) {
             return this.value
         }
         let timeDelta = TimeCalculator.getDelta(this.next.time, this.time)
         let valueDelta = this.next.value - this.value
         let current = beats - TimeCalculator.toBeats(this.time)
+        if (current > timeDelta || current < 0) {
+            console.warn("超过事件时间范围！", this, beats)
+            // debugger
+        }
         return this.value + linearEasing.getValue(current / timeDelta) * valueDelta;
     }
     /**
@@ -110,7 +117,7 @@ class EventStartNode extends EventNode {
         return timeCalculator.segmentToSeconds(TimeCalculator.toBeats(this.time), beats) * (this.value + this.getSpeedValueAt(beats)) / 2 * 120 // 每单位120px
     }
     getFullIntegral(timeCalculator: TimeCalculator) {
-        if (!this.next) {
+        if ("tailing" in this.next) {
             console.log(this)
             throw new Error("getFullIntegral不可用于尾部节点")
         }
@@ -146,9 +153,9 @@ enum EventType {
  */
 class EventNodeSequence {
     type: EventType;
-    head: EventStartNode;
-    tail: EventStartNode;
-    jump: (EventStartNode | EventStartNode[])[]
+    head: Header<EventStartNode>;
+    tail: Tailer<EventStartNode>;
+    jump: JumpArray<EventStartNode>;
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
@@ -158,6 +165,14 @@ class EventNodeSequence {
     // eventTime: Float64Array;
     constructor(type: EventType) {
         this.type = type;
+        this.head = {
+            heading: true,
+            next: null
+        };
+        this.tail = {
+            tailing: true,
+            previous: null
+        }
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
         // this.startNodes = [];
@@ -165,18 +180,19 @@ class EventNodeSequence {
     }
     static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], templates: TemplateEasingLib, timeCalculator: T extends EventType.Speed ? TimeCalculator: undefined) {
         const length = data.length;
-        const isSpeed = type === EventType.Speed;
+        // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
         const seq = new EventNodeSequence(type);
         let listLength = length;
-        let lastEnd: EventEndNode = null;
-        // console.log(seq);
-        [seq.head, lastEnd] = EventNode.fromEvent(data[0], templates);
+        let lastEnd: EventEndNode | Header<EventStartNode> = seq.head
+
         let lastIntegral: number = 0;
-        for (let index = 1; index < length; index++) {
+        for (let index = 0; index < length; index++) {
             const event = data[index];
             let [start, end] = EventNode.fromEvent(event, templates);
-            if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
+            if ("heading" in lastEnd) {
+                EventNode.connect(lastEnd, start)
+            } else if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
                 lastEnd.time = start.time
                 EventNode.connect(lastEnd, start)
             } else if (TimeCalculator.toBeats(lastEnd.time) !== TimeCalculator.toBeats(start.time)) {
@@ -187,10 +203,6 @@ class EventNodeSequence {
                 EventNode.connect(lastEnd, midStart);
                 EventNode.connect(midStart, midEnd);
                 EventNode.connect(midEnd, start)
-                if (isSpeed) {
-                    midStart.cachedIntegral = lastIntegral;
-                    lastIntegral += midStart.getFullIntegral(timeCalculator)
-                }
                 // seq.startNodes.push(midStart);
                 // seq.endNodes.push(midEnd);
                 listLength++;
@@ -199,11 +211,6 @@ class EventNodeSequence {
                 EventNode.connect(lastEnd, start)
             }
             
-            if (isSpeed) { // 这个接上再算
-                lastEnd.previous.cachedIntegral = lastIntegral;
-                lastIntegral += lastEnd.previous.getFullIntegral(timeCalculator)
-                // console.log("lig",lastIntegral)
-            }
             // seq.startNodes.push(start);
             // seq.endNodes.push(end);
             lastEnd = end;
@@ -212,16 +219,16 @@ class EventNodeSequence {
         // let last = seq.endNodes[length - 1];
         // let last = seq.endNodes[seq.endNodes.length - 1];
         const last = lastEnd;
-        if (isSpeed) { // 这个接上再算
-            last.previous.cachedIntegral = lastIntegral;
-            lastIntegral += lastEnd.previous.getFullIntegral(timeCalculator)
-            // console.log("lig",lastIntegral)
+        let tail;
+        if ("heading" in last) {
+            debugger // 这里事件层级里面一定有至少一个事件
+            throw new Error();
         }
-        let tail = new EventStartNode(last.time, last.value);
+        tail = new EventStartNode(last.time, last.value);
         EventNode.connect(last, tail);
         tail.easing = last.previous.easing;
         tail.cachedIntegral = lastIntegral
-        seq.tail = tail;
+        EventNode.connect(tail, seq.tail)
         seq.listLength = listLength;
         // seq.startNodes.push(tail);
         // seq.update();
@@ -249,7 +256,7 @@ class EventNodeSequence {
     **/
     /** 有效浮点拍数：最后一个结束节点的时间 */
     get effectiveBeats(): number {
-        return TimeCalculator.toBeats(this.tail.time)
+        return TimeCalculator.toBeats(this.tail.previous.time)
     }
     /*update() {
         let {startNodes, endNodes} = this;
@@ -264,90 +271,32 @@ class EventNodeSequence {
         }
     }*/
     initJump() {
-        const fillMinor = (startTime: number, endTime: number) => {
-            // @ts-ignore
-            const minorArray: EventStartNode[] = jumpArray[jumpIndex];
-            const currentJumpBeats: number = jumpIndex * averageBeats
-            const startsFrom: number = startTime < currentJumpBeats ? 0 : Math.ceil((startTime - currentJumpBeats) / minorBeats)
-            const endsBefore: number = endTime > currentJumpBeats + averageBeats ? MINOR_PARTS : Math.ceil((endTime - currentJumpBeats) / minorBeats)
-            for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
-                minorArray[minorIndex] = currentNode;
-            }
-        }
-        const originalListLength = this.listLength
-        const listLength: number = Math.min(originalListLength * 4, MAX_LENGTH);
+        const originalListLength = this.listLength;
         const effectiveBeats: number = this.effectiveBeats;
-        const averageBeats: number = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
-        const minorBeats: number = averageBeats / MINOR_PARTS;
-        const exactLength: number = Math.floor(effectiveBeats / averageBeats) + 1;
-        // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
-        const jumpArray: (EventStartNode | EventStartNode[])[] = new Array(exactLength);
-        let jumpIndex = 0;
-        let lastMinorJumpIndex = -1;
-        let currentNode: EventStartNode = this.head;
-        for (let i = 0; i < originalListLength; i++) {
-            let endNode: EventEndNode = currentNode.next;
-            let nextNode: EventStartNode = endNode.next;
-            let startTime: number = TimeCalculator.toBeats(currentNode.time);
-            let endTime: number = TimeCalculator.toBeats(endNode.time);
-            const currentJumpBeats: number = jumpIndex * averageBeats
-            while (endTime >= (jumpIndex + 1) * averageBeats) {
-                if (lastMinorJumpIndex === jumpIndex) {
-                    fillMinor(startTime, endTime)
-                    
-                } else {
-                    jumpArray[jumpIndex] = currentNode;
+        this.jump = new JumpArray(
+            this.head,
+            this.tail,
+            originalListLength,
+            effectiveBeats,
+            (node: EventStartNode) => {
+                const endNode = node.next;
+                if ("tailing" in endNode) {
+                    return [Infinity, null]
                 }
-                jumpIndex++;
-            }
-            if (endTime > currentJumpBeats) {
-                if (lastMinorJumpIndex !== jumpIndex) {
-                    jumpArray[jumpIndex] = new Array(MINOR_PARTS);
-                    lastMinorJumpIndex = jumpIndex
-                }
-                fillMinor(startTime, endTime)
-            }
-
-            currentNode = nextNode;
-        }
-        if (lastMinorJumpIndex === jumpIndex) {
-            fillMinor(TimeCalculator.toBeats(this.tail.time), Infinity)
-
-        } else {
-            jumpArray[exactLength - 1] = this.tail;
-        }
-        // console.log("jumpArray", jumpArray, "index", jumpIndex)
-        if (jumpIndex !== exactLength - 1) {
-            debugger
-        }
-        this.jump = jumpArray;
-        this.jumpAverageBeats = averageBeats
+                return [TimeCalculator.toBeats(endNode.time), endNode.next]
+            },
+            (node: EventStartNode, beats: number) => TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : (<EventEndNode>node.next).next
+            )
     }
     insert() {
 
     }
     getNodeAt(beats: number): EventStartNode {
-        if (beats >= this.effectiveBeats) {
-            return this.tail;
-        }
-        const jumpAverageBeats = this.jumpAverageBeats
-        const jumpPos = Math.floor(beats / jumpAverageBeats);
-        const rest = beats - jumpPos * jumpAverageBeats;
-        let canBeNodeOrArray: EventStartNode | EventStartNode[] = this.jump[jumpPos]
-        let node: EventStartNode = Array.isArray(canBeNodeOrArray) ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))] : canBeNodeOrArray;
-        // console.log(this, node, jumpPos, beats)
-        if (!node) {
+        let node = this.jump.getNodeAt(beats);
+        if (TimeCalculator.toBeats(node.time) > beats) {
             debugger
         }
-        for (; node.next && TimeCalculator.toBeats(node.next.time) < beats; ) {
-            node = node.next.next;
-        }
-        // node = node.previous.previous
-        // console.log(node, beats)
-        if (beats < TimeCalculator.toBeats(node.time) || node.next && TimeCalculator.toBeats(node.next.time) < beats) {
-            debugger
-        }
-        return node
+        return node;
     }
     getValueAt(beats: number) {
         return this.getNodeAt(beats).getValueAt(beats);
@@ -355,6 +304,18 @@ class EventNodeSequence {
     getIntegral(beats: number, timeCalculator: TimeCalculator) {
         const node: EventStartNode = this.getNodeAt(beats)
         return node.getIntegral(beats, timeCalculator) + node.cachedIntegral
+    }
+    updateNodesIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
+        let previousStartNode = this.getNodeAt(beats);
+        previousStartNode.cachedIntegral = -previousStartNode.getIntegral(beats, timeCalculator);
+        let totalIntegral: number = previousStartNode.cachedIntegral
+        let endNode: EventEndNode | Tailer<EventStartNode>;
+        while (!("tailing" in (endNode = previousStartNode.next))) {
+            const currentStartNode = endNode.next
+            totalIntegral += previousStartNode.getFullIntegral(timeCalculator);
+            currentStartNode.cachedIntegral = totalIntegral;
+            previousStartNode = currentStartNode;
+        }
     }
 }
 

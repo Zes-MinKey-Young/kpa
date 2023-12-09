@@ -5,6 +5,8 @@ const HOLD = new Image(135);
 const DOUBLE = new Image(135);
 const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
+const NODE_START = new Image(20, 10);
+const NODE_END = new Image(20, 10);
 
 TAP.src = "../img/tap.png"
 DRAG.src = "../img/drag.png"
@@ -13,4 +15,5 @@ HOLD.src = "../img/hold.png"
 ANCHOR.src = "../img/anchor.png"
 BELOW.src = "../img/below.png"
 DOUBLE.src = "../img/double.png"
-
+NODE_START.src = "../img/south.png"
+NODE_END.src = "../img/north.png"
