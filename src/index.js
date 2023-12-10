@@ -35,6 +35,7 @@ class JumpArray {
         this.effectiveBeats = effectiveBeats;
         this.endNextFn = endNextFn;
         this.nextFn = nextFn;
+        //this.goPrev = goPrev
         const fillMinor = (startTime, endTime) => {
             const minorArray = jumpArray[jumpIndex];
             const currentJumpBeats = jumpIndex * averageBeats;
@@ -95,6 +96,12 @@ class JumpArray {
         this.array = jumpArray;
         this.averageBeats = averageBeats;
     }
+    /**
+     *
+     * @param beats 拍数
+     * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
+     * @returns 时间索引链表的节点
+     */
     getNodeAt(beats) {
         if (beats >= this.effectiveBeats) {
             return this.tailer.previous;
@@ -116,14 +123,6 @@ class JumpArray {
         while (next = nextFn(node, beats)) {
             node = next;
         }
-        // node = node.previous.previous
-        // console.log(node, beats)
-        /*
-        if (beats < TimeCalculator.toBeats(node.time || node.startTime)
-        || node.next && TimeCalculator.toBeats(node.next.time) < beats) {
-            debugger
-        }
-        */
         return node;
     }
 }
@@ -161,6 +160,7 @@ class JudgeLinesEditor {
         }
     }
     addJudgeLine(judgeLine) {
+        this.orphans.push(judgeLine);
     }
 }
 const eventTypeMap = [
@@ -465,10 +465,13 @@ class NoteTree {
             }
             return [endTime, nextNote];
         }, (note, beats) => {
-            const previous = note.previous;
-            const previousTime = "heading" in previous ? 0 : TimeCalculator.toBeats(previous.endTime);
-            return previousTime <= beats ? false : note.next; // getNodeAt有guard
-        });
+            return TimeCalculator.toBeats(note.endTime) >= beats ? false : note.next; // getNodeAt有guard
+        }
+        /*,
+        (note: Note) => {
+            const prev = note.previous;
+            return "heading" in prev ? note : prev
+        })*/ );
     }
     getNoteAt(beats) {
         return this.jump.getNodeAt(beats);
@@ -589,64 +592,66 @@ class JudgeLine {
         }
     }
     computeTimeRange(beats, timeCalculator, startY, endY) {
-        return [[0, Infinity]];
-        /*
-        let times: number[] = [];
-        let result: [number, number][] = [];
+        //return [[0, Infinity]]
+        //*
+        let times = [];
+        let result = [];
         for (let eventLayer of this.eventLayers) {
             const sequence = eventLayer.speed;
-            let node: EventStartNode | Tailer<EventStartNode> = sequence.getNodeAt(beats);
-            let endNode: EventEndNode | Tailer<EventStartNode>
+            let node = sequence.getNodeAt(beats);
+            let endNode;
             while (true) {
-                times.push(TimeCalculator.toBeats(node.time))
+                times.push(TimeCalculator.toBeats(node.time));
                 if ("tailing" in (endNode = node.next)) {
                     break;
                 }
-
-                node = endNode.next
+                node = endNode.next;
             }
         }
-        times = [...new Set(times)].sort((a, b) => a - b)
+        times = [...new Set(times)].sort((a, b) => a - b);
         const len = times.length;
-        let nextTime = times[0]
-        let nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
-        let nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
-        let range: [number, number] = [undefined, undefined];
-        const computeTime = (speed: number, current: number, fore: number) => timeCalculator.secondsToBeats(current / (speed * 120) + timeCalculator.toSeconds(fore));
+        let nextTime = times[0];
+        let nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+        let nextSpeed = this.getStackedValue("speed", nextTime, true);
+        let range = [undefined, undefined];
+        const computeTime = (speed, current, fore) => timeCalculator.secondsToBeats(current / (speed * 120) + timeCalculator.toSeconds(fore));
         for (let i = 0; i < len - 1;) {
             const thisTime = nextTime;
             const thisPosY = nextPosY;
-            const thisSpeed = nextSpeed;
-            nextTime = times[i + 1]
+            let thisSpeed = this.getStackedValue("speed", thisTime);
+            if (Math.abs(thisSpeed) < 1e-8) {
+                thisSpeed = 0; // 不这样做可能导致下面异号判断为真从而死循环
+            }
+            nextTime = times[i + 1];
             nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
-            nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
+            nextSpeed = this.getStackedValue("speed", nextTime, true);
             if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
+                debugger;
                 nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
-                nextSpeed = 0
-                nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
-            } else {
-                i++
+                nextSpeed = 0;
+                nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+                debugger;
+            }
+            else {
+                i++;
             }
             if (range[0] === undefined) {
                 // 变速区间直接全部囊括，匀速要算一下，因为好算
                 if (thisPosY < startY && startY <= nextPosY || thisPosY >= endY && endY > nextPosY) {
-                    range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(
-                        thisSpeed,
-                        (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime)
-                } else if (startY < thisPosY && thisPosY <= endY) {
+                    range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(thisSpeed, (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime);
+                }
+                else if (startY < thisPosY && thisPosY <= endY) {
                     range[0] = thisTime;
                 }
             }
             // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
             if (range[0] !== undefined) {
                 if (thisPosY < endY && endY <= nextPosY || thisPosY >= startY && startY > nextPosY) {
-                    range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(
-                        thisSpeed,
-                        (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime)
-                    if (range[0] > range[1]){
-                        debugger
+                    range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(thisSpeed, (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime);
+                    if (range[0] > range[1]) {
+                        debugger;
                     }
-                    result.push(range)
+                    result.push(range);
                     range = [undefined, undefined];
                 }
             }
@@ -654,40 +659,36 @@ class JudgeLine {
         const thisPosY = nextPosY;
         const thisTime = nextTime;
         const thisSpeed = nextSpeed;
-        const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY)
+        const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY);
         if (range[0] === undefined) {
             // 变速区间直接全部囊括，匀速要算一下，因为好算
             if (thisPosY < startY && startY <= inf || thisPosY >= endY && endY > inf) {
-                range[0] = computeTime(
-                    thisSpeed,
-                    (thisPosY < inf ? startY : endY) - thisPosY,
-                    thisTime)
-            } else if (thisSpeed === 0) {
+                range[0] = computeTime(thisSpeed, (thisPosY < inf ? startY : endY) - thisPosY, thisTime);
+            }
+            else if (thisSpeed === 0) {
                 range[0] = 0;
             }
         }
         // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
         if (range[0] !== undefined) {
             if (thisPosY < endY && endY <= inf || thisPosY >= startY && startY > inf) {
-                range[1] = computeTime(
-                    thisSpeed,
-                    (thisPosY > inf ? startY : endY) - thisPosY,
-                    thisTime)
-                result.push(range)
-            } else if (thisSpeed === 0) {
+                range[1] = computeTime(thisSpeed, (thisPosY > inf ? startY : endY) - thisPosY, thisTime);
+                result.push(range);
+            }
+            else if (thisSpeed === 0) {
                 range[1] = Infinity;
-                result.push(range)
+                result.push(range);
             }
         }
         return result;
-        */
+        //*/
     }
     /*
     computeLinePositionY(beats: number, timeCalculator: TimeCalculator)  {
         return this.getStackedIntegral(beats, timeCalculator)
     }
     */
-    getStackedValue(type, beats) {
+    getStackedValue(type, beats, usePrev = false) {
         const length = this.eventLayers.length;
         let current = 0;
         for (let index = 0; index < length; index++) {
@@ -695,7 +696,7 @@ class JudgeLine {
             if (!layer) {
                 break;
             }
-            current += layer[type].getValueAt(beats);
+            current += layer[type].getValueAt(beats, usePrev);
         }
         return current;
     }
@@ -1329,15 +1330,21 @@ class EventNodeSequence {
     }
     insert() {
     }
-    getNodeAt(beats) {
+    getNodeAt(beats, usePrev = false) {
         let node = this.jump.getNodeAt(beats);
+        if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
+            const prev = node.previous;
+            if (!("heading" in prev)) {
+                node = prev.previous;
+            }
+        }
         if (TimeCalculator.toBeats(node.time) > beats) {
             debugger;
         }
         return node;
     }
-    getValueAt(beats) {
-        return this.getNodeAt(beats).getValueAt(beats);
+    getValueAt(beats, usePrev = false) {
+        return this.getNodeAt(beats, usePrev).getValueAt(beats);
     }
     getIntegral(beats, timeCalculator) {
         const node = this.getNodeAt(beats);
@@ -1405,18 +1412,21 @@ class Player {
         // context.translate(height / 2, width / 2) 好好纪念这个把我气吐血的智障
         context.translate(width / 2, height / 2);
         context.scale(width / 1350, -height / 900);
-        context.scale(0.25, 0.25);
+        context.scale(0.5, 0.5);
         context.save();
         // console.log(context.getTransform())
     }
     render() {
-        this.context.scale(1, -1);
-        this.context.drawImage(this.background, -675, -450, 1350, 900);
-        this.context.fillStyle = "#2227";
-        this.context.fillRect(-2700, -1800, 5400, 3600);
-        this.context.restore();
-        this.context.save();
         const context = this.context;
+        context.scale(1, -1);
+        context.drawImage(this.background, -675, -450, 1350, 900);
+        context.fillStyle = "#2227";
+        context.fillRect(-2700, -1800, 5400, 3600);
+        context.strokeStyle = "#66ccff";
+        context.arc(0, 0, RENDER_SCOPE, 0, 2 * Math.PI);
+        context.stroke();
+        context.restore();
+        context.save();
         context.strokeStyle = "#FFFFFF";
         drawLine(context, -1350, 0, 1350, 0);
         drawLine(context, 0, 900, 0, -900);
@@ -1436,6 +1446,10 @@ class Player {
         let y = judgeLine.getStackedValue("moveY", this.beats);
         let theta = judgeLine.getStackedValue("rotate", this.beats) / 180 * Math.PI; // 转换为弧度制
         let alpha = judgeLine.getStackedValue("alpha", this.beats);
+        judgeLine.moveX = x;
+        judgeLine.moveY = y;
+        judgeLine.rotate = theta;
+        judgeLine.alpha = alpha;
         // console.log(x, y, theta, alpha);
         context.translate(x, y);
         let transformedX = x + baseX;
@@ -1492,6 +1506,12 @@ class Player {
                 }
             }
         }
+        context.save();
+        context.strokeStyle = "#66ccff";
+        context.lineWidth = 2;
+        drawLine(context, -1350, +endY, 1350, +endY);
+        drawLine(context, -1350, -endY, 1350, -endY);
+        context.restore();
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
             const speed = parseFloat(eachSpeed)
@@ -1725,7 +1745,7 @@ class TimeCalculator {
         return this.toBeats(beaT1) - this.toBeats(beaT2);
     }
     static eq(beaT1, beaT2) {
-        return beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] === beaT2[1] * beaT2[2];
+        return beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] === beaT1[2] * beaT2[1]; // 这里曾经把两个都写成beaT1，特此留念（
     }
     static gt(beaT1, beaT2) {
         return beaT1[0] > beaT2[0] || beaT1[1] * beaT2[2] > beaT1[2] * beaT2[1];

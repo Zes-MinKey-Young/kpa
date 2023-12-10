@@ -124,10 +124,13 @@ class NoteTree {
                 return [endTime, nextNote]
             },
             (note: Note, beats: number) => {
-                const previous = note.previous;
-                const previousTime = "heading" in previous ? 0 : TimeCalculator.toBeats(previous.endTime);
-                return previousTime <= beats ? false : <Note>note.next; // getNodeAt有guard
-            })
+                return TimeCalculator.toBeats(note.endTime) >= beats ? false : <Note>note.next; // getNodeAt有guard
+            }
+            /*,
+            (note: Note) => {
+                const prev = note.previous;
+                return "heading" in prev ? note : prev
+            })*/)
     }
     
     getNoteAt(beats: number): Note {

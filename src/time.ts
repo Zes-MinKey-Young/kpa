@@ -78,7 +78,7 @@ class TimeCalculator {
         return this.toBeats(beaT1) - this.toBeats(beaT2)
     }
     static eq(beaT1: TimeT, beaT2: TimeT): boolean {
-        return beaT1[0] === beaT2 [0] && beaT1[1] * beaT2[2] === beaT2[1] * beaT2[2]
+        return beaT1[0] === beaT2 [0] && beaT1[1] * beaT2[2] === beaT1[2] * beaT2[1] // 这里曾经把两个都写成beaT1，特此留念（
     }
     static gt(beaT1:TimeT, beaT2: TimeT): boolean {
         return beaT1[0] >beaT2[0] || beaT1[1] * beaT2[2] > beaT1[2] * beaT2[1]

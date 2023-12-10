@@ -223,8 +223,8 @@ class JudgeLine {
         }
     }
     computeTimeRange(beats: number, timeCalculator: TimeCalculator , startY: number, endY: number): [number, number][] {
-        return [[0, Infinity]]
-        /*
+        //return [[0, Infinity]]
+        //*
         let times: number[] = [];
         let result: [number, number][] = [];
         for (let eventLayer of this.eventLayers) {
@@ -244,20 +244,25 @@ class JudgeLine {
         const len = times.length;
         let nextTime = times[0]
         let nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
-        let nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
+        let nextSpeed = this.getStackedValue("speed", nextTime, true)
         let range: [number, number] = [undefined, undefined];
         const computeTime = (speed: number, current: number, fore: number) => timeCalculator.secondsToBeats(current / (speed * 120) + timeCalculator.toSeconds(fore));
         for (let i = 0; i < len - 1;) {
             const thisTime = nextTime;
             const thisPosY = nextPosY;
-            const thisSpeed = nextSpeed;
+            let thisSpeed = this.getStackedValue("speed", thisTime);
+            if (Math.abs(thisSpeed) < 1e-8) {
+                thisSpeed = 0; // 不这样做可能导致下面异号判断为真从而死循环
+            }
             nextTime = times[i + 1]
             nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
-            nextSpeed = this.getStackedValue("speed", nextTime - 1e-6)
+            nextSpeed = this.getStackedValue("speed", nextTime, true)
             if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
+                debugger;
                 nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
                 nextSpeed = 0
                 nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
+                debugger
             } else {
                 i++
             }
@@ -314,14 +319,14 @@ class JudgeLine {
             }
         }
         return result;
-        */
+        //*/
     }
     /*
     computeLinePositionY(beats: number, timeCalculator: TimeCalculator)  {
         return this.getStackedIntegral(beats, timeCalculator)
     }
     */
-    getStackedValue(type: keyof EventLayer, beats: number) {
+    getStackedValue(type: keyof EventLayer, beats: number, usePrev: boolean = false) {
         const length = this.eventLayers.length;
         let current = 0;
         for (let index = 0; index < length; index++) {
@@ -329,7 +334,7 @@ class JudgeLine {
             if (!layer) {
                 break;
             }
-            current += layer[type].getValueAt(beats);
+            current += layer[type].getValueAt(beats, usePrev);
         }
         return current
     }

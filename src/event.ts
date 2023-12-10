@@ -285,21 +285,31 @@ class EventNodeSequence {
                 }
                 return [TimeCalculator.toBeats(endNode.time), endNode.next]
             },
-            (node: EventStartNode, beats: number) => TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : (<EventEndNode>node.next).next
+            (node: EventStartNode, beats: number) => TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : (<EventEndNode>node.next).next,
+            /*(node: EventStartNode) => {
+                const prev = node.previous;
+                return "heading" in prev ? node : prev.previous;
+            }*/
             )
     }
     insert() {
 
     }
-    getNodeAt(beats: number): EventStartNode {
+    getNodeAt(beats: number, usePrev: boolean = false): EventStartNode {
         let node = this.jump.getNodeAt(beats);
+        if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
+            const prev = node.previous;
+            if (!("heading" in prev)) {
+                node = prev.previous;
+            }
+        }
         if (TimeCalculator.toBeats(node.time) > beats) {
             debugger
         }
         return node;
     }
-    getValueAt(beats: number) {
-        return this.getNodeAt(beats).getValueAt(beats);
+    getValueAt(beats: number, usePrev: boolean = false) {
+        return this.getNodeAt(beats, usePrev).getValueAt(beats);
     }
     getIntegral(beats: number, timeCalculator: TimeCalculator) {
         const node: EventStartNode = this.getNodeAt(beats)

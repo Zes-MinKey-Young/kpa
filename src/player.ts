@@ -45,21 +45,25 @@ class Player {
         // context.translate(height / 2, width / 2) 好好纪念这个把我气吐血的智障
         context.translate(width / 2, height / 2)
         context.scale(width / 1350, -height / 900)
-        // context.scale(0.25, 0.25)
+        context.scale(0.5, 0.5)
         context.save()
         // console.log(context.getTransform())
     }
     render() {
-        this.context.scale(1, -1)
-        this.context.drawImage(this.background, -675, -450, 1350, 900);
-        this.context.fillStyle = "#2227";
-        this.context.fillRect(-2700, -1800, 5400, 3600)
-        this.context.restore()
-        this.context.save()
         const context = this.context;
+        context.scale(1, -1)
+        context.drawImage(this.background, -675, -450, 1350, 900);
+        context.fillStyle = "#2227";
+        context.fillRect(-2700, -1800, 5400, 3600)
+        context.strokeStyle = "#66ccff";
+        context.arc(0, 0, RENDER_SCOPE, 0, 2 * Math.PI);
+        context.stroke()
+        context.restore()
+        context.save()
         context.strokeStyle = "#FFFFFF"
         drawLine(context, -1350, 0, 1350, 0)
         drawLine(context, 0, 900, 0, -900);
+        
         // console.log("rendering")
         for (let line of this.chart.orphanLines) {
             this.renderLine(0, 0, line);
@@ -139,6 +143,12 @@ class Player {
             }
 
         }
+        context.save()
+        context.strokeStyle = "#66ccff"
+        context.lineWidth = 2
+        drawLine(context, -1350, +endY, 1350, +endY)
+        drawLine(context, -1350, -endY, 1350, -endY)
+        context.restore()
 
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {

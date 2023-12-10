@@ -8,19 +8,22 @@ class JumpArray<T extends TwoDirectionNode> {
     effectiveBeats: number;
     endNextFn: (node: T) => [endBeats: number, next: T];
     nextFn: (node: T, beats: number) => T | false;
+    goPrev: (node: T) => T;
     constructor(
         head: Header<T>,
         tail: Tailer<T>,
         originalListLength: number,
         effectiveBeats: number,
         endNextFn: (node: T) => [endBeats: number, next: T],
-        nextFn: (node: T, beats: number) => T | false
+        nextFn: (node: T, beats: number) => T | false,
+        // goPrev: (node: T) => T
         ) {
         this.header = head;
         this.tailer = tail;
         this.effectiveBeats = effectiveBeats;
         this.endNextFn = endNextFn;
         this.nextFn = nextFn;
+        //this.goPrev = goPrev
         const fillMinor = (startTime: number, endTime: number) => {
             const minorArray: T[] = <T[]>jumpArray[jumpIndex];
             const currentJumpBeats: number = jumpIndex * averageBeats
@@ -82,6 +85,12 @@ class JumpArray<T extends TwoDirectionNode> {
         this.array = jumpArray;
         this.averageBeats = averageBeats
     }
+    /**
+     * 
+     * @param beats 拍数
+     * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
+     * @returns 时间索引链表的节点
+     */
     getNodeAt(beats: number): T {
         if (beats >= this.effectiveBeats) {
             return this.tailer.previous;
@@ -103,14 +112,6 @@ class JumpArray<T extends TwoDirectionNode> {
         while (next = nextFn(node, beats)) {
             node = next;
         }
-        // node = node.previous.previous
-        // console.log(node, beats)
-        /*
-        if (beats < TimeCalculator.toBeats(node.time || node.startTime)
-        || node.next && TimeCalculator.toBeats(node.next.time) < beats) {
-            debugger
-        }
-        */
         return node
     }
 }
