@@ -18,7 +18,8 @@ body, html {
     width: 100%;
     gap: 4px;
     background-color: #444;
-    padding: 4px
+    padding: 4px;
+    box-sizing: border-box;
 }
 
 #main > div {

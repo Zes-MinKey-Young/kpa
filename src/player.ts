@@ -5,7 +5,7 @@ const LINE_WIDTH = 10;
 const LINE_COLOR = "#CCCC77"
 
 // 以原点为中心，渲染的半径
-const RENDER_SCOPE = 800;
+const RENDER_SCOPE = 900;
 
 class Player {
     canvas: HTMLCanvasElement;
@@ -16,7 +16,7 @@ class Player {
     background: HTMLImageElement;
     aspect: number;
     noteSize: number;
-
+    soundAndHitQueue: SoundAndHitQueue;
     
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
@@ -26,7 +26,7 @@ class Player {
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
         this.initCoordinate();
-
+        this.soundAndHitQueue = new SoundAndHitQueue()
     }
     get time(): number {
         return this.audio.currentTime || 0
@@ -45,7 +45,7 @@ class Player {
         // context.translate(height / 2, width / 2) 好好纪念这个把我气吐血的智障
         context.translate(width / 2, height / 2)
         context.scale(width / 1350, -height / 900)
-        context.scale(0.5, 0.5)
+        //context.scale(0.5, 0.5)
         context.save()
         // console.log(context.getTransform())
     }
@@ -77,11 +77,12 @@ class Player {
     renderLine(baseX: number, baseY: number, judgeLine: JudgeLine) {
         const context = this.context;
         const timeCalculator = this.chart.timeCalculator
+        const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
-        let x = judgeLine.getStackedValue("moveX", this.beats)
-        let y = judgeLine.getStackedValue("moveY",this.beats)
-        let theta = judgeLine.getStackedValue("rotate", this.beats) / 180 * Math.PI // 转换为弧度制
-        let alpha = judgeLine.getStackedValue("alpha", this.beats);
+        let x = judgeLine.getStackedValue("moveX",beats)
+        let y = judgeLine.getStackedValue("moveY",beats)
+        let theta = judgeLine.getStackedValue("rotate", beats) / 180 * Math.PI // 转换为弧度制
+        let alpha = judgeLine.getStackedValue("alpha", beats);
         judgeLine.moveX = x;
         judgeLine.moveY = y;
         judgeLine.rotate = theta;
@@ -122,34 +123,49 @@ class Player {
             startY = distance + RENDER_SCOPE
             endY = distance - RENDER_SCOPE
         }
-        judgeLine.updateSpeedIntegralFrom(this.beats, timeCalculator)
+        const drawScope = (y: number) => {
+            if (y<=1e-6) return
+            context.save()
+            context.strokeStyle = "#66ccff"
+            context.lineWidth = 2
+            drawLine(context, -1350, +y, 1350, +y)
+            drawLine(context, -1350, -y, 1350, -y)
+            context.restore()
+
+        }
         const holdTrees = judgeLine.holdTrees;
         const noteTrees = judgeLine.noteTrees;
+        const soundAndHitQueue = this.soundAndHitQueue
+        if (Object.keys(holdTrees).length || Object.keys(noteTrees). length) {
+            judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
+        }
         for (let trees of [holdTrees, noteTrees]) {
             for (let speed in trees) {
                 const tree = trees[speed];
                 const speedVal: number = parseFloat(speed);
-                const timeRanges = judgeLine.computeTimeRange(this.beats, timeCalculator, startY / speedVal, endY / speedVal);
+                const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
                 console.log(timeRanges, startY, endY);
                 for (let range of timeRanges) {
                     const start = range[0];
                     const end = range[1];
-                    let note: TypeOrTailer<Note> = tree.getNoteAt(start);
+                    // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
+                    // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
+                    
+                    let note: TypeOrTailer<Note> = tree.getNoteAt(start, tree.renderPointer);
                     while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < end) {
                         this.renderSameTimeNotes(note, judgeLine, timeCalculator);
                         note = note.next;
                     }
                 }
+                let noteRange = tree.movePointerTo(tree.hitPointer, beats);
+                let start: Note, end: Note;
+                if (noteRange) {
+                    [start, end] = noteRange
+                }
             }
 
         }
-        context.save()
-        context.strokeStyle = "#66ccff"
-        context.lineWidth = 2
-        drawLine(context, -1350, +endY, 1350, +endY)
-        drawLine(context, -1350, -endY, 1350, -endY)
-        context.restore()
-
+        drawScope(endY)
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
             const speed = parseFloat(eachSpeed)
@@ -207,7 +223,7 @@ class Player {
                 image = FLICK;
                 break;
             case NoteType.Hold:
-                image = HOLD;
+                image = HOLD_HEAD;
                 break;
             default:
                 image = TAP;
@@ -219,17 +235,17 @@ class Player {
         let length = endpositionY - positionY
         // console.log(NoteType[note.type])
         if (note.type === NoteType.Hold) {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2,  positionY - 10, this.noteSize, length)
-        } else {
-            this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10)
-            if (note.double) {
-                this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
-            }
-            if (!note.above) {
-                this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
-                
-            }
+            this.context.drawImage(HOLD_BODY, note.positionX - this.noteSize / 2,  positionY - 10, this.noteSize, length)
         }
+        this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10)
+        if (note.double) {
+            this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
+        }
+        if (!note.above) {
+            this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
+            
+        }
+        
     }
     private update() {
         if (!this.playing) {
@@ -256,7 +272,7 @@ class Player {
 class ProgressBar {
     target: HTMLAudioElement;
     element: HTMLProgressElement;
-    constructor(target: HTMLAudioElement) {
+    constructor(target: HTMLAudioElement, pauseFn: () => void, updateFn: () => void) {
         this.target = target;
         this.element = document.createElement("progress")
         const element = this.element;
@@ -272,6 +288,7 @@ class ProgressBar {
         let controlling = false;
         on(["mousedown", "touchstart"], element, (event: MouseEvent | TouchEvent) => {
             controlling = true;
+            pauseFn();
         })
         on(["mousemove", "touchmove"], element, (event: MouseEvent | TouchEvent) => {
             let posX: number;
@@ -286,6 +303,7 @@ class ProgressBar {
             const value = element.max * ((posX - element.offsetLeft) / element.clientWidth);
             element.value = value;
             target.currentTime = value;
+            updateFn()
         })
         on(["mouseup", "touchend"], element, (event: MouseEvent | TouchEvent) => {
             let posX: number;
@@ -301,6 +319,7 @@ class ProgressBar {
             const value = element.max * ((posX - element.offsetLeft) / element.clientWidth);
             element.value = value;
             target.currentTime = value;
+            updateFn()
         })
     }
     appendTo(element: HTMLElement) {
@@ -318,3 +337,44 @@ class ProgressBar {
     }
 }
 
+
+class SoundAndHitEntity {
+    next: SoundAndHitEntity | null;
+    type: NoteType;
+    playsSound: boolean;
+    posX: number;
+    posY: number;
+    beats: number;
+    time: number;
+    playingSound: boolean;
+    constructor(type: NoteType, playsSound: boolean, posX: number, posY: number, beats: number, timeCalculator: TimeCalculator) {
+        this.type = type;
+        this.playsSound = playsSound;
+        this.posX = posX;
+        this.posY = posY;
+        this.beats = beats;
+        this.time = timeCalculator.toSeconds(beats)
+        this.playingSound = false;
+        this.next = null;
+    }
+}
+
+class SoundAndHitQueue {
+    head: SoundAndHitEntity | null;
+    constructor() {
+        this.head = null;
+    }
+    getEntities(beats: number, timeCalculator: TimeCalculator): SoundAndHitEntity[] {
+        const entities: SoundAndHitEntity[] = [];
+        let current: SoundAndHitEntity = this.head;
+        const lastHalfSec = timeCalculator.toSeconds(beats) - 0.5
+        while (current && (current.beats > beats || current.time < lastHalfSec)) { // 未到的条目被忽略
+            current = current.next;
+        }
+        this.head = current;
+        while (current) {
+            current = current.next;
+        }
+        return entities
+    }
+}

@@ -47,25 +47,28 @@ class JumpArray<T extends TwoDirectionNode> {
         for (let i = 0; i < originalListLength; i++) {
             let [endTime, nextNode] = endNextFn(currentNode)
             const currentJumpBeats: number = jumpIndex * averageBeats
-            while (endTime >= (jumpIndex + 1) * averageBeats) {
-                if (lastMinorJumpIndex === jumpIndex) {
+            // Hold树可能会出现这种情况，故需特别考虑
+            if (endTime > previousTime) {
+                while (endTime >= (jumpIndex + 1) * averageBeats) {
+                    if (lastMinorJumpIndex === jumpIndex) {
+                        fillMinor(previousTime, endTime)
+                        
+                    } else {
+                        jumpArray[jumpIndex] = currentNode;
+                    }
+                    jumpIndex++;
+                }
+                if (endTime > currentJumpBeats) {
+                    if (lastMinorJumpIndex !== jumpIndex) {
+                        jumpArray[jumpIndex] = new Array(MINOR_PARTS);
+                        lastMinorJumpIndex = jumpIndex
+                    }
                     fillMinor(previousTime, endTime)
-                    
-                } else {
-                    jumpArray[jumpIndex] = currentNode;
                 }
-                jumpIndex++;
-            }
-            if (endTime > currentJumpBeats) {
-                if (lastMinorJumpIndex !== jumpIndex) {
-                    jumpArray[jumpIndex] = new Array(MINOR_PARTS);
-                    lastMinorJumpIndex = jumpIndex
-                }
-                fillMinor(previousTime, endTime)
+                previousTime = endTime;
             }
 
             currentNode = nextNode;
-            previousTime = endTime;
             if (!currentNode) {
                 break;
             }
@@ -116,3 +119,15 @@ class JumpArray<T extends TwoDirectionNode> {
     }
 }
 
+class Pointer<T extends TwoDirectionNode> {
+    beats: number;
+    node: T;
+    constructor() {
+        this.node = null;
+        this.beats = null;
+    }
+    pointTo(node: T, beats: number) {
+        this.node = node;
+        this.beats = beats
+    }
+}

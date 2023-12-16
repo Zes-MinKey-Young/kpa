@@ -81,13 +81,14 @@ class Note {
     */
 }
 
+
 class NoteTree {
     head: Header<Note>;
     tail: Tailer<Note>;
     currentPoint: Note | Header<Note>;
     currentBranchPoint: Note;
-    // holdHead: Note;
-    // holdTail: Note;
+    renderPointer: Pointer<Note>;
+    hitPointer: Pointer<Note>;
     jump: JumpArray<Note>;
     timesWithNotes: number;
     // timesWithHolds: number;
@@ -103,6 +104,8 @@ class NoteTree {
             previous: null
         };
         this.timesWithNotes = 0;
+        this.renderPointer = new Pointer();
+        this.hitPointer = new Pointer();
     }
     get effectiveBeats() {
         return TimeCalculator.toBeats(this.tail.previous.endTime)
@@ -132,10 +135,58 @@ class NoteTree {
                 return "heading" in prev ? note : prev
             })*/)
     }
-    
-    getNoteAt(beats: number): Note {
+    initPointer(pointer: Pointer<Note>) {
+        pointer.pointTo(this.head.next, 0)
+    }
+    getNoteAt(beats: number, pointer?: Pointer<Note>): Note {
+        if (pointer) {
+            if (beats !== pointer.beats) {
+                this.movePointerTo(pointer, beats)
+            }
+            return pointer.node
+        }
         return this.jump.getNodeAt(beats);
     }
-    
+    movePointerTo(pointer: Pointer<Note>, beats: number): [Note, Note] | false {
+        const distance = NoteTree.distanceFromPointer(beats, pointer);
+        const original = pointer.node;
+        if (distance === 0) {
+            pointer.beats = beats;
+            return [original, original]
+        }
+        const delta = beats - pointer.beats;
+        if (Math.abs(delta) > this.jump.averageBeats / MINOR_PARTS) {
+            const end = this.jump.getNodeAt(beats);
+            pointer.pointTo(end, beats)
+            if (delta < 0) {
+                return false;
+            }
+            return [original, end]
+        }
+        let end: Note;
+        if (distance === 1) {
+            const next = original.next
+            end = "tailing" in next ? original : next
+        } else if (distance === -1) {
+            end = <Note>original.previous;
+        }
+        pointer.pointTo(end, beats)
+        if (delta < 0) {
+            return false;
+        }
+        return [original, end]
+    }
+    static distanceFromPointer(beats: number, pointer: Pointer<Note>): 1 | 0 | -1 {
+        const note = pointer.node;
+        const previous = note.previous;
+        const previousEndBeats = "heading" in previous ? 0 : TimeCalculator.toBeats(previous.endTime);
+        const endBeats = TimeCalculator.toBeats(note.endTime);
+        if (beats < previousEndBeats) {
+            return -1;
+        } else if (beats > endBeats) {
+            return 1;
+        }
+        return 0;
+    }
 }
 

@@ -1,7 +1,6 @@
 const NODE_WIDTH = 20;
 const NODE_HEIGHT = 10;
 
-
 class JudgeLinesEditor {
     editor: Editor;
     chart: Chart;
@@ -64,12 +63,16 @@ class EventCurveEditor {
     valueGridSpan: number;
     timeGridColor: RGB;
     valueGridColor: RGB;
+    width: number;
+    height: number;
     constructor(type: EventType, sequence: EventNodeSequence) {
         const config = eventTypeMap[type]
         this.sequence = sequence;
         this.canvas = document.createElement("canvas")
-        this.canvas.width = 400//this.canvas.parentElement.clientWidth;
-        this.canvas.height = 100;
+        this.canvas.width = 410//this.canvas.parentElement.clientWidth;
+        this.canvas.height = 120;
+        this.height = 100
+        this.width = 400
         this.context = this.canvas.getContext("2d");
         this.halfRange = 2
         this.halfCent = this.halfRange * 100;
@@ -90,7 +93,7 @@ class EventCurveEditor {
         this.context.lineWidth = 2
     }
     drawCoordination(beats: number) {
-        const {height, width} = this.canvas;
+        const {height, width} = this;
         const beatCents = beats * 100
         const {timeCentGridSpan, valueGridSpan, valueRatio, context} = this;
         // const middleValue = Math.round(-this.basis / this.valueRatio)
@@ -179,6 +182,11 @@ class EventCurveEditor {
 }
 
 class Editor {
+    initialized: boolean;
+    chartInitialized: boolean;
+    audioInitialized: boolean;
+    imageInitialized: boolean;
+
     player: Player;
     chart: Chart;
     progressBar: ProgressBar;
@@ -195,8 +203,9 @@ class Editor {
     lineInfoEle: HTMLDivElement;
     playButton: HTMLButtonElement;
     constructor() {
+        this.initialized = false;
         this.player = new Player(<HTMLCanvasElement>document.getElementById("player"))
-        this.progressBar = new ProgressBar(this.player.audio);
+        this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => this.player.render());
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
         this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
         this.backgroundInput = <HTMLInputElement>document.getElementById("backgroundInput")
@@ -214,56 +223,100 @@ class Editor {
         this.playButton.addEventListener("click", (event) => {
             if (!this.playing) {
                 this.play();
-                this.playButton.innerHTML = "暂停"
             } else {
-                this.player.pause();
-                this.playButton.innerHTML = "继续"
+                this.pause();
             }
         })
 
         this.fileInput.addEventListener("change", () => {
-            const reader = new FileReader()
-            reader.readAsText(this.fileInput.files[0])
-            reader.addEventListener("load", () => {
-                if (typeof reader.result !== "string") {
-                    return;
-                }
-                let data = JSON.parse(reader.result)
-                let chart = Chart.fromRPEJSON(data);
-                this.player.chart = chart;
-                this.chart = chart;
-                this.player.render()
-                this.eventCurveEditors = [];
-                const eventLayer = chart.judgeLines[0].eventLayers[0]
-                for (let type in eventLayer) {
-                    const eventCurveEditor = new EventCurveEditor(EventType[type.charAt(0).toUpperCase() + type.slice(1)], eventLayer[type]);
-                    this.eventSequenceEle.appendChild(eventCurveEditor.canvas)
-                    this.eventCurveEditors.push(eventCurveEditor);
-                    eventCurveEditor.draw(0);
-                }
-                /**
-                player.background = new Image();
-                player.background.src = "../cmdysjtest.jpg";
-                player.audio.src = "../cmdysjtest.mp3"; */
-            })
+            this.readChart()
         })
 
         this.musicInput.addEventListener("change", () => {
-            const reader = new FileReader()
-            reader.readAsDataURL(this.musicInput.files[0])
-            reader.addEventListener("load", () => {
-                this.player.audio.src = <string>reader.result
-            })
+            this.readAudio()
         })
 
 
         this.backgroundInput.addEventListener("change", () => {
-            const reader = new FileReader()
-            reader.readAsDataURL(this.backgroundInput.files[0])
-            reader.addEventListener("load", () => {
-                this.player.background = new Image();
-                this.player.background.src = <string>reader.result
-            })
+            this.readImage()
+        })
+        window.addEventListener("wheel", (event) => {
+            if (!this.initialized) {
+                return;
+            }
+            const player = this.player;
+            if (this.playing) {
+                this.pause();
+            }
+            const audio = this.player.audio;
+            let currentTime = audio.currentTime;
+            console.log(event.deltaY)
+            currentTime += event.deltaY / 250;
+            if (currentTime > audio.duration) {
+                currentTime = audio.duration
+            } else if (currentTime < 0) {
+                currentTime = 0;
+            }
+            audio.currentTime = currentTime
+            this.progressBar.update()
+            this.player.render()
+            // event.preventDefault()
+        })
+    }
+    readChart() {
+        const reader = new FileReader()
+        reader.readAsText(this.fileInput.files[0])
+        reader.addEventListener("load", () => {
+            if (typeof reader.result !== "string") {
+                return;
+            }
+            let data = JSON.parse(reader.result)
+            let chart = Chart.fromRPEJSON(data);
+            this.player.chart = chart;
+            this.chart = chart;
+            this.chartInitialized = true;
+            if (this.chartInitialized && this.imageInitialized) {
+                this.initFirstFrame();
+            }
+            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+            /**
+            player.background = new Image();
+            player.background.src = "../cmdysjtest.jpg";
+            player.audio.src = "../cmdysjtest.mp3"; */
+        })
+    }
+    initFirstFrame() {
+        const chart = this.chart;
+        this.player.render()
+        this.eventCurveEditors = [];
+        const eventLayer = chart.judgeLines[0].eventLayers[0]
+        for (let type in eventLayer) {
+            const eventCurveEditor = new EventCurveEditor(EventType[type.charAt(0).toUpperCase() + type.slice(1)], eventLayer[type]);
+            this.eventSequenceEle.appendChild(eventCurveEditor.canvas)
+            this.eventCurveEditors.push(eventCurveEditor);
+            eventCurveEditor.draw(0);
+        }
+    }
+    readAudio() {
+        const reader = new FileReader()
+        reader.readAsDataURL(this.musicInput.files[0])
+        reader.addEventListener("load", () => {
+            this.player.audio.src = <string>reader.result
+            this.audioInitialized = true;
+            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+        })
+    }
+    readImage() {
+        const reader = new FileReader()
+        reader.readAsDataURL(this.backgroundInput.files[0])
+        reader.addEventListener("load", () => {
+            this.player.background = new Image();
+            this.player.background.src = <string>reader.result;
+            this.imageInitialized = true;
+            if (this.chartInitialized && this.imageInitialized) {
+                this.initFirstFrame();
+            }
+            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
         })
     }
     update() {
@@ -285,7 +338,12 @@ class Editor {
         if (this.playing) {
             return;
         }
+        this.playButton.innerHTML = "暂停"
         this.player.play()
         this.update()
+    }
+    pause() {
+        this.player.pause()
+        this.playButton.innerHTML = "继续"
     }
 }

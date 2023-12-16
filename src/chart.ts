@@ -151,7 +151,7 @@ class JudgeLine {
                 if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
                     return TimeCalculator.gt(n1.startTime, n2.startTime) ? 1 : -1
                 }
-                return TimeCalculator.gt(n1.endTime, n2.endTime) ? 1 : -1
+                return TimeCalculator.gt(n1.endTime, n2.endTime) ? -1 : 1 // 这里曾经排反了（
             })
             const len = notes.length;
             for (let i = 0; i < len; i++) {
@@ -410,5 +410,45 @@ class Chart {
         this.timeCalculator.update()
     }
 }
+/*
+class ComboInfoEntity {
+    time: TimeT;
+    previous: TypeOrHeader<ComboInfoEntity>;
+    next: TypeOrTailer<ComboInfoEntity>;
+    tap: number;
+    drag: number;
+    holdHead: number;
+    flick: number;
+    hold: number;
+    real: number;
+    fake: number;
+    constructor(time: TimeT) {
+        this.time = time;
+        this.previous = null;
+        this.next = null;
+        this.tap = 0;
+        this.drag = 0;
+        this.holdHead = 0;
+        this.hold = 0;
+        this.flick = 0;
+        this.real = 0;
+        this.fake = 0;
+    }
+}
 
-
+class ComboInfoList {
+    head: Header<ComboInfoEntity>;
+    tail: Tailer<ComboInfoEntity>;
+    jump: JumpArray<ComboInfoEntity>;
+    constructor() {
+        this.head = {
+            "heading": true,
+            next: null
+        };
+        this.tail = {
+            tailing: true,
+            previous: null
+        }
+    }
+}
+*/
