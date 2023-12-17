@@ -16,7 +16,7 @@ class Player {
     background: HTMLImageElement;
     aspect: number;
     noteSize: number;
-    soundAndHitQueue: SoundAndHitQueue;
+    soundQueue: SoundQueue;
     
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
@@ -26,7 +26,7 @@ class Player {
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
         this.initCoordinate();
-        this.soundAndHitQueue = new SoundAndHitQueue()
+        this.soundQueue = new SoundQueue()
     }
     get time(): number {
         return this.audio.currentTime || 0
@@ -72,7 +72,12 @@ class Player {
         }
 
         const showInfo = settings.get("playerShowInfo");
-        
+        if (this.playing) {
+            this.soundQueue.process(this.beats, this.chart.timeCalculator)
+        } else {
+            this.soundQueue.head = null;
+            this.soundQueue.tail = null;
+        }
     }
     renderLine(baseX: number, baseY: number, judgeLine: JudgeLine) {
         const context = this.context;
@@ -135,7 +140,7 @@ class Player {
         }
         const holdTrees = judgeLine.holdTrees;
         const noteTrees = judgeLine.noteTrees;
-        const soundAndHitQueue = this.soundAndHitQueue
+        const soundQueue = this.soundQueue
         if (Object.keys(holdTrees).length || Object.keys(noteTrees). length) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
         }
@@ -158,9 +163,16 @@ class Player {
                     }
                 }
                 let noteRange = tree.movePointerTo(tree.hitPointer, beats);
-                let start: Note, end: Note;
-                if (noteRange) {
-                    [start, end] = noteRange
+                if (noteRange
+                    /* && timeCalculator.toSeconds(TC.toBeats(noteRange[0].endTime)) > this.time - 0.033*/) {
+                    const [start, end] = noteRange;
+                    let note = start;
+                    while (note !== end) {
+                        soundQueue.pushEntity(TC.toBeats(note.startTime), note.type, timeCalculator)
+                        note = <Note>note.next
+                    }
+                } else {
+
                 }
             }
 
@@ -338,43 +350,61 @@ class ProgressBar {
 }
 
 
-class SoundAndHitEntity {
-    next: SoundAndHitEntity | null;
+class SoundEntity {
+    next: SoundEntity | null;
     type: NoteType;
-    playsSound: boolean;
-    posX: number;
-    posY: number;
+    // playsSound: boolean;
+    // posX: number;
+    // posY: number;
     beats: number;
     time: number;
-    playingSound: boolean;
-    constructor(type: NoteType, playsSound: boolean, posX: number, posY: number, beats: number, timeCalculator: TimeCalculator) {
+    // playingSound: boolean;
+    constructor(type: NoteType, beats: number, timeCalculator: TimeCalculator) {
         this.type = type;
-        this.playsSound = playsSound;
-        this.posX = posX;
-        this.posY = posY;
+        // this.playsSound = playsSound;
+        // this.posX = posX;
+        // this.posY = posY;
         this.beats = beats;
         this.time = timeCalculator.toSeconds(beats)
-        this.playingSound = false;
+        // this.playingSound = false;
         this.next = null;
     }
 }
 
-class SoundAndHitQueue {
-    head: SoundAndHitEntity | null;
+class SoundQueue {
+    head: SoundEntity | null;
+    tail: SoundEntity | null;
     constructor() {
         this.head = null;
+        this.tail = null
     }
-    getEntities(beats: number, timeCalculator: TimeCalculator): SoundAndHitEntity[] {
-        const entities: SoundAndHitEntity[] = [];
-        let current: SoundAndHitEntity = this.head;
-        const lastHalfSec = timeCalculator.toSeconds(beats) - 0.5
-        while (current && (current.beats > beats || current.time < lastHalfSec)) { // 未到的条目被忽略
+    process(beats: number, timeCalculator: TimeCalculator): SoundEntity[] {
+        console.log(this.head)
+        const entities: SoundEntity[] = [];
+        let current: SoundEntity = this.head;
+        const last2fr = timeCalculator.toSeconds(beats) - 0.033
+        while (current && (current.beats > beats || current.time < last2fr)) { // 未到的条目被忽略
             current = current.next;
         }
         this.head = current;
+        debugger
         while (current) {
+            let audio: HTMLAudioElement = <HTMLAudioElement>[null, sound.tap, sound.tap, sound.flick, sound.drag][current.type].cloneNode();
+            audio.play()
             current = current.next;
         }
+        this.head = null;
+        this.tail = null;
         return entities
+    }
+    pushEntity(beats: number, type: NoteType, timeCalculator: TimeCalculator) {
+        const entity = new SoundEntity(type, beats, timeCalculator)
+        if (this.head === null) {
+            this.head = entity;
+            this.tail = entity;
+        } else {
+            this.tail.next = entity;
+            this.tail = entity;
+        }
     }
 }

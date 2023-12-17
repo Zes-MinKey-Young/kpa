@@ -193,6 +193,8 @@ class JudgeLine {
                     const tree: NoteTree = trees[speed];
                     Note.connect(tree.currentPoint, tree.tail)
                     tree.initJump();
+                    tree.initPointer(tree.hitPointer)
+                    tree.initPointer(tree.renderPointer)
                 }
             }
         }

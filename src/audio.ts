@@ -1,6 +1,6 @@
 const sound = {
-    tap: new Audio("../sound/tap.m4a"),
-    drag: new Audio("../sound/drag.m4a"),
-    flick: new Audio("../sound/flick.m4a")
+    tap: new Audio("../sound/tap.wav"),
+    drag: new Audio("../sound/drag.wav"),
+    flick: new Audio("../sound/flick.wav")
 }
 
