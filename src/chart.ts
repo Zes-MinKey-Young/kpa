@@ -1,10 +1,10 @@
 
 type Bool = 1 | 0
 enum NoteType {
-    Tap=1,
-    Drag=4,
-    Flick=3,
-    Hold=2
+    tap=1,
+    drag=4,
+    flick=3,
+    hold=2
 }
 
 
@@ -141,7 +141,7 @@ class JudgeLine {
         this.noteTrees = {};
         // this.noteSpeeds = {};
     }
-    static fromRPEJSON(data: JudgeLineDataPRE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
+    static fromRPEJSON(data: JudgeLineDataPRE, templates: TemplateEasingLib, timeCalculator: TimeCalculator, comboMapping: ComboMapping) {
         let line = new JudgeLine()
         if (data.notes) {
             const holdTrees = line.holdTrees;
@@ -154,9 +154,23 @@ class JudgeLine {
                 return TimeCalculator.gt(n1.endTime, n2.endTime) ? -1 : 1 // 这里曾经排反了（
             })
             const len = notes.length;
+            let lastTime: TimeT = [-1, 0, 1];
+            let comboInfoEntity: ComboInfoEntity;
+                    
             for (let i = 0; i < len; i++) {
-                const note: Note = new Note(notes[i]);
-                if (note.type === NoteType.Hold) {
+            const note: Note = new Note(notes[i]);
+                if (TC.ne(note.startTime, lastTime)) {
+                    lastTime = note.startTime;
+                    const timeString = toTimeString(lastTime)
+                    comboInfoEntity =  timeString in comboMapping ? comboMapping[timeString] : (comboMapping[timeString] = new ComboInfoEntity());
+                }
+                if (note.isFake) {
+                    comboInfoEntity.fake++
+                } else {
+                    comboInfoEntity.real++
+                }
+                if (note.type === NoteType.hold) {
+                    comboInfoEntity.holdHead++;
                     const speed = note.speed;
                     const tree = speed in holdTrees ? holdTrees[speed] : (holdTrees[speed] = new NoteTree());
                     const lastHold = tree.currentBranchPoint
@@ -170,8 +184,17 @@ class JudgeLine {
                         tree.currentBranchPoint = note;
                     }
                     tree.timesWithNotes++
+                    const timeString = toTimeString(note.endTime);
+                    const holdEntity = timeString in comboMapping ? comboMapping[timeString] : (comboMapping[timeString] = new ComboInfoEntity());
+                    holdEntity.hold++;
+                    if (!note.isFake) {
+                        holdEntity.realEnd++;
+                    }
                 } else {
-                    
+                    if (!note.isFake) {
+                        comboInfoEntity.realEnd++;
+                    }
+                    comboInfoEntity[NoteType[note.type]]++;
                     const speed = note.speed;
                     const tree = speed in noteTrees ? noteTrees[speed] : (noteTrees[speed] = new NoteTree());
                     const lastNote = tree.currentBranchPoint
@@ -356,21 +379,33 @@ class JudgeLine {
     }
 }
 
+interface ComboMapping {
+    [beat: /*`${number}:${number}/${number}`*/ string]: ComboInfoEntity
+}
+
 class Chart {
     judgeLines: JudgeLine[];
     templateEasingLib: TemplateEasingLib;
     bpmList: BPMSegmentData[];
     timeCalculator: TimeCalculator;
-    orphanLines: JudgeLine[]
+    orphanLines: JudgeLine[];
+    comboMapping: ComboMapping;
+    name: string;
+    level: string;
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
         this.orphanLines = [];
         this.templateEasingLib = new TemplateEasingLib();
+        this.comboMapping = {};
+        this.name = "uk";
+        this.level = "uk";
     }
     static fromRPEJSON(data: ChartDataRPE) {
         let chart = new Chart();
         chart.bpmList = data.BPMList;
+        chart.name = data.META.name;
+        chart.level = data.META.level;
         chart.updateCalculator()
         if (data.envEasings) {
             chart.templateEasingLib.add(...data.envEasings)
@@ -390,7 +425,7 @@ class Chart {
             children.push(i);
         }
         const readOne = (lineData: JudgeLineDataPRE) => {
-            const line: JudgeLine = JudgeLine.fromRPEJSON(lineData, chart.templateEasingLib, chart.timeCalculator)
+            const line: JudgeLine = JudgeLine.fromRPEJSON(lineData, chart.templateEasingLib, chart.timeCalculator, chart.comboMapping)
             chart.judgeLines.push(line)
             if (lineData.children) {
                 for (let each of lineData.children) {
@@ -412,11 +447,8 @@ class Chart {
         this.timeCalculator.update()
     }
 }
-/*
+
 class ComboInfoEntity {
-    time: TimeT;
-    previous: TypeOrHeader<ComboInfoEntity>;
-    next: TypeOrTailer<ComboInfoEntity>;
     tap: number;
     drag: number;
     holdHead: number;
@@ -424,10 +456,8 @@ class ComboInfoEntity {
     hold: number;
     real: number;
     fake: number;
-    constructor(time: TimeT) {
-        this.time = time;
-        this.previous = null;
-        this.next = null;
+    realEnd: number
+    constructor() {
         this.tap = 0;
         this.drag = 0;
         this.holdHead = 0;
@@ -435,9 +465,10 @@ class ComboInfoEntity {
         this.flick = 0;
         this.real = 0;
         this.fake = 0;
+        this.realEnd = 0;
     }
 }
-
+/*
 class ComboInfoList {
     head: Header<ComboInfoEntity>;
     tail: Tailer<ComboInfoEntity>;

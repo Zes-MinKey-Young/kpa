@@ -17,7 +17,6 @@ class Note {
     positionY: number;
     endPositionY?: number;
      */
-    double: boolean;
     previous: TypeOrHeader<Note>;
     next: TypeOrTailer<Note>;
     previousSibling?: Note;
@@ -50,10 +49,6 @@ class Note {
         }
         if (note2) {
             note2.previousSibling = note1;
-        }
-        if (note1 && note2) {
-            note1.double = true;
-            note2.double = true;
         }
     }
     static connect(note1: Note | Header<Note>, note2: Note | Tailer<Note>) {
@@ -147,21 +142,18 @@ class NoteTree {
         }
         return this.jump.getNodeAt(beats);
     }
-    movePointerTo(pointer: Pointer<Note>, beats: number): [Note, Note] | false {
+    movePointerTo(pointer: Pointer<Note>, beats: number): [Note, Note, number] {
         const distance = NoteTree.distanceFromPointer(beats, pointer);
         const original = pointer.node;
         if (distance === 0) {
             pointer.beats = beats;
-            return [original, original]
+            return [original, original, 0]
         }
         const delta = beats - pointer.beats;
         if (Math.abs(delta) > this.jump.averageBeats / MINOR_PARTS) {
             const end = this.jump.getNodeAt(beats);
             pointer.pointTo(end, beats)
-            if (delta < 0) {
-                return false;
-            }
-            return [original, end]
+            return [original, end, distance]
         }
         let end: Note;
         if (distance === 1) {
@@ -171,10 +163,7 @@ class NoteTree {
             end = <Note>original.previous;
         }
         pointer.pointTo(end, beats)
-        if (delta < 0) {
-            return false;
-        }
-        return [original, end]
+        return [original, end, distance]
     }
     static distanceFromPointer(beats: number, pointer: Pointer<Note>): 1 | 0 | -1 {
         const note = pointer.node;

@@ -1,4 +1,4 @@
-const NODE_WIDTH = 20;
+const NODE_WIDTH = 10;
 const NODE_HEIGHT = 10;
 
 class JudgeLinesEditor {
@@ -204,7 +204,7 @@ class Editor {
     playButton: HTMLButtonElement;
     constructor() {
         this.initialized = false;
-        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"))
+        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this)
         this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => this.player.render());
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
         this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
@@ -229,16 +229,16 @@ class Editor {
         })
 
         this.fileInput.addEventListener("change", () => {
-            this.readChart()
+            this.readChart(this.fileInput.files[0])
         })
 
         this.musicInput.addEventListener("change", () => {
-            this.readAudio()
+            this.readAudio(this.musicInput.files[0])
         })
 
 
         this.backgroundInput.addEventListener("change", () => {
-            this.readImage()
+            this.readImage(this.backgroundInput.files[0])
         })
         window.addEventListener("wheel", (event) => {
             if (!this.initialized) {
@@ -263,9 +263,9 @@ class Editor {
             // event.preventDefault()
         })
     }
-    readChart() {
+    readChart(file: File) {
         const reader = new FileReader()
-        reader.readAsText(this.fileInput.files[0])
+        reader.readAsText(file);
         reader.addEventListener("load", () => {
             if (typeof reader.result !== "string") {
                 return;
@@ -297,18 +297,18 @@ class Editor {
             eventCurveEditor.draw(0);
         }
     }
-    readAudio() {
+    readAudio(file: File) {
         const reader = new FileReader()
-        reader.readAsDataURL(this.musicInput.files[0])
+        reader.readAsDataURL(file)
         reader.addEventListener("load", () => {
             this.player.audio.src = <string>reader.result
             this.audioInitialized = true;
             this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
         })
     }
-    readImage() {
+    readImage(file: File) {
         const reader = new FileReader()
-        reader.readAsDataURL(this.backgroundInput.files[0])
+        reader.readAsDataURL(file)
         reader.addEventListener("load", () => {
             this.player.background = new Image();
             this.player.background.src = <string>reader.result;

@@ -8,6 +8,7 @@ const LINE_COLOR = "#CCCC77"
 const RENDER_SCOPE = 900;
 
 class Player {
+    editor: Editor;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
     chart: Chart;
@@ -16,17 +17,19 @@ class Player {
     background: HTMLImageElement;
     aspect: number;
     noteSize: number;
-    soundQueue: SoundQueue;
+    soundQueue: SoundEntity[];
     
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, editor: Editor) {
         this.canvas = canvas
         this.context = canvas.getContext("2d");
         this.audio = new Audio();
+        this.editor = editor;
         this.playing = false;
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
         this.initCoordinate();
-        this.soundQueue = new SoundQueue()
+        this.initGreyScreen();
+        this.soundQueue = []
     }
     get time(): number {
         return this.audio.currentTime || 0
@@ -48,6 +51,59 @@ class Player {
         //context.scale(0.5, 0.5)
         context.save()
         // console.log(context.getTransform())
+    }
+    renderDropScreen() {
+        const {canvas, context} = this;
+        context.scale(1, -1);
+        context.fillStyle = "#6cf"
+        context.fillRect(-675, -450, 1350, 900);
+        context.fillStyle = "#444"
+        context.font = "100px phigros"
+        const metrics = context.measureText("松手释放");
+        context.fillText("松手释放", -metrics.width/2, 0)
+        context.restore();
+        context.save();
+    }
+    renderGreyScreen() {
+        const {canvas, context} = this;
+        context.scale(1, -1);
+        context.fillStyle = "#AAA"
+        context.fillRect(-675, -450, 1350, 900);
+        context.fillStyle = "#444"
+        context.font = "100px phigros"
+        const metrics = context.measureText("放入文件");
+        context.fillText("放入文件", -metrics.width/2, 0)
+        context.restore();
+        context.save();
+    }
+    initGreyScreen() {
+        const {canvas, context} = this;
+        this.renderGreyScreen()
+        canvas.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            this.renderDropScreen()
+        })
+        canvas.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            this.renderGreyScreen()
+        })
+        canvas.addEventListener("drop", (e) => {
+            const files = e.dataTransfer.files;
+            const len = files.length;
+            for (let i = 0; i < len; i++) {
+                const file = files[i];
+                const arr = file.name.split(".")
+                const extension = arr[arr.length - 1];
+                if (["jpeg", "jpg", "png", "gif", "svg", "webp", "bmp", "ico"].includes(extension)) {
+                    this.editor.readImage(file);
+                } else if (["json"].includes(extension)) {
+                    this.editor.readChart(file)
+                } else {
+                    this.editor.readAudio(file)
+                }
+            }
+            e.preventDefault()
+        })
     }
     render() {
         const context = this.context;
@@ -72,11 +128,31 @@ class Player {
         }
 
         const showInfo = settings.get("playerShowInfo");
+        if (showInfo) {
+            context.scale(1, -1);
+            context.fillStyle = "#ddd"
+            context.font = "50px phigros"
+            const chart = this.chart;
+            const title = chart.name;
+            const level = chart.level;
+            context.fillText(title, -650, 400);
+            context.restore()
+            context.save()
+        }
+        const timeLimit = this.time - 0.033
         if (this.playing) {
-            this.soundQueue.process(this.beats, this.chart.timeCalculator)
+            const queue = this.soundQueue;
+            const len = queue.length;
+            for (let i = 0; i < len; i++) {
+                const SoundEntity = queue[i];
+                if (SoundEntity.seconds < timeLimit) {
+                    continue;
+                }
+                const audio: HTMLAudioElement = <HTMLAudioElement> [null, sound.tap, sound.tap, sound.flick, sound.drag][SoundEntity.type].cloneNode();
+                audio.play()
+            }
         } else {
-            this.soundQueue.head = null;
-            this.soundQueue.tail = null;
+            this.soundQueue = [];
         }
     }
     renderLine(baseX: number, baseY: number, judgeLine: JudgeLine) {
@@ -113,6 +189,7 @@ class Player {
         context.drawImage(ANCHOR, -10, -10)
 
         /** 判定线的法向量 */
+        
         const nVector: Vector = [-Math.sin(theta), +Math.cos(theta)] // 奇变偶不变，符号看象限(
         const toCenter: Vector = [-transformedX, -transformedY];
         // 法向量是单位向量，分母是1，不写
@@ -158,17 +235,21 @@ class Player {
                     
                     let note: TypeOrTailer<Note> = tree.getNoteAt(start, tree.renderPointer);
                     while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < end) {
-                        this.renderSameTimeNotes(note, judgeLine, timeCalculator);
+                        this.renderSameTimeNotes(note, this.chart.comboMapping[toTimeString(note.startTime)].real > 1, judgeLine, timeCalculator);
                         note = note.next;
                     }
                 }
                 let noteRange = tree.movePointerTo(tree.hitPointer, beats);
-                if (noteRange
-                    /* && timeCalculator.toSeconds(TC.toBeats(noteRange[0].endTime)) > this.time - 0.033*/) {
-                    const [start, end] = noteRange;
+                const [start, end, distance] = noteRange;
+                
+                if (distance >= 0) {
                     let note = start;
                     while (note !== end) {
-                        soundQueue.pushEntity(TC.toBeats(note.startTime), note.type, timeCalculator)
+                        soundQueue.push(new SoundEntity(note.type, TC.toBeats(note.startTime), timeCalculator))
+                        let branch: Note = note;
+                        while (branch = branch.nextSibling) {
+                            soundQueue.push(new SoundEntity(branch.type, TC.toBeats(branch.startTime), timeCalculator))
+                        }
                         note = <Note>note.next
                     }
                 } else {
@@ -201,40 +282,42 @@ class Player {
         }
         */
     }
-    renderSameTimeNotes(note: Note, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
-        if (note.type === NoteType.Hold) {
+    renderSameTimeNotes(note: Note, double: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
+        if (note.type === NoteType.hold) {
             const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed;
             this.renderNote(
                 note,
+                double,
                 startY < 0 ? 0 : startY,
                 judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed
                 )
         } else {
             this.renderNote(
                 note,
+                double,
                 judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed
             )
         }
         if (note.nextSibling) {
-            this.renderSameTimeNotes(note.nextSibling, judgeLine, timeCalculator);
+            this.renderSameTimeNotes(note.nextSibling, double, judgeLine, timeCalculator);
         }
     }
-    renderNote(note: Note, positionY: number, endpositionY?: number) {
+    renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
         let image: HTMLImageElement;
         switch (note.type) {
-            case NoteType.Tap:
+            case NoteType.tap:
                 image = TAP;
                 break;
-            case NoteType.Drag:
+            case NoteType.drag:
                 image = DRAG;
                 break;
-            case NoteType.Flick:
+            case NoteType.flick:
                 image = FLICK;
                 break;
-            case NoteType.Hold:
+            case NoteType.hold:
                 image = HOLD_HEAD;
                 break;
             default:
@@ -246,11 +329,11 @@ class Player {
         }
         let length = endpositionY - positionY
         // console.log(NoteType[note.type])
-        if (note.type === NoteType.Hold) {
+        if (note.type === NoteType.hold) {
             this.context.drawImage(HOLD_BODY, note.positionX - this.noteSize / 2,  positionY - 10, this.noteSize, length)
         }
         this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10)
-        if (note.double) {
+        if (double) {
             this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
         }
         if (!note.above) {
@@ -351,13 +434,12 @@ class ProgressBar {
 
 
 class SoundEntity {
-    next: SoundEntity | null;
     type: NoteType;
     // playsSound: boolean;
     // posX: number;
     // posY: number;
     beats: number;
-    time: number;
+    seconds: number;
     // playingSound: boolean;
     constructor(type: NoteType, beats: number, timeCalculator: TimeCalculator) {
         this.type = type;
@@ -365,46 +447,8 @@ class SoundEntity {
         // this.posX = posX;
         // this.posY = posY;
         this.beats = beats;
-        this.time = timeCalculator.toSeconds(beats)
+        this.seconds = timeCalculator.toSeconds(beats)
         // this.playingSound = false;
-        this.next = null;
     }
 }
 
-class SoundQueue {
-    head: SoundEntity | null;
-    tail: SoundEntity | null;
-    constructor() {
-        this.head = null;
-        this.tail = null
-    }
-    process(beats: number, timeCalculator: TimeCalculator): SoundEntity[] {
-        console.log(this.head)
-        const entities: SoundEntity[] = [];
-        let current: SoundEntity = this.head;
-        const last2fr = timeCalculator.toSeconds(beats) - 0.033
-        while (current && (current.beats > beats || current.time < last2fr)) { // 未到的条目被忽略
-            current = current.next;
-        }
-        this.head = current;
-        debugger
-        while (current) {
-            let audio: HTMLAudioElement = <HTMLAudioElement>[null, sound.tap, sound.tap, sound.flick, sound.drag][current.type].cloneNode();
-            audio.play()
-            current = current.next;
-        }
-        this.head = null;
-        this.tail = null;
-        return entities
-    }
-    pushEntity(beats: number, type: NoteType, timeCalculator: TimeCalculator) {
-        const entity = new SoundEntity(type, beats, timeCalculator)
-        if (this.head === null) {
-            this.head = entity;
-            this.tail = entity;
-        } else {
-            this.tail.next = entity;
-            this.tail = entity;
-        }
-    }
-}

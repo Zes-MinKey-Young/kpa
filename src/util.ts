@@ -31,6 +31,8 @@ type RGB = [number, number, number]
 const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r}, ${g}, ${b}, ${a})`
 const rgb = (r: number, g: number, b: number) => `rgba(${r}, ${g}, ${b})`
 
+const toTimeString = (beaT: TimeT) /*`${number}:${number}/${number}`*/ =>  `${beaT[0]}:${beaT[1]}/${beaT[2]}`
+
 function drawLine(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number) {
     context.beginPath()
     context.moveTo(startX, startY);
