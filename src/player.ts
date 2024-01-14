@@ -2,17 +2,24 @@
 
 const DEFAULT_ASPECT_RATIO = 3 / 2
 const LINE_WIDTH = 10;
-const LINE_COLOR = "#CCCC77"
+const LINE_COLOR = "#CCCC77";
+const HIT_EFFECT_SIZE = 200;
+const HALF_HIT = HIT_EFFECT_SIZE / 2
 
 // 以原点为中心，渲染的半径
 const RENDER_SCOPE = 900;
+
+const getVector = (theta: number): [Vector, Vector] => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]]
 
 class Player {
     editor: Editor;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
+    hitCanvas: HTMLCanvasElement;
+    hitContext: CanvasRenderingContext2D
     chart: Chart;
     audio: HTMLAudioElement;
+    audioProcessor: AudioProcessor;
     playing: boolean;
     background: HTMLImageElement;
     aspect: number;
@@ -22,6 +29,9 @@ class Player {
     constructor(canvas: HTMLCanvasElement, editor: Editor) {
         this.canvas = canvas
         this.context = canvas.getContext("2d");
+        this.audioProcessor = new AudioProcessor();
+        this.hitCanvas = document.createElement("canvas");
+        this.hitContext = this.hitCanvas.getContext("2d");
         this.audio = new Audio();
         this.editor = editor;
         this.playing = false;
@@ -32,24 +42,30 @@ class Player {
         this.soundQueue = []
     }
     get time(): number {
-        return this.audio.currentTime || 0
+        return (this.audio.currentTime || 0) - this.chart.offset / 1000 - 0.017;
     }
     get beats(): number {
         return this.chart.timeCalculator.secondsToBeats(this.time)
     }
     initCoordinate() {
-        let {canvas, context} = this;
+        let {canvas, context, hitCanvas, hitContext} = this;
         
         // console.log(context.getTransform())
         const height = canvas.parentElement.clientHeight;
         const width = height * (this.aspect)
         canvas.height = height;
         canvas.width = width;
+        hitCanvas.height = height;
+        hitCanvas.width = width
         // context.translate(height / 2, width / 2) 好好纪念这个把我气吐血的智障
         context.translate(width / 2, height / 2)
         context.scale(width / 1350, -height / 900)
-        //context.scale(0.5, 0.5)
+        hitContext.translate(width / 2, height / 2)
+        hitContext.scale(width / 1350, height / 900)
+        context.scale(0.2, 0.2)
+        //hitContext.scale(0.5, 0.5)
         context.save()
+        hitContext.save()
         // console.log(context.getTransform())
     }
     renderDropScreen() {
@@ -106,16 +122,22 @@ class Player {
         })
     }
     render() {
+        // console.time("render")
         const context = this.context;
+        const hitContext = this.hitContext;
+        hitContext.clearRect(675, -450, -1350, 900);
         context.scale(1, -1)
         context.drawImage(this.background, -675, -450, 1350, 900);
+        // 涂灰色（背景变暗）
         context.fillStyle = "#2227";
         context.fillRect(-2700, -1800, 5400, 3600)
+        // 画出渲染范围圆
         context.strokeStyle = "#66ccff";
         context.arc(0, 0, RENDER_SCOPE, 0, 2 * Math.PI);
         context.stroke()
         context.restore()
         context.save()
+
         context.strokeStyle = "#FFFFFF"
         drawLine(context, -1350, 0, 1350, 0)
         drawLine(context, 0, 900, 0, -900);
@@ -126,6 +148,10 @@ class Player {
             context.restore()
             context.save()
         }
+        context.scale(1, -1)
+        context.drawImage(this.hitCanvas, -675, -450, 1350, 900)
+        context.restore()
+        context.save()
 
         const showInfo = settings.get("playerShowInfo");
         if (showInfo) {
@@ -139,6 +165,7 @@ class Player {
             context.restore()
             context.save()
         }
+
         const timeLimit = this.time - 0.033
         if (this.playing) {
             const queue = this.soundQueue;
@@ -148,22 +175,19 @@ class Player {
                 if (SoundEntity.seconds < timeLimit) {
                     continue;
                 }
-                const audio: HTMLAudioElement = <HTMLAudioElement> [null, sound.tap, sound.tap, sound.flick, sound.drag][SoundEntity.type].cloneNode();
-                audio.play()
+                this.audioProcessor.playNoteSound(SoundEntity.type);
             }
-        } else {
-            this.soundQueue = [];
         }
+        this.soundQueue = [];
+        
+        // console.timeEnd("render")
     }
     renderLine(baseX: number, baseY: number, judgeLine: JudgeLine) {
         const context = this.context;
         const timeCalculator = this.chart.timeCalculator
         const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
-        let x = judgeLine.getStackedValue("moveX",beats)
-        let y = judgeLine.getStackedValue("moveY",beats)
-        let theta = judgeLine.getStackedValue("rotate", beats) / 180 * Math.PI // 转换为弧度制
-        let alpha = judgeLine.getStackedValue("alpha", beats);
+        let [x, y, theta, alpha] = judgeLine.getValues(beats)
         judgeLine.moveX = x;
         judgeLine.moveY = y;
         judgeLine.rotate = theta;
@@ -179,7 +203,7 @@ class Player {
             }
             context.restore();
         }
-        context.rotate(theta);
+        context.rotate(-theta);
 
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
@@ -189,8 +213,7 @@ class Player {
         context.drawImage(ANCHOR, -10, -10)
 
         /** 判定线的法向量 */
-        
-        const nVector: Vector = [-Math.sin(theta), +Math.cos(theta)] // 奇变偶不变，符号看象限(
+        const nVector: Vector = getVector(theta)[1] // 奇变偶不变，符号看象限(
         const toCenter: Vector = [-transformedX, -transformedY];
         // 法向量是单位向量，分母是1，不写
         const distance: number = innerProduct(toCenter, nVector);
@@ -215,6 +238,8 @@ class Player {
             context.restore()
 
         }
+
+        const hitRenderLimit = beats > 0.66 ? beats - 0.66 : 0 // 渲染 0.66秒内的打击特效
         const holdTrees = judgeLine.holdTrees;
         const noteTrees = judgeLine.noteTrees;
         const soundQueue = this.soundQueue
@@ -225,36 +250,32 @@ class Player {
             for (let speed in trees) {
                 const tree = trees[speed];
                 const speedVal: number = parseFloat(speed);
+                // 渲染音符
                 const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
-                console.log(timeRanges, startY, endY);
+                // console.log(timeRanges, startY, endY);
                 for (let range of timeRanges) {
                     const start = range[0];
                     const end = range[1];
                     // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
                     // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                     
-                    let note: TypeOrTailer<Note> = tree.getNoteAt(start, tree.renderPointer);
+                    let note: TypeOrTailer<Note> = tree.getNoteAt(start, true, tree.renderPointer);
                     while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < end) {
                         this.renderSameTimeNotes(note, this.chart.comboMapping[toTimeString(note.startTime)].real > 1, judgeLine, timeCalculator);
                         note = note.next;
                     }
                 }
-                let noteRange = tree.movePointerTo(tree.hitPointer, beats);
-                const [start, end, distance] = noteRange;
-                
-                if (distance >= 0) {
-                    let note = start;
-                    while (note !== end) {
-                        soundQueue.push(new SoundEntity(note.type, TC.toBeats(note.startTime), timeCalculator))
-                        let branch: Note = note;
-                        while (branch = branch.nextSibling) {
-                            soundQueue.push(new SoundEntity(branch.type, TC.toBeats(branch.startTime), timeCalculator))
-                        }
-                        note = <Note>note.next
-                    }
-                } else {
+                // 处理音效
+                this.renderSounds(tree, beats, soundQueue, timeCalculator)
+                // 打击特效
+                if (beats > 0) {
+                    if (tree instanceof HoldTree) {
 
+                    } else {
+                        this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                    }
                 }
+
             }
 
         }
@@ -281,6 +302,53 @@ class Player {
             }
         }
         */
+    }
+    renderSounds(tree: NoteTree, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator) {
+        
+        let noteRange = tree.movePointerBeforeStart(tree.hitPointer, beats);
+        const [start, end, distance] = noteRange;
+        if ("tailing" in start) {
+            return;
+        }
+        if (distance >= 0) {
+            let note = start;
+            while (note !== end) {
+                if ("tailing" in note) {
+                    console.log(noteRange)
+                }
+                soundQueue.push(new SoundEntity(note.type, TC.toBeats(note.startTime), timeCalculator))
+                let branch: Note = note;
+                while (branch = branch.nextSibling) {
+                    soundQueue.push(new SoundEntity(branch.type, TC.toBeats(branch.startTime), timeCalculator))
+                }
+                note = <Note>note.next
+            }
+        }
+    }
+    renderHitEffects(judgeLine: JudgeLine, tree: NoteTree, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
+        let note = tree.getNoteAt(startBeats, true);
+        const end = tree.getNoteAt(endBeats);
+        if ("tailing" in note) {
+            return;
+        }
+        while (note !== end) {
+            const beats = TimeCalculator.toBeats(note.startTime);
+            const base = judgeLine.getBaseCoordinate(beats);
+            const thisCoord = judgeLine.getThisCoordinate(beats);
+            const bx = base[0] + thisCoord[0]
+            const by = base[1] + thisCoord[1];
+            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
+            let branch = note;
+            do {
+                const posX = branch.positionX;
+                const x = bx + posX * vx, y = by + posX * vy;
+                const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
+                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
+                // debugger
+            } while (branch = branch.nextSibling)
+
+            note = <Note>note.next
+        } 
     }
     renderSameTimeNotes(note: Note, double: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
         if (note.type === NoteType.hold) {

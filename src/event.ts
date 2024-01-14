@@ -140,12 +140,12 @@ class EventEndNode extends EventNode {
 }
 
 enum EventType {
-    MoveX,
-    MoveY,
-    Rotate,
-    Alpha,
-    Speed,
-    Easing
+    moveX,
+    moveY,
+    rotate,
+    alpha,
+    speed,
+    easing
 }
 
 /**
@@ -178,7 +178,7 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], templates: TemplateEasingLib, timeCalculator: T extends EventType.Speed ? TimeCalculator: undefined) {
+    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], templates: TemplateEasingLib, timeCalculator: T extends EventType.speed ? TimeCalculator: undefined) {
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
@@ -297,13 +297,17 @@ class EventNodeSequence {
     }
     getNodeAt(beats: number, usePrev: boolean = false): EventStartNode {
         let node = this.jump.getNodeAt(beats);
+        if ("tailing" in node) {
+            // 最后一个事件节点本身具有无限延伸的特性
+            return node.previous;
+        }
         if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
             const prev = node.previous;
             if (!("heading" in prev)) {
                 node = prev.previous;
             }
         }
-        if (TimeCalculator.toBeats(node.time) > beats) {
+        if (TimeCalculator.toBeats(node.time) > beats && beats > 0) {
             debugger
         }
         return node;

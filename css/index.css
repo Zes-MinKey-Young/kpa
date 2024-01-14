@@ -50,8 +50,33 @@ body, html {
     grid-row: 3 / 4;
     grid-column: 2 / 3;
     overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 #player {
     text-align: center;
+}
+
+.judge-line-editor {
+    display: grid;
+    grid-template-rows: 1em auto;
+    grid-template-columns: 2em repeat(4, 2em 4em);
+    gap: 4px;
+    background-color: #999;
+    border-radius: 6px;
+}
+
+.judgeline-info-id {
+    grid-row: 1 / 3;
+    font-size: larger;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.judgeline-info-name {
+    grid-column: 2 / span 8;
+    font-size: large;
 }

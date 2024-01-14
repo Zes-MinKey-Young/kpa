@@ -115,12 +115,15 @@ abstract class Easing {
         const delta = endY - startY;
         const timeDelta = endX - startX;
         let last = startY;
-        for (let t = 1; t <= timeDelta; t++) {
+        context.beginPath()
+        context.moveTo(startX, last)
+        for (let t = 4; t <= timeDelta; t += 4) {
             const ratio = t / timeDelta
             const curPosY = this.getValue(ratio) * delta + startY;
-            drawLine(context, startX + t - 1, last, startX + t, curPosY);
+            context.lineTo(startX + t, curPosY);
             last = curPosY;
         }
+        context.stroke();
     }
 }
 
@@ -259,7 +262,7 @@ class TemplateEasingLib {
             return
         }
         this.easings[customEasingData.name] = new TemplateEasing(
-            EventNodeSequence.fromRPEJSON(EventType.Easing, customEasingData.content, this, undefined)
+            EventNodeSequence.fromRPEJSON(EventType.easing, customEasingData.content, this, undefined)
             );
         if (customEasingData.usedBy) {
             for (let name of customEasingData.usedBy) {
@@ -278,7 +281,7 @@ class TemplateEasingLib {
     addOrdered(customEasingData: CustomEasingData[]) {
         for (let each of customEasingData) {
             this.easings[each.name] = new TemplateEasing(
-            EventNodeSequence.fromRPEJSON(EventType.Easing, each.content, this, undefined)
+            EventNodeSequence.fromRPEJSON(EventType.easing, each.content, this, undefined)
             );
         }
         

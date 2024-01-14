@@ -1,1 +1,1 @@
-cmd /k tsc util.ts jumparray.ts settings.ts editor.ts note.ts chart.ts easing.ts event.ts audio.ts images.ts player.ts time.ts main.ts --target ES6 --lib dom,ES2016 --outFile ../dist/index.js
+cmd /k tsc util.ts jumparray.ts settings.ts editor.ts note.ts judgeline.ts chart.ts easing.ts event.ts audio.ts images.ts player.ts time.ts main.ts --target ES6 --lib dom,ES2016 --outFile ../dist/index.js

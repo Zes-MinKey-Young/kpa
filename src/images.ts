@@ -9,6 +9,7 @@ const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
+const HIT_FX = new Image(1024, 1024);
 
 TAP.src = "../img/tap.png"
 DRAG.src = "../img/drag.png"
@@ -21,3 +22,10 @@ BELOW.src = "../img/below.png"
 DOUBLE.src = "../img/double.png"
 NODE_START.src = "../img/south.png"
 NODE_END.src = "../img/north.png"
+HIT_FX.src = "../img/hit_fx.png"
+
+const drawNthFrame = (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => {
+    const x = nth % 4;
+    const y = (nth - x) / 4
+    context.drawImage(HIT_FX, x * 256, y * 256, 256, 256, dx, dy, dw, dh)
+}

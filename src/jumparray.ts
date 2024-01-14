@@ -94,11 +94,14 @@ class JumpArray<T extends TwoDirectionNode> {
      * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
      * @returns 时间索引链表的节点
      */
-    getNodeAt(beats: number): T {
-        if (beats >= this.effectiveBeats) {
-            return this.tailer.previous;
+    getNodeAt(beats: number): T | Tailer<T> {
+        if (beats < 0) {
+            return this.header.next;
         }
-        const jumpAverageBeats = this.averageBeats
+        if (beats >= this.effectiveBeats) {
+            return this.tailer;
+        }
+        const jumpAverageBeats = this.averageBeats;
         const jumpPos = Math.floor(beats / jumpAverageBeats);
         const rest = beats - jumpPos * jumpAverageBeats;
         const nextFn = this.nextFn;
@@ -108,6 +111,7 @@ class JumpArray<T extends TwoDirectionNode> {
             : canBeNodeOrArray;
         // console.log(this, node, jumpPos, beats)
         if (!node) {
+            console.log(node, jumpPos, beats)
             debugger
         }
         let next: T | false;
@@ -121,12 +125,17 @@ class JumpArray<T extends TwoDirectionNode> {
 
 class Pointer<T extends TwoDirectionNode> {
     beats: number;
-    node: T;
+    node: T | Tailer<T>;
+    before: number;
     constructor() {
         this.node = null;
         this.beats = null;
+        this.before = 0;
     }
-    pointTo(node: T, beats: number) {
+    pointTo(node: TypeOrTailer<T>, beats: number, counts: boolean=false) {
+        if (!node) {
+            debugger
+        }
         this.node = node;
         this.beats = beats
     }

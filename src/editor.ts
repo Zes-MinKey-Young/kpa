@@ -1,23 +1,104 @@
 const NODE_WIDTH = 10;
 const NODE_HEIGHT = 10;
 
+const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
+
+class z$<K extends keyof HTMLElementTagNameMap> {
+    element: HTMLElementTagNameMap[K];
+    constructor(type: K) {
+        this.element = document.createElement(type);
+    }
+    html(str: string) {
+        this.element.innerHTML = str
+        return this;
+    }
+    text(str: string) {
+        const childNodes = this.element.childNodes
+        if (childNodes.length === 1 && childNodes[0].nodeType === Node.TEXT_NODE) {
+            childNodes[0].nodeValue = str;
+        } else {
+            this.element.replaceChildren(str)
+        }
+        return this
+    }
+    addClass(...classes: string[]) {
+        this.element.classList.add(...classes)
+        return this;
+    }
+    release() {
+        return this.element;
+    }
+}
+
+const $ = <K extends keyof HTMLElementTagNameMap>(...args: [K]) => new z$(...args);
+
 class JudgeLinesEditor {
     editor: Editor;
     chart: Chart;
     element: HTMLDivElement;
-    orphans: JudgeLine[]
+    // orphans: JudgeLine[]
+    editors: JudgeLineEditor[];
     constructor(editor: Editor, element: HTMLDivElement) {
         this.chart = editor.chart;
         this.editor = editor
         this.element = element;
-        this.orphans = [];
-        for (let each of this.orphans) {
+        this.editors = []
+        // this.orphans = [];
+        for (let each of this.chart.orphanLines) {
             this.addJudgeLine(each)
         }
     }
     addJudgeLine(judgeLine: JudgeLine) {
-        this.orphans.push(judgeLine);
-        
+        const editor = new JudgeLineEditor(judgeLine)
+        this.editors.push(editor);
+        this.element.appendChild(editor.element)
+    }
+    update() {
+        for (let each of this.editors) {
+            each.update()
+        }
+    }
+}
+
+class JudgeLineEditor {
+    element: HTMLDivElement;
+    judgeLine: JudgeLine;
+    $id: z$<"div">;
+    $name: z$<"div">;
+    $xSpan: z$<"span">;
+    $ySpan: z$<"span">;
+    $thetaSpan: z$<"span">;
+    $alphaSpan: z$<"span">;
+    constructor(judgeLine: JudgeLine) {
+        this.judgeLine = judgeLine;
+        const element = document.createElement("div");
+        element.classList.add("judge-line-editor")
+        this.element = element;
+        this.$id = $("div").addClass("judgeline-info-id");
+        this.$name = $("div").addClass("judgeline-info-name");
+        this.$xSpan = $("span");
+        this.$ySpan = $("span");
+        this.$thetaSpan = $("span");
+        this.$alphaSpan = $("span");
+        element.append(
+            this.$id.release(),
+            this.$name.release(),
+            $("span").text("x: ").release(),
+            this.$xSpan.release(),
+            $("span").text("y: ").release(),
+            this.$ySpan.release(),
+            $("span").text("θ: ").release(),
+            this.$thetaSpan.release(),
+            $("span").text("α: ").release(),
+            this.$alphaSpan.release()
+        )
+    }
+    update() {
+        this.$id.text(this.judgeLine.id + "")
+        this.$xSpan.text(round(this.judgeLine.moveX, 2))
+        this.$ySpan.text(round(this.judgeLine.moveY, 2))
+        this.$thetaSpan.text(round(this.judgeLine.rotate / Math.PI * 180, 2))
+        this.$alphaSpan.text(Math.round(this.judgeLine.alpha) + "(" + Math.round(this.judgeLine.alpha).toString(16) + ")")
     }
 }
 
@@ -65,14 +146,14 @@ class EventCurveEditor {
     valueGridColor: RGB;
     width: number;
     height: number;
-    constructor(type: EventType, sequence: EventNodeSequence) {
+    constructor(type: EventType, sequence: EventNodeSequence, height: number, width: number) {
         const config = eventTypeMap[type]
         this.sequence = sequence;
         this.canvas = document.createElement("canvas")
-        this.canvas.width = 410//this.canvas.parentElement.clientWidth;
-        this.canvas.height = 120;
-        this.height = 100
-        this.width = 400
+        this.canvas.width = width//this.canvas.parentElement.clientWidth;
+        this.canvas.height = height;
+        this.height = height - 20
+        this.width = width - 20
         this.context = this.canvas.getContext("2d");
         this.halfRange = 2
         this.halfCent = this.halfRange * 100;
@@ -202,6 +283,8 @@ class Editor {
     eventSequenceEle: HTMLDivElement;
     lineInfoEle: HTMLDivElement;
     playButton: HTMLButtonElement;
+
+    judgeLinesEditor: JudgeLinesEditor
     constructor() {
         this.initialized = false;
         this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this)
@@ -275,6 +358,7 @@ class Editor {
             this.player.chart = chart;
             this.chart = chart;
             this.chartInitialized = true;
+            this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
             if (this.chartInitialized && this.imageInitialized) {
                 this.initFirstFrame();
             }
@@ -290,8 +374,10 @@ class Editor {
         this.player.render()
         this.eventCurveEditors = [];
         const eventLayer = chart.judgeLines[0].eventLayers[0]
+        const height = this.eventSequenceEle.clientHeight;
+        const width = this.eventSequenceEle.clientWidth
         for (let type in eventLayer) {
-            const eventCurveEditor = new EventCurveEditor(EventType[type.charAt(0).toUpperCase() + type.slice(1)], eventLayer[type]);
+            const eventCurveEditor = new EventCurveEditor(EventType[type], eventLayer[type], height, width);
             this.eventSequenceEle.appendChild(eventCurveEditor.canvas)
             this.eventCurveEditors.push(eventCurveEditor);
             eventCurveEditor.draw(0);
@@ -323,9 +409,10 @@ class Editor {
         requestAnimationFrame(() => {
             if (this.playing) {
                 this.updateEventSequences()
+                this.update()
             }
+            this.judgeLinesEditor.update()
             console.log("updated")
-            this.update()
         })
     }
     updateEventSequences() {
