@@ -62,7 +62,7 @@ class Player {
         context.scale(width / 1350, -height / 900)
         hitContext.translate(width / 2, height / 2)
         hitContext.scale(width / 1350, height / 900)
-        context.scale(0.2, 0.2)
+        context.scale(0.9, 0.9)
         //hitContext.scale(0.5, 0.5)
         context.save()
         hitContext.save()
@@ -374,23 +374,8 @@ class Player {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
-        let image: HTMLImageElement;
-        switch (note.type) {
-            case NoteType.tap:
-                image = TAP;
-                break;
-            case NoteType.drag:
-                image = DRAG;
-                break;
-            case NoteType.flick:
-                image = FLICK;
-                break;
-            case NoteType.hold:
-                image = HOLD_HEAD;
-                break;
-            default:
-                image = TAP;
-        }
+        let image: HTMLImageElement = getImageFromType(note.type);
+        
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY

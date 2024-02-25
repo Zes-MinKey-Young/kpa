@@ -24,8 +24,25 @@ NODE_START.src = "../img/south.png"
 NODE_END.src = "../img/north.png"
 HIT_FX.src = "../img/hit_fx.png"
 
+
+
 const drawNthFrame = (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => {
     const x = nth % 4;
     const y = (nth - x) / 4
     context.drawImage(HIT_FX, x * 256, y * 256, 256, 256, dx, dy, dw, dh)
+}
+
+const getImageFromType = (noteType: NoteType) => {
+    switch (noteType) {
+        case NoteType.tap:
+            return TAP;
+        case NoteType.drag:
+            return DRAG;
+        case NoteType.flick:
+            return  FLICK;
+        case NoteType.hold:
+            return HOLD_HEAD;
+        default:
+            return TAP;
+    }
 }

@@ -1,6 +1,9 @@
 const NODE_WIDTH = 10;
 const NODE_HEIGHT = 10;
 
+const NOTE_WIDTH = 27;
+const NOTE_HEIGHT = 4
+
 const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
 class z$<K extends keyof HTMLElementTagNameMap> {
@@ -38,6 +41,7 @@ class JudgeLinesEditor {
     element: HTMLDivElement;
     // orphans: JudgeLine[]
     editors: JudgeLineEditor[];
+    metaLineAdded = false;
     constructor(editor: Editor, element: HTMLDivElement) {
         this.chart = editor.chart;
         this.editor = editor
@@ -48,10 +52,30 @@ class JudgeLinesEditor {
             this.addJudgeLine(each)
         }
     }
+    _selectedLine: JudgeLineEditor;
+    get selectedLine() {
+        return this._selectedLine
+    }
+    set selectedLine(lineEditor: JudgeLineEditor) {
+        if (this._selectedLine === lineEditor) {
+            return;
+        }
+        if (this.selectedLine) {
+            
+            this._selectedLine.element.classList.remove("judge-line-editor-selected")
+        }
+        this._selectedLine = lineEditor;
+        this.editor.noteEditor.target = lineEditor.judgeLine;
+        lineEditor.element.classList.add("judge-line-editor-selected")
+    }
     addJudgeLine(judgeLine: JudgeLine) {
-        const editor = new JudgeLineEditor(judgeLine)
+        const editor = new JudgeLineEditor(this, judgeLine)
         this.editors.push(editor);
-        this.element.appendChild(editor.element)
+        this.element.appendChild(editor.element);
+        if (!this.metaLineAdded) {
+            this.metaLineAdded = true;
+            this.selectedLine = editor
+        }
     }
     update() {
         for (let each of this.editors) {
@@ -61,6 +85,7 @@ class JudgeLinesEditor {
 }
 
 class JudgeLineEditor {
+    linesEditor: JudgeLinesEditor;
     element: HTMLDivElement;
     judgeLine: JudgeLine;
     $id: z$<"div">;
@@ -69,7 +94,8 @@ class JudgeLineEditor {
     $ySpan: z$<"span">;
     $thetaSpan: z$<"span">;
     $alphaSpan: z$<"span">;
-    constructor(judgeLine: JudgeLine) {
+    constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine) {
+        this.linesEditor = linesEditor;
         this.judgeLine = judgeLine;
         const element = document.createElement("div");
         element.classList.add("judge-line-editor")
@@ -92,6 +118,9 @@ class JudgeLineEditor {
             $("span").text("α: ").release(),
             this.$alphaSpan.release()
         )
+        element.addEventListener("click", () => {
+            this.linesEditor.selectedLine = this;
+        })
     }
     update() {
         this.$id.text(this.judgeLine.id + "")
@@ -134,34 +163,34 @@ class EventCurveEditor {
     sequence: EventNodeSequence;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
-    halfRange: number;
-    halfCent: number;
+    // halfCent: number;
     valueRatio: number;
     timeRatio: number;
     valueRange: number;
-    basis: number;
-    timeCentGridSpan: number;
+    valueBasis: number;
+    timeRange: number;
+    timeGridSpan: number;
     valueGridSpan: number;
+
     timeGridColor: RGB;
     valueGridColor: RGB;
-    width: number;
-    height: number;
+
+    padding: number;
     constructor(type: EventType, sequence: EventNodeSequence, height: number, width: number) {
         const config = eventTypeMap[type]
         this.sequence = sequence;
         this.canvas = document.createElement("canvas")
         this.canvas.width = width//this.canvas.parentElement.clientWidth;
         this.canvas.height = height;
-        this.height = height - 20
-        this.width = width - 20
+        this.padding = 10;
         this.context = this.canvas.getContext("2d");
-        this.halfRange = 2
-        this.halfCent = this.halfRange * 100;
+        this.timeRange = 4
+        // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
-        this.basis = this.canvas.height * config.basis;
+        this.valueBasis = this.canvas.height * config.basis;
         this.valueRatio = this.canvas.height / this.valueRange;
-        this.timeRatio = this.canvas.width / 2 / this.halfCent;
-        this.timeCentGridSpan = 100;
+        this.timeRatio = this.canvas.width / this.timeRange;
+        this.timeGridSpan = 1;
         this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
         this.valueGridColor = [255, 170, 120];
@@ -174,28 +203,31 @@ class EventCurveEditor {
         this.context.lineWidth = 2
     }
     drawCoordination(beats: number) {
-        const {height, width} = this;
-        const beatCents = beats * 100
-        const {timeCentGridSpan, valueGridSpan, valueRatio, context} = this;
+        const {height: canvasHeight, width: canvasWidth} = this.canvas;
+        const height = canvasHeight - this.padding * 2, width = canvasWidth - this.padding * 2;
+        const {timeGridSpan, valueGridSpan, valueRatio, context} = this;
+        context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight)
+        // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
-        const upperEnd = Math.ceil((height / 2 - this.basis) / valueGridSpan / valueRatio) * valueGridSpan
-        const lowerEnd = Math.ceil((-height / 2 - this.basis) / valueGridSpan / valueRatio) * valueGridSpan
+        // 计算上下界
+        const upperEnd = Math.ceil((height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
+        const lowerEnd = Math.ceil((-height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
         context.strokeStyle = rgb(...this.valueGridColor)
         context.lineWidth = 1;
 
         for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
-            const positionY = value * valueRatio + this.basis;
-            drawLine(context, -width / 2, -positionY, width, -positionY);
+            const positionY = value * valueRatio + this.valueBasis;
+            drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
             context.strokeText(value + "", -width / 2, -positionY)
         }
         context.strokeStyle = rgb(...this.timeGridColor)
         
-        const stopCents = Math.ceil(beats + this.halfRange) * 100;
-        const startCents = Math.ceil(beats - this.halfRange) * 100;
-        for (let time = startCents; time < stopCents; time += timeCentGridSpan) {
-            const positionX = (time - beatCents)  * this.timeRatio
+        const stopBeats = Math.ceil((beats + this.timeRange / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan) * timeGridSpan;
+        for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
+            const positionX = (time - beats)  * this.timeRatio
             drawLine(context, positionX, height / 2, positionX, -height / 2);
-            context.strokeText(time / 100 + "", positionX, height / 2)
+            context.strokeText(time + "", positionX, height / 2)
         }
 
         context.lineWidth = 3;
@@ -204,11 +236,10 @@ class EventCurveEditor {
     }
     draw(beats: number) {
         const {height, width} = this.canvas;
-        const {timeRatio, valueRatio, basis, context}= this
-        this.context.fillRect(-width / 2, -height / 2, width, height)
+        const {timeRatio, valueRatio, valueBasis: basis, context}= this
         this.drawCoordination(beats)
-        const startBeats = beats - this.halfRange;
-        const endBeats = beats + this.halfRange;
+        const startBeats = beats - this.timeRange / 2;
+        const endBeats = beats + this.timeRange / 2;
         let previousEndNode: EventEndNode | Header<EventStartNode> = this.sequence.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || this.sequence.head; // 有点奇怪的操作
         let previousTime = "heading" in previousEndNode ? 0: TimeCalculator.toBeats(previousEndNode.time);
         while (previousTime < endBeats) {
@@ -221,8 +252,8 @@ class EventCurveEditor {
             const endTime = TimeCalculator.toBeats(endNode.time);
             const startValue = startNode.value;
             const endValue   = endNode.value;
-            const startX = (startTime - beats) * 100 * timeRatio;
-            const endX   = (endTime   - beats) * 100 * timeRatio;
+            const startX = (startTime - beats) * timeRatio;
+            const endX   = (endTime   - beats) * timeRatio;
             const startY = startValue * valueRatio + basis;
             const endY   = endValue   * valueRatio + basis;
             startNode.easing.drawCurve(context, startX, -startY, endX, -endY)
@@ -235,30 +266,159 @@ class EventCurveEditor {
             const lastStart = previousEndNode.next;
             const startTime = TimeCalculator.toBeats(lastStart.time);
             const startValue = lastStart.value;
-            const startX = (startTime - beats) * 100 * timeRatio;
+            const startX = (startTime - beats) * timeRatio;
             const startY = startValue * valueRatio + basis;
             drawLine(context, startX, startY, width / 2, startY);
             context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
         }
+    }
+}
+
+class NoteEditor {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    target: JudgeLine;
+    positionBasis: number
+    positionRatio: number;
+    positionGridSpan: number;
+    positionRange: number;
+    timeRatio: number;
+    timeGridSpan: number;
+    timeRange: number;
+    padding: number;
+
+    timeGridColor: RGB;
+    positionGridColor: RGB;
+
+
+    constructor(width: number, height: number) {
+        this.padding = 10;
+        this.target = null;
+        this.positionBasis = 0;
+        this.positionGridSpan = 135;
+        this.positionRatio = width / 1350;
+        this.timeGridSpan = 1;
+        this.timeRange = 4;
+        this.timeRatio = (height - this.padding) / this.timeRange;
+        this.canvas = document.createElement("canvas");
+        this.canvas.width = width;
+        this.canvas.height = height;
+        this.context = this.canvas.getContext("2d");
         
-        /*
-        const beatCents = beats * 100
-        const stop = beatCents + this.halfCent;
-        let b = beatCents - this.halfCent
-        if (b < 10) {
-            b = 10
-        }
-        let lastValue = this.sequence.getValueAt((b - 10) / 100)
-        for (; b < stop; b+=10) {
-            let nowValue = this.sequence.getValueAt(b / 100)
-            this.context.beginPath()
-            this.context.moveTo((b - 10 - beatCents) * this.timeRatio, lastValue * this.valueRatio + this.basis)
-            this.context.lineTo((b - beatCents) * this.timeRatio, nowValue * this.valueRatio + this.basis)
-            this.context.stroke()
+        this.timeGridColor = [120, 255, 170];
+        this.positionGridColor = [255, 170, 120];
+        this.init()
+    }
+    appendTo(element: HTMLElement) {
+        element.append(this.canvas)
+    }
+    init() {
+        this.context.translate(this.canvas.width / 2, this.canvas.height - this.padding)
+        this.context.strokeStyle = "#EEE"
+        this.context.fillStyle = "#333"
+        this.context.lineWidth = 2
+    }
+    drawCoordination(beats: number) {
+        const {context, canvas} = this;
+        const {width: canvasWidth, height: canvasHeight} = canvas;
+        console.log(canvasWidth, canvasHeight)
+        const {
+            positionGridSpan,
+            positionRatio,
+            positionRange,
+            positionBasis,
+            
+            timeGridSpan,
+            timeRange,
+            timeRatio,
+            
+            padding} = this;
+        const width = canvasWidth - padding * 2
+        const height = canvasHeight - padding * 2
+
+        context.fillRect(-canvasWidth / 2, padding - canvasHeight, canvasWidth, canvasHeight)
+
+        context.save()
+        context.lineWidth = 5;
+        context.strokeStyle = "#EEE";
+        // 基线
+        drawLine(context, -canvasWidth / 2, 0, canvasWidth / 2, 0);
+        context.restore()
+        // 绘制x坐标线
+        // 计算上下界
+        const upperEnd = Math.ceil((width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan
+        const lowerEnd = Math.ceil((-width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan
+        context.strokeStyle = rgb(...this.positionGridColor)
+        context.lineWidth = 1;
+        debugger;
+        for (let value = lowerEnd; value < upperEnd; value += positionGridSpan) {
+            const positionX = value * positionRatio + positionBasis;
+            drawLine(context, positionX, -height + padding, positionX, 0);
+            context.strokeText(value + "", -height + padding, positionX)
             debugger
-            lastValue = nowValue;
         }
-        */
+        context.strokeStyle = rgb(...this.timeGridColor)
+        // 绘制时间线
+        const startBeats = Math.floor(beats);
+        const stopBeats = Math.ceil(beats + timeRange);
+        for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
+            const positionY = (time - beats)  * timeRatio
+            drawLine(context, -width / 2, -positionY, width / 2, -positionY);
+            context.strokeText(time + "", -width / 2, -positionY)
+        }
+    }
+    draw(beats: number) {
+        const {context, canvas} = this;
+        const {width: canvasWidth, height: canvasHeight} = canvas;
+        const {
+            positionGridSpan,
+            positionRatio,
+            positionRange,
+            positionBasis,
+            
+            timeGridSpan,
+            timeRange,
+            timeRatio,
+            
+            padding} = this;
+        const width = canvasWidth - padding * 2;
+        const height = canvasHeight - padding * 2;
+        this.drawCoordination(beats);
+
+        for (let trees of [this.target.noteTrees, this.target.holdTrees]) {
+            for (let speed in trees) {
+                let tree = trees[speed];
+                let note = tree.getNoteAt(beats, true, tree.editorPointer);
+                while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < beats + timeRange) {
+                    let branch = note;
+                    do {
+                        this.drawNote(beats, branch);
+                    } while (branch = branch.nextSibling)
+                    note = note.next;
+                }
+            }
+        }
+    }
+    drawNote(beats: number, note: Note) {
+        const context = this.context;
+        const {
+            positionGridSpan,
+            positionRatio,
+            positionRange,
+            positionBasis,
+            
+            timeGridSpan,
+            timeRange,
+            timeRatio,
+            
+            padding} = this;
+        const posX = note.positionX * positionRatio - NOTE_WIDTH / 2;
+        const start = TimeCalculator.toBeats(note.startTime) - beats
+        const end = TimeCalculator.toBeats(note.endTime) - beats
+        context.drawImage(getImageFromType(note.type), posX, -start * timeRatio, NOTE_WIDTH, NOTE_HEIGHT)
+        if (note.type === NoteType.hold) {
+            context.drawImage(HOLD_BODY, posX, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+        }
     }
 }
 
@@ -269,6 +429,7 @@ class Editor {
     imageInitialized: boolean;
 
     player: Player;
+    noteEditor: NoteEditor
     chart: Chart;
     progressBar: ProgressBar;
     fileInput: HTMLInputElement
@@ -284,22 +445,29 @@ class Editor {
     lineInfoEle: HTMLDivElement;
     playButton: HTMLButtonElement;
 
-    judgeLinesEditor: JudgeLinesEditor
+    judgeLinesEditor: JudgeLinesEditor;
+    selectedLine: JudgeLine;
     constructor() {
         this.initialized = false;
-        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this)
-        this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => this.player.render());
+
+        this.topbarEle = <HTMLDivElement>document.getElementById("topbar")
+        this.previewEle = <HTMLDivElement>document.getElementById("preview")
+        this.eventSequenceEle = <HTMLDivElement>document.getElementById("eventSequence")
+        this.noteInfoEle = <HTMLDivElement>document.getElementById("noteInfo")
+        this.lineInfoEle = <HTMLDivElement>document.getElementById("lineInfo")
+
+        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this);
+        this.noteEditor = new NoteEditor(this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height)
+        this.noteEditor.appendTo(this.previewEle)
+        this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => {
+            this.update()
+        });
+        this.progressBar.appendTo(this.topbarEle)
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
         this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
         this.backgroundInput = <HTMLInputElement>document.getElementById("backgroundInput")
 
         
-        this.topbarEle = <HTMLDivElement>document.getElementById("topbar")
-        this.progressBar.appendTo(this.topbarEle)
-        this.previewEle = <HTMLDivElement>document.getElementById("preview")
-        this.eventSequenceEle = <HTMLDivElement>document.getElementById("eventSequence")
-        this.noteInfoEle = <HTMLDivElement>document.getElementById("noteInfo")
-        this.lineInfoEle = <HTMLDivElement>document.getElementById("lineInfo")
 
         
         this.playButton = <HTMLButtonElement>document.getElementById("playButton")
@@ -323,7 +491,7 @@ class Editor {
         this.backgroundInput.addEventListener("change", () => {
             this.readImage(this.backgroundInput.files[0])
         })
-        window.addEventListener("wheel", (event) => {
+        this.previewEle.addEventListener("wheel", (event) => {
             if (!this.initialized) {
                 return;
             }
@@ -371,6 +539,10 @@ class Editor {
     }
     initFirstFrame() {
         const chart = this.chart;
+
+        this.noteEditor.target = chart.orphanLines[0]
+
+
         this.player.render()
         this.eventCurveEditors = [];
         const eventLayer = chart.judgeLines[0].eventLayers[0]
@@ -408,15 +580,19 @@ class Editor {
     update() {
         requestAnimationFrame(() => {
             if (this.playing) {
-                this.updateEventSequences()
                 this.update()
             }
+            this.updateEventSequences()
             this.judgeLinesEditor.update()
+            this.updateNoteEditor()
             console.log("updated")
         })
     }
     updateEventSequences() {
         this.eventCurveEditors.forEach((each) => each.draw(this.player.beats))
+    }
+    updateNoteEditor() {
+        this.noteEditor.draw(this.player.beats)
     }
     get playing(): boolean {
         return this.player.playing

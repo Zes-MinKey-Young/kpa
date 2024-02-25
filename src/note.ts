@@ -84,6 +84,7 @@ class NoteTree {
     currentBranchPoint: Note;
     renderPointer: Pointer<Note>;
     hitPointer: Pointer<Note>;
+    editorPointer: Pointer<Note>;
     /** 定位上个Note头已过，本身未到的Note */
     jump: JumpArray<Note>;
     timesWithNotes: number;
@@ -102,6 +103,7 @@ class NoteTree {
         this.timesWithNotes = 0;
         this.renderPointer = new Pointer();
         this.hitPointer = new Pointer();
+        this.editorPointer = new Pointer()
     }
     get effectiveBeats() {
         return TimeCalculator.toBeats(this.tail.previous.endTime)
@@ -134,6 +136,11 @@ class NoteTree {
     initPointer(pointer: Pointer<Note>) {
         pointer.pointTo(this.head.next, 0)
     }
+    initPointers() {
+        this.initPointer(this.hitPointer);
+        this.initPointer(this.renderPointer)
+        this.initPointer(this.editorPointer);
+    }
     getNoteAt(beats: number, beforeEnd=false, pointer?: Pointer<Note>, ): Note | Tailer<Note> {
         if (pointer) {
             if (beats !== pointer.beats) {
@@ -160,6 +167,9 @@ class NoteTree {
         const delta = beats - pointer.beats;
         if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
             const end = jump.getNodeAt(beats);
+            if (!end) {
+                debugger;
+            }
             pointer.pointTo(end, beats)
             return [original, end, distance]
         }
@@ -168,6 +178,9 @@ class NoteTree {
             end = (<Note>original).next // 多谢了个let，特此留念
         } else if (distance === -1) {
             end = "heading" in original.previous ? original : original.previous;
+        }
+        if (!end) {
+            debugger;
         }
         pointer.pointTo(end, beats)
         return [original, end, distance]
@@ -180,6 +193,9 @@ class NoteTree {
     }
     static distanceFromPointer(beats: number, pointer: Pointer<Note>, useEnd: boolean=false): 1 | 0 | -1 {
         const note = pointer.node;
+        if (!note) {
+            debugger;
+        }
         if ("tailing" in note) {
             return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? 0 : -1;
         }

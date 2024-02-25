@@ -12,7 +12,7 @@ body, html {
 
 #main {
     display: grid;
-    grid-template-rows: 2em 6fr 4fr;
+    grid-template-rows: 2em 5fr 5fr;
     grid-template-columns: 6fr 4fr;
     height: 100%;
     width: 100%;
@@ -33,6 +33,11 @@ body, html {
 #preview {
     grid-row: 2 / 3;
     grid-column: 1 / 2;
+}
+
+#preview {
+    display: grid;
+    grid-template-columns: auto auto;
 }
 
 #itemInfo {
@@ -79,4 +84,8 @@ body, html {
 .judgeline-info-name {
     grid-column: 2 / span 8;
     font-size: large;
+}
+
+.judge-line-editor-selected {
+    background-color: #4499aa;
 }
