@@ -48,7 +48,6 @@ body, html {
 #eventSequence {
     grid-row: 3 / 4;
     grid-column: 1 / 2;
-    overflow: auto;
 }
 
 #lineInfo {
@@ -88,4 +87,51 @@ body, html {
 
 .judge-line-editor-selected {
     background-color: #4499aa;
+}
+
+.side-editor {
+    display: flex;
+    flex-direction: column;
+}
+
+.side-editor .side-editor-title {
+    background-color: #777;
+    color: #EEE;
+    font-size: 150%;
+    padding: 0.2em 1em;
+}
+
+.side-editor .side-editor-body {
+    flex: 1;
+    display: grid;
+    padding: 3em 2em;
+    grid-template-columns: 3fr 7fr;
+}
+
+
+
+
+
+
+.input-box {
+    border-radius: 0;
+    text-align: center;
+}
+
+.fraction-input {
+    background-color: #ddd;
+    padding: 2px;
+    gap: 2px;
+    display: grid;
+    grid-template-rows: 1.5em 2px 1.5em;
+    grid-template-columns: 2em 2em;
+    margin: auto
+}
+
+.fraction-input .input-box.integer {
+    grid-row: 1 / 4;
+}
+
+.fraction-input .line {
+    background-color: black;
 }

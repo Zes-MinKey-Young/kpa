@@ -6,34 +6,9 @@ const NOTE_HEIGHT = 4
 
 const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
-class z$<K extends keyof HTMLElementTagNameMap> {
-    element: HTMLElementTagNameMap[K];
-    constructor(type: K) {
-        this.element = document.createElement(type);
-    }
-    html(str: string) {
-        this.element.innerHTML = str
-        return this;
-    }
-    text(str: string) {
-        const childNodes = this.element.childNodes
-        if (childNodes.length === 1 && childNodes[0].nodeType === Node.TEXT_NODE) {
-            childNodes[0].nodeValue = str;
-        } else {
-            this.element.replaceChildren(str)
-        }
-        return this
-    }
-    addClass(...classes: string[]) {
-        this.element.classList.add(...classes)
-        return this;
-    }
-    release() {
-        return this.element;
-    }
-}
 
-const $ = <K extends keyof HTMLElementTagNameMap>(...args: [K]) => new z$(...args);
+
+const $ = <K extends keyof HTMLElementTagNameMap>(...args: [K]) => new Z(...args);
 
 class JudgeLinesEditor {
     editor: Editor;
@@ -88,12 +63,12 @@ class JudgeLineEditor {
     linesEditor: JudgeLinesEditor;
     element: HTMLDivElement;
     judgeLine: JudgeLine;
-    $id: z$<"div">;
-    $name: z$<"div">;
-    $xSpan: z$<"span">;
-    $ySpan: z$<"span">;
-    $thetaSpan: z$<"span">;
-    $alphaSpan: z$<"span">;
+    $id: Z<"div">;
+    $name: Z<"div">;
+    $xSpan: Z<"span">;
+    $ySpan: Z<"span">;
+    $thetaSpan: Z<"span">;
+    $alphaSpan: Z<"span">;
     constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine) {
         this.linesEditor = linesEditor;
         this.judgeLine = judgeLine;
@@ -176,8 +151,25 @@ class EventCurveEditor {
     valueGridColor: RGB;
 
     padding: number;
+
+    _displayed: boolean
+    get displayed() {
+        return this._displayed
+    }
+    set displayed(val) {
+        if (val === this._displayed) {
+            return
+        }
+        this._displayed = val;
+        if (val) {
+            this.canvas.style.display = ""
+        } else {
+            this.canvas.style.display = "none";
+        }
+    }
     constructor(type: EventType, sequence: EventNodeSequence, height: number, width: number) {
         const config = eventTypeMap[type]
+        this._displayed = true;
         this.sequence = sequence;
         this.canvas = document.createElement("canvas")
         this.canvas.width = width//this.canvas.parentElement.clientWidth;
@@ -271,6 +263,50 @@ class EventCurveEditor {
             drawLine(context, startX, startY, width / 2, startY);
             context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
         }
+    }
+}
+
+// @ts-ignore
+const WeakRef = "WeakRef" in globalThis ? globalThis.WeakRef : (obj) => ({deref() {
+    return obj
+}})
+
+class EventEditor {
+    _target: WeakRef<EventNode>;
+    get target() {
+        return this._target.deref();
+    }
+    set target(val) {
+        this._target = new WeakRef(val);
+    }
+
+    element: HTMLDivElement;
+    $title: Z<"div">
+    $element: Z<"div">;
+    $body: Z<"div">
+    $time: ZFractionInput;
+    $value: ZInputBox;
+    $easing: ZInputBox;
+    constructor() {
+        this.$element = $("div").addClass("event-editor", "side-editor");
+        this.element = this.$element.release()
+        this.$title = $("div").addClass("side-editor-title").text("Event")
+        this.$body = $("div").addClass("side-editor-body");
+        this.$time = new ZFractionInput();
+        this.$value = new ZInputBox();
+        this.$body.append(
+            $("span").text("time"), this.$time,
+            $("span").text("value"), this.$value
+        )
+        this.$element.append(this.$title, this.$body)
+    }
+    update() {
+        const eventNode = this.target;
+        if (!eventNode) {
+            return;
+        }
+        this.$time.setValue(eventNode.time);
+        this.$value.setValue(eventNode.value);
     }
 }
 
@@ -429,7 +465,8 @@ class Editor {
     imageInitialized: boolean;
 
     player: Player;
-    noteEditor: NoteEditor
+    noteEditor: NoteEditor;
+    eventEditor: EventEditor
     chart: Chart;
     progressBar: ProgressBar;
     fileInput: HTMLInputElement
@@ -553,7 +590,13 @@ class Editor {
             this.eventSequenceEle.appendChild(eventCurveEditor.canvas)
             this.eventCurveEditors.push(eventCurveEditor);
             eventCurveEditor.draw(0);
+            eventCurveEditor.displayed = false;
         }
+        this.eventCurveEditors[0].displayed = true;
+
+        this.eventEditor = new EventEditor();
+        this.noteInfoEle.append(this.eventEditor.element);
+        this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
     }
     readAudio(file: File) {
         const reader = new FileReader()

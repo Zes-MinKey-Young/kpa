@@ -2,7 +2,7 @@
     "exclude": ["*.js"],
     "compilerOptions": {
         "target": "ES6",
-        "lib": ["ES2016", "dom"],
+        "lib": ["ES2016", "dom", "ES2021.WeakRef"],
         "strictFunctionTypes": true
         // "strictNullChecks": true,
         // "strictPropertyInitialization": true
