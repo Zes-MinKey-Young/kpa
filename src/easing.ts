@@ -132,6 +132,10 @@ type TupleCoordinate = [number, number]
 type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) => void
 
 class NormalEasing extends Easing {
+    rpeId: number;
+    id: number;
+    funcType: string;
+    easeType: string;
     _getValue: (t: number) => number;
     _drawCurve: CurveDrawer;
     constructor(fn: (t: number) => number);
@@ -308,6 +312,14 @@ const easingMap = {
     "bounce": {in: new NormalEasing(easeInBounce), out: new NormalEasing(easeOutBounce), inout: new NormalEasing(easeInOutBounce)}
 }
 
+for (let funcType in easingMap) {
+    for (let easeType in easingMap[funcType]) {
+        const easing = easingMap[funcType][easeType];
+        easing.funcType = funcType;
+        easing.easeType = easeType;
+    }
+}
+
 const easingArray = [
     fixedEasing,
     linearEasing,
@@ -343,6 +355,10 @@ const easingArray = [
     easingMap.bounce.inout
 ]
 
+easingArray.forEach((easing, index) => {
+    easing.id = index;
+})
+
 const rpeEasingArray = [
     null,
     linearEasing, // 1
@@ -377,3 +393,10 @@ const rpeEasingArray = [
     easingMap.bounce.inout, //28
     easingMap.elastic.inout // 29
 ]
+
+rpeEasingArray.forEach((easing, index) => {
+    if (!easing) {
+        return;
+    }
+    easing.rpeId = index;
+})

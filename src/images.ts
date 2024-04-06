@@ -10,6 +10,8 @@ const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
 const HIT_FX = new Image(1024, 1024);
+const SELECT_NOTE = new Image(135);
+const TRUCK = new Image(135);
 
 TAP.src = "../img/tap.png"
 DRAG.src = "../img/drag.png"
@@ -23,6 +25,8 @@ DOUBLE.src = "../img/double.png"
 NODE_START.src = "../img/south.png"
 NODE_END.src = "../img/north.png"
 HIT_FX.src = "../img/hit_fx.png"
+SELECT_NOTE.src = "../img/selectNote.png"
+TRUCK.src = "../img/Truck.png"
 
 
 

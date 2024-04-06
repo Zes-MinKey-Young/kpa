@@ -1,8 +1,8 @@
 const NODE_WIDTH = 10;
 const NODE_HEIGHT = 10;
 
-const NOTE_WIDTH = 27;
-const NOTE_HEIGHT = 4
+const NOTE_WIDTH = 54;
+const NOTE_HEIGHT = 6
 
 const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
@@ -40,8 +40,10 @@ class JudgeLinesEditor {
             this._selectedLine.element.classList.remove("judge-line-editor-selected")
         }
         this._selectedLine = lineEditor;
-        this.editor.noteEditor.target = lineEditor.judgeLine;
+        this.editor.notesEditor.target = lineEditor.judgeLine;
         lineEditor.element.classList.add("judge-line-editor-selected")
+        this.editor.eventCurveEditors.forEach((e) => e.draw())
+        this.editor.notesEditor.draw()
     }
     addJudgeLine(judgeLine: JudgeLine) {
         const editor = new JudgeLineEditor(this, judgeLine)
@@ -64,7 +66,7 @@ class JudgeLineEditor {
     element: HTMLDivElement;
     judgeLine: JudgeLine;
     $id: Z<"div">;
-    $name: Z<"div">;
+    $name: ZInputBox;
     $xSpan: Z<"span">;
     $ySpan: Z<"span">;
     $thetaSpan: Z<"span">;
@@ -76,7 +78,12 @@ class JudgeLineEditor {
         element.classList.add("judge-line-editor")
         this.element = element;
         this.$id = $("div").addClass("judgeline-info-id");
-        this.$name = $("div").addClass("judgeline-info-name");
+        this.$id.text(this.judgeLine.id + "")
+        this.$name = new ZInputBox()
+        this.$name
+            .addClass("judgeline-info-name")
+            .setValue(judgeLine.name)
+            .onChange((s) => judgeLine.name = s);
         this.$xSpan = $("span");
         this.$ySpan = $("span");
         this.$thetaSpan = $("span");
@@ -98,7 +105,6 @@ class JudgeLineEditor {
         })
     }
     update() {
-        this.$id.text(this.judgeLine.id + "")
         this.$xSpan.text(round(this.judgeLine.moveX, 2))
         this.$ySpan.text(round(this.judgeLine.moveY, 2))
         this.$thetaSpan.text(round(this.judgeLine.rotate / Math.PI * 180, 2))
@@ -151,6 +157,8 @@ class EventCurveEditor {
     valueGridColor: RGB;
 
     padding: number;
+
+    lastBeats: number;
 
     _displayed: boolean
     get displayed() {
@@ -226,7 +234,8 @@ class EventCurveEditor {
         drawLine(context, 0, width / 2, 0, -width / 2)
         context.strokeStyle = "#EEE";
     }
-    draw(beats: number) {
+    draw(beats?: number) {
+        beats = beats || this.lastBeats || 0;
         const {height, width} = this.canvas;
         const {timeRatio, valueRatio, valueBasis: basis, context}= this
         this.drawCoordination(beats)
@@ -263,6 +272,7 @@ class EventCurveEditor {
             drawLine(context, startX, startY, width / 2, startY);
             context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
         }
+        this.lastBeats = beats;
     }
 }
 
@@ -271,46 +281,28 @@ const WeakRef = "WeakRef" in globalThis ? globalThis.WeakRef : (obj) => ({deref(
     return obj
 }})
 
-class EventEditor {
-    _target: WeakRef<EventNode>;
-    get target() {
-        return this._target.deref();
-    }
-    set target(val) {
-        this._target = new WeakRef(val);
-    }
-
-    element: HTMLDivElement;
-    $title: Z<"div">
-    $element: Z<"div">;
-    $body: Z<"div">
-    $time: ZFractionInput;
-    $value: ZInputBox;
-    $easing: ZInputBox;
-    constructor() {
-        this.$element = $("div").addClass("event-editor", "side-editor");
-        this.element = this.$element.release()
-        this.$title = $("div").addClass("side-editor-title").text("Event")
-        this.$body = $("div").addClass("side-editor-body");
-        this.$time = new ZFractionInput();
-        this.$value = new ZInputBox();
-        this.$body.append(
-            $("span").text("time"), this.$time,
-            $("span").text("value"), this.$value
-        )
-        this.$element.append(this.$title, this.$body)
-    }
-    update() {
-        const eventNode = this.target;
-        if (!eventNode) {
-            return;
-        }
-        this.$time.setValue(eventNode.time);
-        this.$value.setValue(eventNode.value);
-    }
+enum NotesEditorState {
+    select,
+    selecting,
+    edit,
+    flowing
 }
 
-class NoteEditor {
+
+const HEAD = 1;
+const BODY = 2;
+const TAIL = 3;
+type NotePosition = [
+    note: Note,
+    x: number,
+    y: number,
+    height: number,
+    type: 1 | 2 | 3
+]
+
+class NotesEditor {
+    editor: Editor
+
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
     target: JudgeLine;
@@ -326,10 +318,19 @@ class NoteEditor {
     timeGridColor: RGB;
     positionGridColor: RGB;
 
+    state: NotesEditorState;
 
-    constructor(width: number, height: number) {
+    notePositions: NotePosition[];
+
+    drawn: boolean;
+
+    lastBeats: number;
+    
+    constructor(editor: Editor, width: number, height: number) {
+        this.editor = editor;
         this.padding = 10;
         this.target = null;
+        this.state = NotesEditorState.select
         this.positionBasis = 0;
         this.positionGridSpan = 135;
         this.positionRatio = width / 1350;
@@ -340,10 +341,57 @@ class NoteEditor {
         this.canvas.width = width;
         this.canvas.height = height;
         this.context = this.canvas.getContext("2d");
+        on(["mousedown", "touchstart"], this.canvas, (event) => {
+            const [clientX, clientY] = event instanceof MouseEvent ? [event.offsetX, event.offsetY] : [event.changedTouches[0].clientX - this.canvas.offsetLeft, event.changedTouches[0].clientY - this.canvas.offsetTop];
+            const [x, y] = [clientX - width / 2, clientY - (this.canvas.height - this.padding)];
+            console.log(x, y);
+            switch (this.state) {
+                case NotesEditorState.select:
+                case NotesEditorState.selecting:
+                    const positions = this.notePositions;
+                    const len = positions.length;
+                    let i = 0;
+                    for (; i < len; i++) {
+                        const pos = positions[i];
+                        if (pos[1] - NOTE_WIDTH / 2 <= x && x <= pos[1] + NOTE_WIDTH / 2 
+                        && pos[2] <= y && y <= pos[2] + pos[3]) {
+                            this.selectedNote = pos[0]
+                            break;
+                        }
+                        console.log(pos);
+                    }
+                    this.state = i === len ? NotesEditorState.select : NotesEditorState.selecting
+                case NotesEditorState.edit:
+
+            }
+        })
+        on(["mousemove", "touchmove"], this.canvas, (event) => {
+            const [x, y] = event instanceof MouseEvent ? [event.clientX, event.clientY] : [event.changedTouches[0].clientY, event.changedTouches[0].clientY];
+            
+
+        })
+        on(["mousedown", "mousemove", "touchstart", "touchmove"], this.canvas, (event) => {
+            if (this.drawn) {
+                return
+            }
+            requestAnimationFrame(() => this.draw(this.lastBeats));
+            this.drawn = true;
+        })
         
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
         this.init()
+    }
+    _selectedNote: WeakRef<Note>;
+    get selectedNote() {
+        if (!this._selectedNote) {
+            return undefined;
+        }
+        return this._selectedNote.deref()
+    }
+    set selectedNote(val: Note) {
+        this._selectedNote = new WeakRef(val);
+        this.editor.noteEditor.target = val;
     }
     appendTo(element: HTMLElement) {
         element.append(this.canvas)
@@ -403,7 +451,9 @@ class NoteEditor {
             context.strokeText(time + "", -width / 2, -positionY)
         }
     }
-    draw(beats: number) {
+    draw(beats?: number) {
+        beats = beats || this.lastBeats || 0;
+        this.notePositions = [];
         const {context, canvas} = this;
         const {width: canvasWidth, height: canvasHeight} = canvas;
         const {
@@ -428,14 +478,16 @@ class NoteEditor {
                 while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < beats + timeRange) {
                     let branch = note;
                     do {
-                        this.drawNote(beats, branch);
+                        this.drawNote(beats, branch, branch === note);
                     } while (branch = branch.nextSibling)
                     note = note.next;
                 }
             }
         }
+        this.drawn = false;
+        this.lastBeats = beats
     }
-    drawNote(beats: number, note: Note) {
+    drawNote(beats: number, note: Note, isTruck: boolean) {
         const context = this.context;
         const {
             positionGridSpan,
@@ -448,12 +500,27 @@ class NoteEditor {
             timeRatio,
             
             padding} = this;
-        const posX = note.positionX * positionRatio - NOTE_WIDTH / 2;
+        const posX = note.positionX * positionRatio
+        const posLeft = posX - NOTE_WIDTH / 2;
         const start = TimeCalculator.toBeats(note.startTime) - beats
         const end = TimeCalculator.toBeats(note.endTime) - beats
-        context.drawImage(getImageFromType(note.type), posX, -start * timeRatio, NOTE_WIDTH, NOTE_HEIGHT)
+        const posY = -start * timeRatio
+        context.drawImage(getImageFromType(note.type), posLeft, posY , NOTE_WIDTH, NOTE_HEIGHT)
+        if (isTruck) {
+            context.drawImage(TRUCK, posLeft, posY , NOTE_WIDTH, NOTE_HEIGHT)
+        }
+        this.notePositions.push([note, posX, posY, NOTE_HEIGHT, HEAD])
         if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, posX, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+            context.drawImage(HOLD_BODY, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+            this.notePositions.push([note, posX, -end * timeRatio, NOTE_HEIGHT, TAIL])
+            this.notePositions.push([note, posX, -end * timeRatio, (end - start) * timeRatio, BODY])
+        }
+        if (note === this.selectedNote) {
+            if (note.type === NoteType.hold) {
+                context.drawImage(SELECT_NOTE, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+            } else {
+                context.drawImage(SELECT_NOTE, posLeft, posY , NOTE_WIDTH, NOTE_HEIGHT)
+            }
         }
     }
 }
@@ -465,7 +532,7 @@ class Editor {
     imageInitialized: boolean;
 
     player: Player;
-    noteEditor: NoteEditor;
+    notesEditor: NotesEditor;
     eventEditor: EventEditor
     chart: Chart;
     progressBar: ProgressBar;
@@ -484,8 +551,11 @@ class Editor {
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
+    noteEditor: NoteEditor;
+
     constructor() {
         this.initialized = false;
+        this.eventCurveEditors = [];
 
         this.topbarEle = <HTMLDivElement>document.getElementById("topbar")
         this.previewEle = <HTMLDivElement>document.getElementById("preview")
@@ -494,10 +564,11 @@ class Editor {
         this.lineInfoEle = <HTMLDivElement>document.getElementById("lineInfo")
 
         this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this);
-        this.noteEditor = new NoteEditor(this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height)
-        this.noteEditor.appendTo(this.previewEle)
+        this.notesEditor = new NotesEditor(this, this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height)
+        this.notesEditor.appendTo(this.previewEle)
         this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => {
-            this.update()
+            this.update();
+            this.player.render();
         });
         this.progressBar.appendTo(this.topbarEle)
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
@@ -539,7 +610,7 @@ class Editor {
             const audio = this.player.audio;
             let currentTime = audio.currentTime;
             console.log(event.deltaY)
-            currentTime += event.deltaY / 250;
+            currentTime += event.deltaY / 500;
             if (currentTime > audio.duration) {
                 currentTime = audio.duration
             } else if (currentTime < 0) {
@@ -547,6 +618,7 @@ class Editor {
             }
             audio.currentTime = currentTime
             this.progressBar.update()
+            this.update()
             this.player.render()
             // event.preventDefault()
         })
@@ -577,11 +649,11 @@ class Editor {
     initFirstFrame() {
         const chart = this.chart;
 
-        this.noteEditor.target = chart.orphanLines[0]
+        this.notesEditor.target = chart.orphanLines[0]
 
 
         this.player.render()
-        this.eventCurveEditors = [];
+        this.notesEditor.draw(this.player.beats)
         const eventLayer = chart.judgeLines[0].eventLayers[0]
         const height = this.eventSequenceEle.clientHeight;
         const width = this.eventSequenceEle.clientWidth
@@ -595,8 +667,15 @@ class Editor {
         this.eventCurveEditors[0].displayed = true;
 
         this.eventEditor = new EventEditor();
-        this.noteInfoEle.append(this.eventEditor.element);
+        this.noteEditor = new NoteEditor();
+        this.noteInfoEle.append(
+            this.eventEditor.element,
+            this.noteEditor.element
+            );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
+        this.eventEditor.update()
+        this.eventEditor.hide()
+        this.noteEditor.target = chart.judgeLines[0].noteTrees[1].head.next
     }
     readAudio(file: File) {
         const reader = new FileReader()
@@ -635,7 +714,7 @@ class Editor {
         this.eventCurveEditors.forEach((each) => each.draw(this.player.beats))
     }
     updateNoteEditor() {
-        this.noteEditor.draw(this.player.beats)
+        this.notesEditor.draw(this.player.beats)
     }
     get playing(): boolean {
         return this.player.playing
