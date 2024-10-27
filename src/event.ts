@@ -1,6 +1,4 @@
 // interface TemplateEasingLib {[name: string]: TemplateEasing}
-const MAX_LENGTH = 1024
-const MINOR_PARTS = 16;
 
 function arrEq<T>(arr1: Array<T>, arr2: Array<T>) {
     let length: number;
@@ -167,11 +165,13 @@ class EventNodeSequence {
         this.type = type;
         this.head = {
             heading: true,
-            next: null
+            next: null,
+            list: this
         };
         this.tail = {
             tailing: true,
-            previous: null
+            previous: null,
+            list: this
         }
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
@@ -278,12 +278,16 @@ class EventNodeSequence {
             this.tail,
             originalListLength,
             effectiveBeats,
-            (node: EventStartNode) => {
-                const endNode = node.next;
-                if ("tailing" in endNode) {
-                    return [Infinity, null]
+            (node) => {
+                if ("tailing" in node) {
+                    return [null, null]
                 }
-                return [TimeCalculator.toBeats(endNode.time), endNode.next]
+                if ("heading" in node) {
+                    return [0, node.next]
+                }
+                const endNode =  (<EventStartNode>node).next;
+                const time = "tailing" in endNode ? null : TimeCalculator.toBeats(endNode.time)
+                return [time, "tailing" in endNode ? endNode : endNode.next]
             },
             (node: EventStartNode, beats: number) => TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : (<EventEndNode>node.next).next,
             /*(node: EventStartNode) => {

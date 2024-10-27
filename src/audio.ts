@@ -1,3 +1,7 @@
+/**
+ * 使用AudioBuffer加快播放
+ */
+
 
 class AudioProcessor {
     audioContext: AudioContext;

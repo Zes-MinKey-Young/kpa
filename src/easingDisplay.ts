@@ -1,0 +1,6 @@
+
+class EasingDisplay {
+    constructor() {
+        
+    }
+}

@@ -62,7 +62,7 @@ interface EventLayerDataRPE {
     speedEvents: EventDataRPE[];
 }
 
-interface JudgeLineDataPRE {
+interface JudgeLineDataRPE {
     _id: number;
     notes: NoteDataRPE[];
     Group: number;
@@ -92,9 +92,17 @@ interface ChartDataRPE {
     BPMList: BPMSegmentData[];
     META: MetaData;
     judgeLineGroup: string[];
-    judgeLineList: JudgeLineDataPRE[];
+    judgeLineList: JudgeLineDataRPE[];
     envEasings: CustomEasingData[]; // New!
 }
+
+/**
+ * 相当于 Python 推导式
+ * @param arr 
+ * @param expr 
+ * @param guard 
+ * @returns 
+ */
 function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boolean): RT[] {
     let ret: RT[] = []
     for (let each of arr) {
@@ -138,6 +146,8 @@ class Chart {
     name: string;
     level: string;
     offset: number;
+
+    operationList: OperationList
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
@@ -147,6 +157,8 @@ class Chart {
         this.name = "uk";
         this.level = "uk";
         this.offset = 0;
+
+        this.operationList = new OperationList()
     }
     static fromRPEJSON(data: ChartDataRPE) {
         let chart = new Chart();
@@ -161,7 +173,7 @@ class Chart {
         }
         // let line = data.judgeLineList[0];
         const length = data.judgeLineList.length
-        const orphanLines: JudgeLineDataPRE[] = [];
+        const orphanLines: JudgeLineDataRPE[] = [];
         for (let i = 0; i < length; i++) {
             const lineData = data.judgeLineList[i];
             lineData._id = i;
@@ -173,8 +185,8 @@ class Chart {
             const children = father.children || (father.children = []);
             children.push(i);
         }
-        const readOne = (lineData: JudgeLineDataPRE) => {
-            const line: JudgeLine = JudgeLine.fromRPEJSON(lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator, chart.comboMapping)
+        const readOne = (lineData: JudgeLineDataRPE) => {
+            const line: JudgeLine = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator, chart.comboMapping)
             chart.judgeLines.push(line)
             if (lineData.children) {
                 for (let each of lineData.children) {
@@ -194,6 +206,12 @@ class Chart {
     updateCalculator() {
         this.timeCalculator.bpmList = this.bpmList;
         this.timeCalculator.update()
+    }
+    updateEffectiveBeats(duration: number) {
+        const EB = this.timeCalculator.secondsToBeats(duration);
+        for (let i = 0; i < this.judgeLines.length; i++) {
+            const judgeLine = this.judgeLines[i]
+        }
     }
 }
 

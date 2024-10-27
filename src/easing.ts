@@ -320,6 +320,9 @@ for (let funcType in easingMap) {
     }
 }
 
+/**
+ * 按照KPA的编号
+ */
 const easingArray = [
     fixedEasing,
     linearEasing,

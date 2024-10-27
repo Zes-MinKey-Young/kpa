@@ -9,15 +9,22 @@ interface TwoDirectionNode {
     next: TwoDirectionNode | Tailer<TwoDirectionNode>;
 }
 
+interface List<TN extends TwoDirectionNode> {
+    head: Header<TN>
+    tail: Tailer<TN>
+}
+
 interface Header<TN extends TwoDirectionNode> {
     next: TN;
     heading: true;
+    list: List<TN>
 }
 
 
 interface Tailer<TN extends TwoDirectionNode> {
     previous: TN;
     tailing: true;
+    list: List<TN>
 }
 type TypeOrHeader<T extends TwoDirectionNode> = Header<T> | T
 type TypeOrTailer<T extends TwoDirectionNode> = Tailer<T> | T

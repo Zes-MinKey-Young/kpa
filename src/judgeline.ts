@@ -1,6 +1,6 @@
 class JudgeLine {
-    holdTrees: {[key: number]: HoldTree};
-    noteTrees: {[key: number]: NoteTree};
+    holdTrees: {[key: string]: HoldTree};
+    noteTrees: {[key: string]: NoteTree};
     eventLayers: EventLayer[];
     // notePosition: Float64Array;
     // noteSpeeds: NoteSpeeds;
@@ -12,17 +12,19 @@ class JudgeLine {
     alpha: number;
 
     id: number;
-    name: string
-    constructor() {
+    name: string;
+    readonly chart: Chart;
+    constructor(chart: Chart) {
         //this.notes = [];
+        this.chart = chart;
         this.eventLayers = [];
         this.children = [];
         this.holdTrees = {};
         this.noteTrees = {};
         // this.noteSpeeds = {};
     }
-    static fromRPEJSON(id: number, data: JudgeLineDataPRE, templates: TemplateEasingLib, timeCalculator: TimeCalculator, comboMapping: ComboMapping) {
-        let line = new JudgeLine()
+    static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator, comboMapping: ComboMapping) {
+        let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name
         if (data.notes) {
@@ -40,7 +42,7 @@ class JudgeLine {
             let comboInfoEntity: ComboInfoEntity;
                     
             for (let i = 0; i < len; i++) {
-            const note: Note = new Note(notes[i]);
+            const note: Note = new Note(line, notes[i]);
                 if (TC.ne(note.startTime, lastTime)) {
                     lastTime = note.startTime;
                     const timeString = toTimeString(lastTime)
@@ -53,8 +55,8 @@ class JudgeLine {
                 }
                 if (note.type === NoteType.hold) {
                     comboInfoEntity.holdHead++;
-                    const speed = note.speed;
-                    const tree = speed in holdTrees ? holdTrees[speed] : (holdTrees[speed] = new HoldTree());
+                    const speed = "$" + note.speed;
+                    const tree = speed in holdTrees ? holdTrees[speed] : (holdTrees[speed] = new HoldTree(note.speed));
                     const lastHold = tree.currentBranchPoint
                     const lastHoldTime: TimeT = lastHold.startTime
                     if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -77,8 +79,8 @@ class JudgeLine {
                         comboInfoEntity.realEnd++;
                     }
                     comboInfoEntity[NoteType[note.type]]++;
-                    const speed = note.speed;
-                    const tree = speed in noteTrees ? noteTrees[speed] : (noteTrees[speed] = new NoteTree());
+                    const speed = "#" + note.speed;
+                    const tree = speed in noteTrees ? noteTrees[speed] : (noteTrees[speed] = new NoteTree(note.speed));
                     const lastNote = tree.currentBranchPoint
                     const lastNoteTime: TimeT = lastNote.startTime
                     if (TimeCalculator.eq(lastNoteTime, note.startTime)) {
@@ -128,9 +130,18 @@ class JudgeLine {
             eventLayer.speed.updateNodesIntegralFrom(beats, timeCalculator);
         }
     }
+    /**
+     * 
+     * @param beats 
+     * @param timeCalculator 
+     * @param startY 
+     * @param endY 
+     * @returns 
+     */
     computeTimeRange(beats: number, timeCalculator: TimeCalculator , startY: number, endY: number): [number, number][] {
         //return [[0, Infinity]]
         //*
+        // 提取所有有变化的时间点
         let times: number[] = [];
         let result: [number, number][] = [];
         for (let eventLayer of this.eventLayers) {
@@ -174,17 +185,27 @@ class JudgeLine {
             }
             if (range[0] === undefined) {
                 // 变速区间直接全部囊括，匀速要算一下，因为好算
-                if (thisPosY < startY && startY <= nextPosY || thisPosY >= endY && endY > nextPosY) {
+                /*
+                设两个时间点的位置为a,b
+                开始结束点为s,e
+                选中小段一部分在区间内：
+                a < s <= b
+                或a > e >= b
+                全部在区间内
+                s <= a <= b
+                */
+                if (thisPosY < startY && startY <= nextPosY
+                || thisPosY > endY && endY >= nextPosY) {
                     range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(
                         thisSpeed,
                         (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime)
-                } else if (startY < thisPosY && thisPosY <= endY) {
+                } else if (startY <= thisPosY && thisPosY <= endY) {
                     range[0] = thisTime;
                 }
             }
             // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
             if (range[0] !== undefined) {
-                if (thisPosY < endY && endY <= nextPosY || thisPosY >= startY && startY > nextPosY) {
+                if (thisPosY < endY && endY <= nextPosY || thisPosY > startY && startY >= nextPosY) {
                     range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(
                         thisSpeed,
                         (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime)
@@ -232,6 +253,12 @@ class JudgeLine {
         return this.getStackedIntegral(beats, timeCalculator)
     }
     */
+    /**
+     * 
+     * @param beats 
+     * @param usePrev 如果取到节点，将使用EndNode的值。默认为FALSE
+     * @returns 
+     */
     getValues(beats: number, usePrev: boolean=false): [x: number, y: number, theta: number, alpha: number] {
         return [
             this.getStackedValue("moveX", beats, usePrev),
@@ -240,10 +267,22 @@ class JudgeLine {
             this.getStackedValue("alpha", beats, usePrev),
         ]
     }
+    /**
+     * 求该时刻坐标，不考虑父线
+     * @param beats 
+     * @param usePrev 
+     * @returns 
+     */
     getThisCoordinate(beats: number, usePrev: boolean=false): TupleCoordinate {
         return [this.getStackedValue("moveX", beats, usePrev),
         this.getStackedValue("moveY", beats, usePrev)]
     }
+    /**
+     * 求父线锚点坐标，无父线返回原点
+     * @param beats 
+     * @param usePrev 
+     * @returns 
+     */
     getBaseCoordinate(beats: number, usePrev: boolean=false): TupleCoordinate {
         if (!this.father) {
             return [0, 0]
@@ -277,5 +316,27 @@ class JudgeLine {
         }
         // console.log("integral", current)
         return current;
+    }
+    /**
+     * 获取对应速度和类型的Note树,没有则创建
+     */
+    getNoteTree(speed: number, isHold: boolean) {
+        const trees = isHold ? this.holdTrees : this.noteTrees;
+        for (let treename in trees) {
+            const tree = trees[treename]
+            if (tree.speed == speed) {
+                return tree
+            }
+        }
+        const tree = isHold ? new HoldTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NoteTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
+        tree.initJump();
+        trees["#" + speed] = tree
+        return tree;
+    }
+    findPrev(note: Note) {
+        const speed = note.speed;
+        const isHold = note.type === NoteType.hold
+        const tree = this.getNoteTree(speed, isHold)
+        return tree.findPrev(note)
     }
 }

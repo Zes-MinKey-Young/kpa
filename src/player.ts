@@ -247,11 +247,13 @@ class Player {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
         }
         for (let trees of [holdTrees, noteTrees]) {
-            for (let speed in trees) {
-                const tree = trees[speed];
-                const speedVal: number = parseFloat(speed);
+            for (let name in trees) {
+                const tree = trees[name];
+                const speedVal: number = tree.speed;
+                debugger
                 // 渲染音符
                 const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                tree.timeRanges = timeRanges
                 // console.log(timeRanges, startY, endY);
                 for (let range of timeRanges) {
                     const start = range[0];
@@ -350,24 +352,24 @@ class Player {
             note = <Note>note.next
         } 
     }
-    renderSameTimeNotes(note: Note, double: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
+    renderSameTimeNotes(note: Note, duplicated: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
         if (note.type === NoteType.hold) {
             const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed;
             this.renderNote(
                 note,
-                double,
+                duplicated,
                 startY < 0 ? 0 : startY,
                 judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed
                 )
         } else {
             this.renderNote(
                 note,
-                double,
+                duplicated,
                 judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed
             )
         }
         if (note.nextSibling) {
-            this.renderSameTimeNotes(note.nextSibling, double, judgeLine, timeCalculator);
+            this.renderSameTimeNotes(note.nextSibling, duplicated, judgeLine, timeCalculator);
         }
     }
     renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
