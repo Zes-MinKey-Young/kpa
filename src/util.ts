@@ -17,14 +17,15 @@ interface List<TN extends TwoDirectionNode> {
 interface Header<TN extends TwoDirectionNode> {
     next: TN;
     heading: true;
-    list: List<TN>
+    parent: List<TN>
 }
+
 
 
 interface Tailer<TN extends TwoDirectionNode> {
     previous: TN;
     tailing: true;
-    list: List<TN>
+    parent: List<TN>
 }
 type TypeOrHeader<T extends TwoDirectionNode> = Header<T> | T
 type TypeOrTailer<T extends TwoDirectionNode> = Tailer<T> | T
@@ -60,6 +61,17 @@ function on<K extends keyof HTMLElementEventMap>(
 ) {
     for (let type of eventTypes) {
         element.addEventListener(type, handler);
+    }
+}
+
+function printList<T extends TwoDirectionNode>(list: List<T>) {
+    let cur: Header<T> | Tailer<T> | T = list.head;
+    while(1) {
+        console.log(cur)
+        if ("tailing" in cur) {
+            break;
+        }
+        cur = cur.next
     }
 }
 

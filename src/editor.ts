@@ -427,6 +427,7 @@ class NotesEditor {
     positionGridColor: RGB;
 
     state: NotesEditorState;
+    wasEditing: boolean;
     pointedPositionX: number;
     pointedBeats: number;
     beatFraction: number
@@ -443,7 +444,8 @@ class NotesEditor {
     $optionBox: ZEditableDropdownOptionBox;
     $typeOption: ZDropdownOptionBox;
     $timeDivisionInput: ZArrowInputBox;
-    $noteAboveOption: ZDropdownOptionBox; 
+    $noteAboveOption: ZDropdownOptionBox;
+    $editButton: ZButton
     allOption: EditableBoxOption
     
     get target() {
@@ -489,25 +491,35 @@ class NotesEditor {
             ).onInput(() => this.noteType = NoteType[this.$typeOption.value.text])
         this.$timeDivisionInput = new ZArrowInputBox()
             .onChange((nb, _) => this.timeDivision = nb)
+            .setValue(4)
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
             .onInput(() => this.noteAbove = this.$noteAboveOption.value.text === "above")
+        this.$editButton = new ZButton("e/s")
+            .onClick(() => {
+                this.state = this.state === NotesEditorState.edit ? NotesEditorState.select : NotesEditorState.edit
+            })
         this.$statusBar.append(
             this.$optionBox,
-            this.$typeOption,
             this.$timeDivisionInput,
-            this.$noteAboveOption
+            this.$typeOption,
+            this.$noteAboveOption,
+            this.$editButton
             )
+        this.$statusBar.css("width", width + "px")
 
         this.editor = editor;
         this.padding = 10;
         this.targetTree = null;
         this.state = NotesEditorState.select
+        this.wasEditing = false;
         this.positionBasis = 0;
         this.positionGridSpan = 135;
         this.positionRatio = width / 1350;
         this.timeGridSpan = 1;
-        this.timeSpan = 4;
+        this.timeSpan = 2;
         this.timeRatio = (height - this.padding) / this.timeSpan;
+        this.timeDivision = 4;
+        this.noteType = NoteType.tap;
         this.canvas = document.createElement("canvas");
         this.canvas.width = width;
         this.canvas.height = height;
@@ -515,14 +527,19 @@ class NotesEditor {
         this.context = this.canvas.getContext("2d");
         this.$element.release().append(this.canvas)
         on(["mousedown", "touchstart"], this.canvas, (event) => {this.downHandler(event)})
+        on(["mouseup", "touchend"], this.canvas, (event) => this.upHandler(event))
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [x, y] = event instanceof MouseEvent ? [event.offsetX, event.offsetY] : [event.changedTouches[0].clientX - this.canvas.offsetLeft, event.changedTouches[0].clientY - this.canvas.offsetTop];
             const {width, height} = this.canvas
             const {padding} = this;
             this.pointedPositionX = Math.round(((x - width / 2 - padding) / this.positionRatio) / this.positionGridSpan) * this.positionGridSpan
-            const accurateBeats = (height - y - padding) / this.timeRatio
+            const accurateBeats = (height - y - padding) / this.timeRatio + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
-            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) / this.timeDivision)
+            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * this.timeDivision)
+            if (this.beatFraction === this.timeDivision) {
+                this.pointedBeats += 1
+                this.beatFraction = 0
+            }
 
             switch (this.state) {
                 case NotesEditorState.selecting:
@@ -549,8 +566,8 @@ class NotesEditor {
         console.log(width, height)
         const [offsetX, offsetY] = event instanceof MouseEvent ? [event.offsetX, event.offsetY] : [event.changedTouches[0].clientX - this.canvas.offsetLeft, event.changedTouches[0].clientY - this.canvas.offsetTop];
         const [x, y] = [offsetX - width / 2, offsetY - (this.canvas.height - this.padding)];
-        console.log(offsetX, offsetY)
-        console.log(x, y);
+        console.log("offset:", offsetX, offsetY)
+        console.log("Coord:", x, y);
         switch (this.state) {
             case NotesEditorState.select:
             case NotesEditorState.selecting:
@@ -569,6 +586,7 @@ class NotesEditor {
                 }
                 this.state = i === len ? NotesEditorState.select : NotesEditorState.selecting
                 console.log(NotesEditorState[this.state])
+                this.wasEditing = false;
                 break;
             case NotesEditorState.edit:
                 const {timeDivision, beatFraction, pointedBeats} = this
@@ -586,9 +604,18 @@ class NotesEditor {
                     speed: 1.0,
                     type: this.noteType,
                     yOffset: 0
-                })
+                });
+                this.editor.chart.getComboInfoEntity(startTime).add(note)
                 this.editor.chart.operationList.do(new NoteInsertOperation(note, this.target.findPrev(note)));
+                this.selectedNote = note;
+                this.state = NotesEditorState.selecting;
+                this.wasEditing = true;
                 break;
+        }
+    }
+    upHandler(event) {
+        if (this.state === NotesEditorState.selecting) {
+            this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select
         }
     }
     _selectedNote: WeakRef<Note>;

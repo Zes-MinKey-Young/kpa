@@ -242,4 +242,5 @@ input:not(:focus) {
 .notes-editor-status-bar {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
 }

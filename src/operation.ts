@@ -72,22 +72,29 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
         this.field = field
         this.note = note;
         this.value = value;
+        this.previousValue = note[field]
         if (value === note[field]) {
             this.ineffective = true
         }
     }
     do() {
         this.note[this.field] = this.value
+        if (this.field === "startTime" || this.field === "endTime")
+        editor.chart.getComboInfoEntity(this.previousValue).remove(this.note)
+        editor.chart.getComboInfoEntity(this.value).add(this.note)
     }
     undo() {
         this.note[this.field] = this.previousValue
+        
+        editor.chart.getComboInfoEntity(this.previousValue).add(this.note)
+        editor.chart.getComboInfoEntity(this.value).remove(this.note)
     }
 }
 
 class NoteInsertOperation extends Operation {
     originalPrevious: TypeOrHeader<Note>;
     originalPreviousSibling: Note;
-    previous: Note;
+    previous: TypeOrHeader<Note>;
     previousSibling: Note;
     note: Note;
     constructor(note: Note, previous: TypeOrHeader<Note>) {
@@ -101,13 +108,17 @@ class NoteInsertOperation extends Operation {
             while (previousSibling.nextSibling && TimeCalculator.gt(previousSibling.nextSibling.endTime, note.endTime)) {
                 previousSibling = previousSibling.nextSibling
             }
+            this.previousSibling = previousSibling
+            this.previous = previousSibling
+        } else {
+            this.previous = previous
         }
-        this.previousSibling = previousSibling
     }
     do() {
+        console.log(this.previous, this.note)
         const note = this.note
         const previous = note.previous
-        const update = note.list.insertNoteJumpUpdater(note)
+        const update = this.previous.parent.insertNoteJumpUpdater(note)
         if (this.previousSibling) {
             if (note.previousSibling) {
                 Note.connectSibling(note.previousSibling, note.nextSibling)
@@ -127,12 +138,12 @@ class NoteInsertOperation extends Operation {
             update()
         }
         if (note.previous) {
-            note.list.insertNoteJumpUpdater(note)()
+            note.parent.insertNoteJumpUpdater(note)()
         }
     }
     undo() {
         const note = this.note;
-        const update = note.list.insertNoteJumpUpdater(note)
+        const update = note.parent.insertNoteJumpUpdater(note)
         if (this.originalPreviousSibling) {
             if (note.previousSibling) {
                 Note.connectSibling(note.previousSibling, note.nextSibling)
@@ -152,7 +163,7 @@ class NoteInsertOperation extends Operation {
             update()
         }
         if (note.previous) {
-            note.list.insertNoteJumpUpdater(note)
+            note.parent.insertNoteJumpUpdater(note)
         }
     }
 }

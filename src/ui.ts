@@ -37,6 +37,11 @@ class Z<K extends keyof HTMLElementTagNameMap> {
             return this.element.getAttribute(name);
         }
     }
+    css(name: keyof CSSStyleDeclaration, value: string) {
+        if (value) {
+            this.element.style[name] = value
+        }
+    }
     append(...$elements: Z<any>[]) {
         const elements = new Array($elements.length);
         for (let index = 0; index < $elements.length; index++) {
@@ -166,6 +171,7 @@ class ZArrowInputBox extends Z<"div"> {
     }
     setValue(val: number) {
         this.$input.setValue(val + "")
+        return this
     }
     onChange(callback: (content: number, e: Event) => any) {
         const listener = (content: string, event: Event) => {
@@ -364,6 +370,7 @@ class ZEditableDropdownOptionBox extends Z<"div"> {
         this.$value.onInput(() => {
             this.value.edit(this.$value.getValue())
         })
+        this.$value.css("width", "100%")
         const span = $("span");
         this.append(span, this.$value);
         this.$optionList = $("div").addClass("dropdown-option-list");

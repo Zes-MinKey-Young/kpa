@@ -33,7 +33,7 @@ class Note {
     previousSibling?: Note;
     nextSibling: Note;
 
-    list: NoteTree;
+    parent: NoteTree;
 
     readonly chart: Chart;
     readonly judgeLine: JudgeLine
@@ -70,7 +70,7 @@ class Note {
             note2.previousSibling = note1;
         }
         if (note1 && note2) {
-            note2.list = note2.list;
+            note2.parent = note2.parent;
         }
     }
     
@@ -100,7 +100,7 @@ class Note {
             note2.previous = note1;
         }
         if (note1 && note2) {
-            note2.list = note1.list
+            note2.parent = note1.parent
         }
     }
     static insertSibling(note1: Note, inserted: Note, note2: Note) {
@@ -162,14 +162,14 @@ class NoteTree {
         this.head = {
             heading: true,
             next: null,
-            list: this
+            parent: this
         };
         this.currentPoint = this.head;
         this.currentBranchPoint = <Note>{startTime: [-1, 0, 1]}
         this.tail = {
             tailing: true,
             previous: null,
-            list: this
+            parent: this
         };
         this.timesWithNotes = 0;
         this.renderPointer = new Pointer();
@@ -394,12 +394,12 @@ class ComboInfoList {
         this.head = {
             heading: true,
             next: null,
-            list: this
+            parent: this
         };
         this.tail = {
             tailing: true,
             previous: null,
-            list: this
+            parent: this
         }
     }
 }

@@ -213,6 +213,14 @@ class Chart {
             const judgeLine = this.judgeLines[i]
         }
     }
+    getComboInfoEntity(time: TimeT) {
+        const key = toTimeString(time);
+        if (key in this.comboMapping) {
+            return this.comboMapping[key]
+        } else {
+            return this.comboMapping[key] = new ComboInfoEntity()
+        }
+    }
 }
 
 class ComboInfoEntity {
@@ -235,5 +243,22 @@ class ComboInfoEntity {
         this.real = 0;
         this.fake = 0;
         this.realEnd = 0;
+    }
+    add(note: Note) {
+        if (note.isFake) {
+            this.fake++
+        } else {
+            this.real++
+        }
+        this[NoteType[note.type]]++
+    }
+    remove(note: Note) {
+        if (note.isFake) {
+            this.fake--
+        } else {
+            this.real--
+        }
+        
+        this[NoteType[note.type]]--
     }
 }

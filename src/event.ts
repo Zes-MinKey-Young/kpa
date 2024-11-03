@@ -166,12 +166,12 @@ class EventNodeSequence {
         this.head = {
             heading: true,
             next: null,
-            list: this
+            parent: this
         };
         this.tail = {
             tailing: true,
             previous: null,
-            list: this
+            parent: this
         }
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
