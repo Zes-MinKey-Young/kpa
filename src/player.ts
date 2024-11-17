@@ -261,10 +261,10 @@ class Player {
                     // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
                     // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                     
-                    let note: TypeOrTailer<Note> = tree.getNoteAt(start, true, tree.renderPointer);
-                    while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < end) {
-                        this.renderSameTimeNotes(note, this.chart.comboMapping[toTimeString(note.startTime)].real > 1, judgeLine, timeCalculator);
-                        note = note.next;
+                    let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true, tree.renderPointer);
+                    while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < end) {
+                        this.renderSameTimeNotes(noteNode, , judgeLine, timeCalculator);
+                        noteNode = noteNode.next;
                     }
                 }
                 // 处理音效
@@ -313,63 +313,72 @@ class Player {
             return;
         }
         if (distance >= 0) {
-            let note = start;
-            while (note !== end) {
-                if ("tailing" in note) {
+            let noteNode = start;
+            while (noteNode !== end) {
+                if ("tailing" in noteNode) {
                     console.log(noteRange)
                 }
-                soundQueue.push(new SoundEntity(note.type, TC.toBeats(note.startTime), timeCalculator))
-                let branch: Note = note;
-                while (branch = branch.nextSibling) {
-                    soundQueue.push(new SoundEntity(branch.type, TC.toBeats(branch.startTime), timeCalculator))
+                const notes = noteNode.notes
+                , len = notes.length
+                for (let i = 0; i < len; i++) {
+                    const note = notes[i];
+                    soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator))
                 }
-                note = <Note>note.next
             }
         }
     }
     renderHitEffects(judgeLine: JudgeLine, tree: NoteTree, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
-        let note = tree.getNoteAt(startBeats, true);
-        const end = tree.getNoteAt(endBeats);
-        if ("tailing" in note) {
+        let noteNode = tree.getNodeAt(startBeats, true);
+        const end = tree.getNodeAt(endBeats);
+        if ("tailing" in noteNode) {
             return;
         }
-        while (note !== end) {
-            const beats = TimeCalculator.toBeats(note.startTime);
+        while (noteNode !== end) {
+            const beats = TimeCalculator.toBeats(noteNode.startTime);
             const base = judgeLine.getBaseCoordinate(beats);
             const thisCoord = judgeLine.getThisCoordinate(beats);
             const bx = base[0] + thisCoord[0]
             const by = base[1] + thisCoord[1];
             const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
-            let branch = note;
-            do {
-                const posX = branch.positionX;
+            const notes = noteNode.notes
+            , len = notes.length
+            for (let i = 0; i < len; i++) {
+                const note = notes[i];
+                const posX = note.positionX;
                 const x = bx + posX * vx, y = by + posX * vy;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
-                // debugger
-            } while (branch = branch.nextSibling)
+            }
 
-            note = <Note>note.next
+            noteNode = <NoteNode>noteNode.next
         } 
     }
-    renderSameTimeNotes(note: Note, duplicated: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
-        if (note.type === NoteType.hold) {
-            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed;
-            this.renderNote(
-                note,
-                duplicated,
-                startY < 0 ? 0 : startY,
-                judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed
-                )
+    renderSameTimeNotes(noteNode: NoteNode, duplicated: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
+        if (noteNode.isHold) {
+            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parent.speed;
+            const notes = noteNode.notes
+                , len = notes.length
+            for (let i = 0; i < len; i++) {
+                const note = notes[i]
+                this.renderNote(
+                    note,
+                    duplicated,
+                    startY < 0 ? 0 : startY,
+                    judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed
+                    )
+            }
         } else {
-            this.renderNote(
-                note,
-                duplicated,
-                judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed
-            )
-        }
-        if (note.nextSibling) {
-            this.renderSameTimeNotes(note.nextSibling, duplicated, judgeLine, timeCalculator);
+            const notes = noteNode.notes
+            , len = notes.length
+            for (let i = 0; i < len; i++) {
+                const note = notes[i];
+                this.renderNote(
+                    note,
+                    duplicated,
+                    judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed
+                )
+
+            }
         }
     }
     renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
@@ -393,7 +402,6 @@ class Player {
         }
         if (!note.above) {
             this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
-            
         }
         
     }

@@ -592,7 +592,7 @@ class NotesEditor {
                 const {timeDivision, beatFraction, pointedBeats} = this
                 const startTime: TimeT = [pointedBeats, beatFraction, timeDivision];
                 const endTime: TimeT = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime]
-                const note = new Note(this.target, {
+                const note = new Note({
                     endTime: endTime,
                     startTime: startTime,
                     visibleTime: 99999,
@@ -605,8 +605,8 @@ class NotesEditor {
                     type: this.noteType,
                     yOffset: 0
                 });
-                this.editor.chart.getComboInfoEntity(startTime).add(note)
-                this.editor.chart.operationList.do(new NoteInsertOperation(note, this.target.findPrev(note)));
+                // this.editor.chart.getComboInfoEntity(startTime).add(note)
+                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.findPrev(note)));
                 this.selectedNote = note;
                 this.state = NotesEditorState.selecting;
                 this.wasEditing = true;
@@ -732,13 +732,16 @@ class NotesEditor {
     }
     drawTree(tree: NoteTree, beats: number) {
         const timeRange = this.timeSpan
-        let note = tree.getNoteAt(beats, true, tree.editorPointer);
-        while (!("tailing" in note) && TimeCalculator.toBeats(note.startTime) < beats + timeRange) {
-            let branch = note;
-            do {
-                this.drawNote(beats, branch, branch === note);
-            } while (branch = branch.nextSibling)
-            note = note.next;
+        let noteNode = tree.getNodeAt(beats, true, tree.editorPointer);
+        if ("tailing" in noteNode) {
+            return
+        }
+        while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < beats + timeRange) {
+            const notes = noteNode.notes
+                , length = notes.length
+            for (let i = 0; i < length; i++) {
+                this.drawNote(beats, notes[i], i === 0)
+            }
         }
     }
     drawNote(beats: number, note: Note, isTruck: boolean) {
@@ -926,7 +929,7 @@ class Editor {
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.eventEditor.update()
         this.eventEditor.hide()
-        this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next
+        // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
     readAudio(file: File) {
         const reader = new FileReader()
