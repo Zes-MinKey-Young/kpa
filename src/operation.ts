@@ -49,13 +49,17 @@ class ComplexOperation<T extends Operation[]> extends Operation {
     do() {
         const length = this.length
         for (let i = 0; i < length; i++) {
-            this.subOperations[i].do()
+            const op = this.subOperations[i]
+            if (op.ineffective) { break; }
+            op.do()
         }
     }
     undo() {
         const length = this.length
         for (let i = length - 1; i >= 0; i--) {
-            this.subOperations[i].undo()
+            const op = this.subOperations[i]
+            if (op.ineffective) { break; }
+            op.undo()
         }
     }
 }
@@ -79,106 +83,59 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     }
     do() {
         this.note[this.field] = this.value
-        if (this.field === "startTime" || this.field === "endTime")
-        editor.chart.getComboInfoEntity(this.previousValue).remove(this.note)
-        editor.chart.getComboInfoEntity(this.value).add(this.note)
     }
     undo() {
         this.note[this.field] = this.previousValue
-        
-        editor.chart.getComboInfoEntity(this.previousValue).add(this.note)
-        editor.chart.getComboInfoEntity(this.value).remove(this.note)
     }
 }
 
-class NoteInsertOperation extends Operation {
-    originalPrevious: TypeOrHeader<Note>;
-    originalPreviousSibling: Note;
-    previous: TypeOrHeader<Note>;
-    previousSibling: Note;
+class NoteRemoveOperation extends Operation {
+    noteNode: NoteNode;
     note: Note;
-    constructor(note: Note, previous: TypeOrHeader<Note>) {
+    constructor(note: Note) {
         super()
-        this.note = note;
-        this.originalPrevious = note.previous
-        this.originalPreviousSibling = note.previousSibling
-        let previousSibling: Note;
-        if (!("heading" in previous) && TimeCalculator.eq(previous.startTime, note.startTime)) {
-            previousSibling = previous
-            while (previousSibling.nextSibling && TimeCalculator.gt(previousSibling.nextSibling.endTime, note.endTime)) {
-                previousSibling = previousSibling.nextSibling
-            }
-            this.previousSibling = previousSibling
-            this.previous = previousSibling
+        if (!note.parent) {
+            this.ineffective = true
         } else {
-            this.previous = previous
+            note.parent
         }
     }
     do() {
-        console.log(this.previous, this.note)
-        const note = this.note
-        const previous = note.previous
-        const update = this.previous.parent.insertNoteJumpUpdater(note)
-        if (this.previousSibling) {
-            if (note.previousSibling) {
-                Note.connectSibling(note.previousSibling, note.nextSibling)
-            } else if (note.nextSibling) {
-                const next = note.nextSibling
-                Note.disconnect(note, next)
-                Note.connect(note.previous, next)
-                Note.connect(next, note.next)
-            } else {
-                Note.connect(note.previous, note.next)
-            }
-            Note.insertSibling(this.previousSibling, note, this.previousSibling.nextSibling)
-        } else {
-            Note.insert(this.previous, note, this.previous.next)
-        }
-        if (previous) {
-            update()
-        }
-        if (note.previous) {
-            note.parent.insertNoteJumpUpdater(note)()
-        }
+        this.noteNode.remove(this.note)
     }
     undo() {
-        const note = this.note;
-        const update = note.parent.insertNoteJumpUpdater(note)
-        if (this.originalPreviousSibling) {
-            if (note.previousSibling) {
-                Note.connectSibling(note.previousSibling, note.nextSibling)
-            } else if (note.nextSibling) {
-                const next = note.nextSibling
-                Note.disconnect(note, next)
-                Note.connect(note.previous, next)
-                Note.connect(next, note.next)
-            } else {
-                Note.connect(note.previous, note.next)
-            }
-            Note.insertSibling(this.originalPreviousSibling, note, this.originalPreviousSibling.nextSibling)
-        } else {
-            Note.insert(this.previous, note, this.previous.next)
-        }
-        if (!this.previousSibling) {
-            update()
-        }
-        if (note.previous) {
-            note.parent.insertNoteJumpUpdater(note)
-        }
+        this.noteNode.add(this.note)
+    }
+}
+
+class NoteAddOperation extends Operation {
+    noteNode: NoteNode
+    note: Note;
+    constructor(note: Note, node: NoteNode) {
+        super()
+        this.note = note;
+        this.noteNode = node
+    }
+    do() {
+        this.noteNode.add(this.note)
+    }
+    undo() {
+        this.noteNode.remove(this.note)
     }
 }
 
 class NoteSpeedChangeOperation
-extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteInsertOperation]> {
+extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
     originalTree: NoteTree;
     judgeLine: JudgeLine;
     targetTree: NoteTree
     constructor(note: Note, value: number, line: JudgeLine) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
         const tree = line.getNoteTree(value, note.type === NoteType.hold)
-        const previous = tree.getNoteAt(TimeCalculator.toBeats(note.startTime), false).previous
-        const insert = new NoteInsertOperation(note, previous)
-        super(valueChange, insert);
+        const node = tree.getNode(note.startTime);
+        const removal = new NoteRemoveOperation(note);
+        const insert = new NoteAddOperation(note, node)
+        super(valueChange, removal, insert);
     }
 }
 
@@ -188,18 +145,19 @@ extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperatio
     constructor(note: Note, value: number) {
         const isHold = note.type === NoteType.hold
         const valueChange = new NoteValueChangeOperation(note, "type", value);
-        if (isHold != (value === NoteType.hold)) {
-            const tree = note.judgeLine.getNoteTree(note.speed, !isHold)
-            const previous = tree.getNoteAt(TimeCalculator.toBeats(note.startTime), false).previous
-            const insert = new NoteInsertOperation(note, previous)
-            super(valueChange, insert);
+        if (isHold !== (value === NoteType.hold)) {
+            const tree = note.parent.parent.parent.getNoteTree(note.speed, !isHold)
+            const node = tree.getNode(note.startTime);
+            const removal = new NoteRemoveOperation(note);
+            const insert = new NoteAddOperation(note, node);
+            super(valueChange, removal, insert);
         } else {
             super(valueChange);
         }
     }
 }
 
-class NoteTreeChangeOperation extends NoteInsertOperation {
+class NoteTreeChangeOperation extends NoteAddOperation {
 
 }
 

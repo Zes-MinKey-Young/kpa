@@ -1,6 +1,6 @@
 
 
-abstract class SideEditor<T extends TwoDirectionNode> {
+abstract class SideEditor<T extends object> {
     
     element: HTMLDivElement;
     $title: Z<"div">

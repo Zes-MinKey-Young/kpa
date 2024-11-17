@@ -71,7 +71,7 @@ function printList<T extends TwoDirectionNode>(list: List<T>) {
         if ("tailing" in cur) {
             break;
         }
-        cur = cur.next
+        cur = <T>cur.next
     }
 }
 

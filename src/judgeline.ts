@@ -23,10 +23,12 @@ class JudgeLine {
         this.noteTrees = {};
         // this.noteSpeeds = {};
     }
-    static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator, comboMapping: ComboMapping) {
+    static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
         let line = new JudgeLine(chart)
         line.id = id;
-        line.name = data.Name
+        line.name = data.Name;
+
+        const noteNodeTree = chart.noteNodeTree;
         if (data.notes) {
             const holdTrees = line.holdTrees;
             const noteTrees = line.noteTrees;
@@ -39,66 +41,26 @@ class JudgeLine {
             })
             const len = notes.length;
             let lastTime: TimeT = [-1, 0, 1];
-            let comboInfoEntity: ComboInfoEntity;
+            // let comboInfoEntity: ComboInfoEntity;
                     
             for (let i = 0; i < len; i++) {
-            const note: Note = new Note(line, notes[i]);
-                if (TC.ne(note.startTime, lastTime)) {
-                    lastTime = note.startTime;
-                    const timeString = toTimeString(lastTime)
-                    comboInfoEntity =  timeString in comboMapping ? comboMapping[timeString] : (comboMapping[timeString] = new ComboInfoEntity());
-                }
-                if (note.isFake) {
-                    comboInfoEntity.fake++
+                const note: Note = new Note(notes[i]);
+                const tree = line.getNoteTree(note.speed, note.type === NoteType.hold)
+                const cur = tree.currentPoint
+                const lastHoldTime: TimeT = "heading" in cur ? [-1, 0, 1] : cur.startTime
+                if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
+                    (<NoteNode>tree.currentPoint).add(note)
                 } else {
-                    comboInfoEntity.real++
+                    const node = new NoteNode(note.startTime)
+                    NoteNode.connect(tree.currentPoint, node)
+                    tree.currentPoint = node;
                 }
-                if (note.type === NoteType.hold) {
-                    comboInfoEntity.holdHead++;
-                    const speed = "$" + note.speed;
-                    const tree = speed in holdTrees ? holdTrees[speed] : (holdTrees[speed] = new HoldTree(note.speed));
-                    const lastHold = tree.currentBranchPoint
-                    const lastHoldTime: TimeT = lastHold.startTime
-                    if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
-                        Note.connectSibling(lastHold, note);
-                        tree.currentBranchPoint = note;
-                    } else {
-                        Note.connect(tree.currentPoint, note)
-                        tree.currentPoint = note;
-                        tree.currentBranchPoint = note;
-                    }
-                    tree.timesWithNotes++
-                    const timeString = toTimeString(note.endTime);
-                    const holdEntity = timeString in comboMapping ? comboMapping[timeString] : (comboMapping[timeString] = new ComboInfoEntity());
-                    holdEntity.hold++;
-                    if (!note.isFake) {
-                        holdEntity.realEnd++;
-                    }
-                } else {
-                    if (!note.isFake) {
-                        comboInfoEntity.realEnd++;
-                    }
-                    comboInfoEntity[NoteType[note.type]]++;
-                    const speed = "#" + note.speed;
-                    const tree = speed in noteTrees ? noteTrees[speed] : (noteTrees[speed] = new NoteTree(note.speed));
-                    const lastNote = tree.currentBranchPoint
-                    const lastNoteTime: TimeT = lastNote.startTime
-                    if (TimeCalculator.eq(lastNoteTime, note.startTime)) {
-                        Note.connectSibling(lastNote, note);
-                        tree.currentBranchPoint = note;
-                    } else {
-                        Note.connect(tree.currentPoint, note)
-                        tree.currentPoint = note;
-                        tree.currentBranchPoint = note;
-                        tree.timesWithNotes++
-                    }
-                    
-                }
+                tree.timesWithNotes++
             }
             for (let trees of [holdTrees, noteTrees]) {
                 for (let speed in trees) {
                     const tree: NoteTree = trees[speed];
-                    Note.connect(tree.currentPoint, tree.tail)
+                    NoteNode.connect(tree.currentPoint, tree.tail)
                     tree.initJump();
                     tree.initPointers()
                 }
@@ -329,8 +291,9 @@ class JudgeLine {
             }
         }
         const tree = isHold ? new HoldTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NoteTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
+        tree.parent = this
         tree.initJump();
-        trees["#" + speed] = tree
+        trees[isHold ? "$" : "#" + speed] = tree
         return tree;
     }
     findPrev(note: Note) {

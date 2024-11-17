@@ -131,10 +131,11 @@ interface NoteSpeeds {
 
  */
 
-
+/*
 interface ComboMapping {
-    [beat: /*`${number}:${number}/${number}`*/ string]: ComboInfoEntity
+    [beat: /*`${number}:${number}/${number}`* / string]: ComboInfoEntity
 }
+//*/
 
 class Chart {
     judgeLines: JudgeLine[];
@@ -142,23 +143,28 @@ class Chart {
     bpmList: BPMSegmentData[];
     timeCalculator: TimeCalculator;
     orphanLines: JudgeLine[];
-    comboMapping: ComboMapping;
+    // comboMapping: ComboMapping;
     name: string;
     level: string;
     offset: number;
 
-    operationList: OperationList
+    operationList: OperationList;
+    noteNodeTree: NoteNodeTree;
+    effectiveBeats: number;
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
         this.orphanLines = [];
         this.templateEasingLib = new TemplateEasingLib();
-        this.comboMapping = {};
+        // this.comboMapping = {};
         this.name = "uk";
         this.level = "uk";
         this.offset = 0;
 
         this.operationList = new OperationList()
+    }
+    getEffectiveBeats() {
+        return this.timeCalculator.secondsToBeats(editor.player.audio.duration)
     }
     static fromRPEJSON(data: ChartDataRPE) {
         let chart = new Chart();
@@ -167,6 +173,7 @@ class Chart {
         chart.level = data.META.level;
         chart.offset = data.META.offset;
         chart.updateCalculator()
+        chart.noteNodeTree = new NoteNodeTree(chart.getEffectiveBeats())
         if (data.envEasings) {
             chart.templateEasingLib.add(...data.envEasings)
 
@@ -186,7 +193,7 @@ class Chart {
             children.push(i);
         }
         const readOne = (lineData: JudgeLineDataRPE) => {
-            const line: JudgeLine = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator, chart.comboMapping)
+            const line: JudgeLine = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator)
             chart.judgeLines.push(line)
             if (lineData.children) {
                 for (let each of lineData.children) {
@@ -213,6 +220,7 @@ class Chart {
             const judgeLine = this.judgeLines[i]
         }
     }
+    /*
     getComboInfoEntity(time: TimeT) {
         const key = toTimeString(time);
         if (key in this.comboMapping) {
@@ -221,8 +229,10 @@ class Chart {
             return this.comboMapping[key] = new ComboInfoEntity()
         }
     }
+    */
 }
 
+/*
 class ComboInfoEntity {
     tap: number;
     drag: number;
@@ -262,3 +272,4 @@ class ComboInfoEntity {
         this[NoteType[note.type]]--
     }
 }
+*/
