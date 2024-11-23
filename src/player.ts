@@ -62,7 +62,7 @@ class Player {
         context.scale(width / 1350, -height / 900)
         hitContext.translate(width / 2, height / 2)
         hitContext.scale(width / 1350, height / 900)
-        context.scale(0.9, 0.9)
+        context.scale(0.5, 0.5)
         //hitContext.scale(0.5, 0.5)
         context.save()
         hitContext.save()
@@ -250,7 +250,7 @@ class Player {
             for (let name in trees) {
                 const tree = trees[name];
                 const speedVal: number = tree.speed;
-                debugger
+                // debugger
                 // 渲染音符
                 const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
                 tree.timeRanges = timeRanges
@@ -263,7 +263,7 @@ class Player {
                     
                     let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true, tree.renderPointer);
                     while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < end) {
-                        this.renderSameTimeNotes(noteNode, , judgeLine, timeCalculator);
+                        this.renderSameTimeNotes(noteNode, false, judgeLine, timeCalculator);
                         noteNode = noteNode.next;
                     }
                 }
@@ -382,6 +382,7 @@ class Player {
         }
     }
     renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
+        console.log(note)
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }

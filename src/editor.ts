@@ -606,7 +606,7 @@ class NotesEditor {
                     yOffset: 0
                 });
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.findPrev(note)));
+                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note)));
                 this.selectedNote = note;
                 this.state = NotesEditorState.selecting;
                 this.wasEditing = true;
@@ -792,6 +792,7 @@ class Editor {
     notesEditor: NotesEditor;
     eventEditor: EventEditor
     chart: Chart;
+    chartData: ChartDataRPE
     progressBar: ProgressBar;
     fileInput: HTMLInputElement
     musicInput: HTMLInputElement
@@ -885,6 +886,14 @@ class Editor {
             // event.preventDefault()
         })
     }
+    checkAndInit() {
+        
+        this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+        if (this.initialized) {
+            this.loadChart();
+            this.initFirstFrame();
+        }
+    }
     readChart(file: File) {
         const reader = new FileReader()
         reader.readAsText(file);
@@ -893,20 +902,20 @@ class Editor {
                 return;
             }
             let data = JSON.parse(reader.result)
-            let chart = Chart.fromRPEJSON(data);
-            this.player.chart = chart;
-            this.chart = chart;
+            this.chartData = data
             this.chartInitialized = true;
-            this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
-            if (this.chartInitialized && this.imageInitialized) {
-                this.initFirstFrame();
-            }
-            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+            this.checkAndInit()
             /**
             player.background = new Image();
             player.background.src = "../cmdysjtest.jpg";
             player.audio.src = "../cmdysjtest.mp3"; */
         })
+    }
+    loadChart() {
+        let chart = Chart.fromRPEJSON(this.chartData);
+        this.player.chart = chart;
+        this.chart = chart;
+        this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
     }
     initFirstFrame() {
         const chart = this.chart;
@@ -936,8 +945,10 @@ class Editor {
         reader.readAsDataURL(file)
         reader.addEventListener("load", () => {
             this.player.audio.src = <string>reader.result
-            this.audioInitialized = true;
-            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+            this.player.audio.addEventListener("canplaythrough", () => {
+                this.audioInitialized = true;
+                this.checkAndInit()
+            })
         })
     }
     readImage(file: File) {
@@ -947,10 +958,7 @@ class Editor {
             this.player.background = new Image();
             this.player.background.src = <string>reader.result;
             this.imageInitialized = true;
-            if (this.chartInitialized && this.imageInitialized) {
-                this.initFirstFrame();
-            }
-            this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
+            this.checkAndInit()
         })
     }
     update() {

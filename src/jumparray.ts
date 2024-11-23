@@ -71,6 +71,7 @@ class JumpArray<T extends TwoDirectionNode> {
      * @param lastNode 含
      */
     updateRange(firstNode: TypeOrHeader<T>, lastNode: TypeOrTailer<T>) {
+        console.log(firstNode, lastNode)
         const {endNextFn, effectiveBeats} = this;
         const fillMinor = (startTime: number, endTime: number) => {
             const minorArray: TypeOrTailer<T>[] = <T[]>jumpArray[jumpIndex];

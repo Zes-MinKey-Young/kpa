@@ -45,7 +45,7 @@ class JudgeLine {
                     
             for (let i = 0; i < len; i++) {
                 const note: Note = new Note(notes[i]);
-                const tree = line.getNoteTree(note.speed, note.type === NoteType.hold)
+                const tree = line.getNoteTree(note.speed, note.type === NoteType.hold, false)
                 const cur = tree.currentPoint
                 const lastHoldTime: TimeT = "heading" in cur ? [-1, 0, 1] : cur.startTime
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -54,6 +54,7 @@ class JudgeLine {
                     const node = new NoteNode(note.startTime)
                     NoteNode.connect(tree.currentPoint, node)
                     tree.currentPoint = node;
+                    noteNodeTree.addNoteNode(node);
                 }
                 tree.timesWithNotes++
             }
@@ -282,7 +283,7 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNoteTree(speed: number, isHold: boolean) {
+    getNoteTree(speed: number, isHold: boolean, initsJump: boolean) {
         const trees = isHold ? this.holdTrees : this.noteTrees;
         for (let treename in trees) {
             const tree = trees[treename]
@@ -292,14 +293,14 @@ class JudgeLine {
         }
         const tree = isHold ? new HoldTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NoteTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
         tree.parent = this
-        tree.initJump();
+        if (initsJump) tree.initJump();
         trees[isHold ? "$" : "#" + speed] = tree
         return tree;
     }
-    findPrev(note: Note) {
+    getNode(note: Note, initsJump: boolean) {
         const speed = note.speed;
         const isHold = note.type === NoteType.hold
-        const tree = this.getNoteTree(speed, isHold)
-        return tree.findPrev(note)
+        const tree = this.getNoteTree(speed, isHold, initsJump)
+        return tree.getNode(note.startTime)
     }
 }

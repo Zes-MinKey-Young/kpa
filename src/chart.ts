@@ -164,6 +164,7 @@ class Chart {
         this.operationList = new OperationList()
     }
     getEffectiveBeats() {
+        console.log(editor.player.audio.src)
         return this.timeCalculator.secondsToBeats(editor.player.audio.duration)
     }
     static fromRPEJSON(data: ChartDataRPE) {
@@ -173,6 +174,7 @@ class Chart {
         chart.level = data.META.level;
         chart.offset = data.META.offset;
         chart.updateCalculator()
+        console.log(chart, chart.getEffectiveBeats())
         chart.noteNodeTree = new NoteNodeTree(chart.getEffectiveBeats())
         if (data.envEasings) {
             chart.templateEasingLib.add(...data.envEasings)

@@ -296,12 +296,15 @@ class NoteTree {
     movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
     }
-    static distanceFromPointer(beats: number, pointer: Pointer<NoteNode>, useEnd: boolean=false): 1 | 0 | -1 {
+    static distanceFromPointer<T extends NNNode | NoteNode>(beats: number, pointer: Pointer<T>, useEnd: boolean=false): 1 | 0 | -1 {
         const note = pointer.node;
         if (!note) {
             debugger;
         }
         if ("tailing" in note) {
+            if ("heading" in note.previous) {
+                return 0
+            }
             return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? 0 : -1;
         }
         const previous = note.previous;
@@ -423,10 +426,11 @@ class NNNode implements TwoDirectionNode {
     next: TypeOrTailer<NNNode>
     constructor(time: TimeT) {
         this.noteNodes = []
+        this.holdNodes = [];
         this.startTime = time
     }
     get endTime() {
-        let latest: TimeT = [0, 0, 1];
+        let latest: TimeT = this.startTime;
         for (let index = 0; index < this.holdNodes.length; index++) {
             const element = this.holdNodes[index];
             if (TC.gt(element.endTime, latest)) {
@@ -509,27 +513,8 @@ class NoteNodeTree {
     movePointerBeforeEnd(pointer: Pointer<NNNode>, beats: number): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number] {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
     }
-    static distanceFromPointer(beats: number, pointer: Pointer<NNNode>, useEnd: boolean=false): 1 | 0 | -1 {
-        const note = pointer.node;
-        if (!note) {
-            debugger;
-        }
-        if ("tailing" in note) {
-            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? 0 : -1;
-        }
-        const previous = note.previous;
-        if (!previous) debugger
-        const previousBeats = "heading" in previous ? -Infinity : TimeCalculator.toBeats(useEnd ? previous.endTime: previous.startTime);
-        const thisBeats = TimeCalculator.toBeats(useEnd ? note.endTime : note.startTime);
-        if (beats < previousBeats) {
-            return -1;
-        } else if (beats > thisBeats) {
-            return 1;
-        }
-        return 0;
-    }
     movePointerWithGivenJumpArray(pointer: Pointer<NNNode>, beats: number, jump: JumpArray<NNNode>, useEnd: boolean=false): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number] {
-        const distance = NoteNodeTree.distanceFromPointer(beats, pointer, useEnd);
+        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
         const original = pointer.node;
         if (distance === 0) {
             pointer.beats = beats;
@@ -577,6 +562,7 @@ class NoteNodeTree {
         if ("tailing" in node || TimeCalculator.ne(node.startTime, time)) {
             const newNode = new NNNode(time);
             NoteNode.insert(node.previous, newNode, node);
+            this.jump.updateRange(node.previous, node)
             return newNode
         } else {
             return node;
