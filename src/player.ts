@@ -246,6 +246,7 @@ class Player {
         if (Object.keys(holdTrees).length || Object.keys(noteTrees). length) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
         }
+        
         for (let trees of [holdTrees, noteTrees]) {
             for (let name in trees) {
                 const tree = trees[name];
@@ -262,10 +263,12 @@ class Player {
                     // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                     
                     let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true, tree.renderPointer);
+                    
                     while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < end) {
                         this.renderSameTimeNotes(noteNode, false, judgeLine, timeCalculator);
                         noteNode = noteNode.next;
                     }
+                    
                 }
                 // 处理音效
                 this.renderSounds(tree, beats, soundQueue, timeCalculator)
@@ -281,6 +284,8 @@ class Player {
             }
 
         }
+        
+        
         drawScope(endY)
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
@@ -317,6 +322,7 @@ class Player {
             while (noteNode !== end) {
                 if ("tailing" in noteNode) {
                     console.log(noteRange)
+                    break
                 }
                 const notes = noteNode.notes
                 , len = notes.length
@@ -324,6 +330,8 @@ class Player {
                     const note = notes[i];
                     soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator))
                 }
+                noteNode = <NoteNode>noteNode.next;
+                // 这里也忘了加（
             }
         }
     }

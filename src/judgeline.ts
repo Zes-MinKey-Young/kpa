@@ -52,6 +52,7 @@ class JudgeLine {
                     (<NoteNode>tree.currentPoint).add(note)
                 } else {
                     const node = new NoteNode(note.startTime)
+                    node.add(note); // 这里之前没写，特此留念！
                     NoteNode.connect(tree.currentPoint, node)
                     tree.currentPoint = node;
                     noteNodeTree.addNoteNode(node);
@@ -294,7 +295,7 @@ class JudgeLine {
         const tree = isHold ? new HoldTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NoteTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
         tree.parent = this
         if (initsJump) tree.initJump();
-        trees[isHold ? "$" : "#" + speed] = tree
+        trees[(isHold ? "$" : "#") + speed] = tree
         return tree;
     }
     getNode(note: Note, initsJump: boolean) {

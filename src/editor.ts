@@ -606,7 +606,7 @@ class NotesEditor {
                     yOffset: 0
                 });
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note)));
+                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
                 this.state = NotesEditorState.selecting;
                 this.wasEditing = true;
@@ -742,6 +742,7 @@ class NotesEditor {
             for (let i = 0; i < length; i++) {
                 this.drawNote(beats, notes[i], i === 0)
             }
+            noteNode = noteNode.next // 这句之前忘了，卡死了，特此留念（
         }
     }
     drawNote(beats: number, note: Note, isTruck: boolean) {
