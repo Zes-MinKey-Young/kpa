@@ -58,6 +58,16 @@ class EventNode {
         node1.next = node2;
         node2.previous = node1;
     }
+    static disconnect(node: EventStartNode) {
+        (node.previous.previous).next = node.next;
+        node.previous.previous = null;
+        node.next = null;
+    }
+    static insert(node: EventStartNode, tarPrev: EventStartNode) {
+        const tarNext = tarPrev.next
+        this.connect(tarPrev, node);
+        this.connect(node, tarNext);
+    }
 }
 class EventStartNode extends EventNode {
     next: EventEndNode | Tailer<EventStartNode>;

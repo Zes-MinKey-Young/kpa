@@ -47,7 +47,7 @@ class NoteEditor extends SideEditor<Note> {
         this.noteTypeOptions = arrayForIn([
             "tap", "hold", "flick", "drag"
         ], (v) => new BoxOption(v, () => {
-            this.target.chart.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
+            editor.chart.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
         }))
         this.aboveOption = new BoxOption("above", () => this.target.above = true)
         this.belowOption = new BoxOption("below", () => this.target.above = false)
@@ -75,10 +75,10 @@ class NoteEditor extends SideEditor<Note> {
         })
         // 这里缺保卫函数
         this.$position.onChange(() => {
-            this.target.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$speed.getNum()))
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$speed.getNum()))
         })
         this.$speed.onChange(() => {
-            this.target.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.judgeLine))
+            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parent.parent.parent))
         })
     }
     update() {

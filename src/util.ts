@@ -85,3 +85,12 @@ const absVector = (v: Vector) => {
 const innerProduct = (v1: Vector, v2: Vector) => {
     return v1[0] * v2[0] + v1[1] * v2[1];
 }
+
+const pointIsInRect = (x: number, y: number, rectPos: Coordinate, width: number, height: number) => rectPos.x - width / 2 <= x && x <= rectPos.x + width / 2 
+&& rectPos.y <= y && y <= rectPos.y + height
+
+const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element: HTMLElement) => [number, number] = 
+(event: MouseEvent | TouchEvent, element: HTMLElement) => 
+    event instanceof MouseEvent ?
+     [event.offsetX, event.offsetY] :
+     [event.changedTouches[0].clientX - element.offsetTop, event.changedTouches[0].clientY - element.offsetTop]
