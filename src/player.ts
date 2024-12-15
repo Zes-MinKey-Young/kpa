@@ -390,7 +390,6 @@ class Player {
         }
     }
     renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
-        console.log(note)
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }

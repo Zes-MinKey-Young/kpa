@@ -24,18 +24,34 @@ class OperationList {
         if (operation.ineffective) {
             return
         }
+        if (this.operations.length !== 0) {
+                
+            const lastOp = this.operations[this.operations.length - 1]
+            if (operation.constructor === lastOp.constructor) {
+                if (lastOp.rewrite(operation)) {
+                    return;
+                }
+            }
+        }
         operation.do()
+        if (operation.updatesEditor) {
+            editor.update()
+        }
         this.operations.push(operation);
     }
 }
 
+
+
 abstract class Operation {
     ineffective: boolean
+    updatesEditor: boolean
     constructor() {
 
     }
     abstract do(): void
     abstract undo(): void
+    rewrite(op: typeof this): boolean {return false;}
 }
 
 class ComplexOperation<T extends Operation[]> extends Operation {
@@ -70,7 +86,8 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
     note: Note;
     previousValue: Note[T]
-    value: Note[T]
+    value: Note[T];
+    updatesEditor = true;
     constructor(note: Note, field: T, value: Note[T]) {
         super()
         this.field = field
@@ -83,11 +100,17 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     }
     do() {
         this.note[this.field] = this.value
-        editor.update()
     }
     undo() {
         this.note[this.field] = this.previousValue
-        editor.update()
+    }
+    rewrite(operation: NoteValueChangeOperation<T>): boolean {
+        if (operation.note === this.note && this.field === operation.field) {
+            this.value = operation.value;
+            this.note[this.field] = operation.value
+            return true;
+        }
+        return false;
     }
 }
 
@@ -114,6 +137,7 @@ class NoteRemoveOperation extends Operation {
 class NoteAddOperation extends Operation {
     noteNode: NoteNode
     note: Note;
+    updatesEditor = true
     constructor(note: Note, node: NoteNode) {
         super()
         this.note = note;
@@ -128,6 +152,8 @@ class NoteAddOperation extends Operation {
 }
 
 class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"startTime">, NoteRemoveOperation, NoteAddOperation]> {
+    
+    updatesEditor = true
     constructor(note: Note, noteNode: NoteNode) {
         super(
             new NoteValueChangeOperation(note, "startTime", noteNode.startTime),
@@ -135,10 +161,22 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
             new NoteAddOperation(note, noteNode)
         )
     }
+    rewrite(operation: NoteTimeChangeOperation): boolean {
+        if (operation.subOperations[0].note === this.subOperations[0].note) {
+            this.subOperations[0].value = operation.subOperations[0].value
+            this.subOperations[0].do()
+            this.subOperations[1].do()
+            this.subOperations[2].noteNode = operation.subOperations[2].noteNode
+            this.subOperations[2].do()
+            return true;
+        }
+        return false
+    }
 }
 
 class NoteSpeedChangeOperation
 extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
+    updatesEditor = true
     originalTree: NoteTree;
     judgeLine: JudgeLine;
     targetTree: NoteTree
@@ -154,7 +192,8 @@ extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation
 
 class NoteTypeChangeOperation 
 extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperation]*/ any> {
-
+    
+    updatesEditor = true
     constructor(note: Note, value: number) {
         const isHold = note.type === NoteType.hold
         const valueChange = new NoteValueChangeOperation(note, "type", value);
@@ -175,6 +214,7 @@ class NoteTreeChangeOperation extends NoteAddOperation {
 }
 
 class EventNodePairRemoveOperation extends Operation {
+    updatesEditor = true
     node: EventStartNode;
     originalPrev: EventStartNode
     constructor(node: EventStartNode) {
@@ -191,6 +231,7 @@ class EventNodePairRemoveOperation extends Operation {
 }
 
 class EventNodePairInsertOperation extends Operation {
+    updatesEditor = true
     node: EventStartNode;
     tarPrev: EventStartNode;
     originalTarPrev: EventStartNode
@@ -208,10 +249,11 @@ class EventNodePairInsertOperation extends Operation {
 }
 
 class EventNodeValueChangeOperation extends Operation {
+    updatesEditor = true
     node: EventNode
     value: number;
     originalValue: number
-    constructor(node: EventNode, val) {
+    constructor(node: EventNode, val: number) {
         super()
         this.node = node
         this.value = val;
@@ -222,5 +264,13 @@ class EventNodeValueChangeOperation extends Operation {
     }
     undo() {
         this.node.value = this.originalValue
+    }
+    rewrite(operation: EventNodeValueChangeOperation): boolean {
+        if (operation.node === this.node) {
+            this.value = operation.value;
+            this.node.value = operation.value
+            return true;
+        }
+        return false;
     }
 }

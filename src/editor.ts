@@ -146,6 +146,8 @@ class Editor {
     eventSequenceEle: HTMLDivElement;
     lineInfoEle: HTMLDivElement;
     playButton: HTMLButtonElement;
+    $timeDivisor: ZArrowInputBox;
+    timeDivisor: number
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -157,21 +159,26 @@ class Editor {
         this.audioInitialized = false;
         this.chartInitialized = false
 
+        // load areas
         this.topbarEle = <HTMLDivElement>document.getElementById("topbar")
         this.previewEle = <HTMLDivElement>document.getElementById("preview")
         this.eventSequenceEle = <HTMLDivElement>document.getElementById("eventSequence")
         this.noteInfoEle = <HTMLDivElement>document.getElementById("noteInfo")
         this.lineInfoEle = <HTMLDivElement>document.getElementById("lineInfo")
 
-
+        // load player
         this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this);
         this.notesEditor = new NotesEditor(this, this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height)
         this.notesEditor.appendTo(this.previewEle)
-        this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => {
+        this.progressBar = new ProgressBar(
+            this.player.audio,
+            () => this.pause(),
+            () => {
             this.update();
             this.player.render();
         });
         this.progressBar.appendTo(this.topbarEle)
+        // load file inputs
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
         this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
         this.backgroundInput = <HTMLInputElement>document.getElementById("backgroundInput")
@@ -225,6 +232,23 @@ class Editor {
             this.player.render()
             // event.preventDefault()
         })
+
+        this.$timeDivisor = new ZArrowInputBox()
+        this.$timeDivisor.onChange((n) => {
+            this.timeDivisor = n;
+            this.update()
+        })
+        this.$timeDivisor.setValue(4)
+        this.timeDivisor = 4
+        this.topbarEle.append(this.$timeDivisor.release())
+    }
+    shownSideEditor: SideEditor<any>;
+    switchSide(editor: SideEditor<any>) {
+        if (editor === this.shownSideEditor) {
+            return;
+        }
+        this.shownSideEditor.hide()
+        editor.show()
     }
     checkAndInit() {
         if (this.initialized) {
@@ -280,6 +304,7 @@ class Editor {
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.eventEditor.update()
         this.eventEditor.hide()
+        this.shownSideEditor = this.noteEditor
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
     readAudio(file: File) {

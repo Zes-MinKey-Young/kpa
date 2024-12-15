@@ -254,17 +254,19 @@ class NoteTree {
     }
     getNode(time: TimeT) {
         const node = this.getNodeAt(TimeCalculator.toBeats(time), false, this.editorPointer);
-        if ("tailing" in node || TimeCalculator.ne(node.startTime, time)) {
+
+        if ("heading" in node.previous || TimeCalculator.ne(node.previous.startTime, time)) {
             const newNode = new NoteNode(time);
             NoteNode.insert(node.previous, newNode, node);
             return newNode
         } else {
-            return node;
+            return node.previous;
         }
     }
     movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
         const original = pointer.node;
+        beats >= 4 && console.log(pointer, beats, distance, jump, this)
         if (distance === 0) {
             pointer.beats = beats;
             return [original, original, 0]
@@ -272,6 +274,7 @@ class NoteTree {
         const delta = beats - pointer.beats;
         if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
             const end = jump.getNodeAt(beats);
+            console.log("end, beats", end, beats)
             if (!end) {
                 debugger;
             }
@@ -305,12 +308,13 @@ class NoteTree {
             if ("heading" in note.previous) {
                 return 0
             }
-            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? 0 : -1;
+            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? -1 : 0;
         }
         const previous = note.previous;
         if (!previous) debugger
         const previousBeats = "heading" in previous ? -Infinity : TimeCalculator.toBeats(useEnd ? previous.endTime: previous.startTime);
         const thisBeats = TimeCalculator.toBeats(useEnd ? note.endTime : note.startTime);
+        console.log("tpb", thisBeats, previousBeats, beats)
         if (beats < previousBeats) {
             return -1;
         } else if (beats > thisBeats) {

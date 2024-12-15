@@ -42,16 +42,15 @@ class NotesEditor {
     timeGridColor: RGB;
     positionGridColor: RGB;
 
+    selectionManager: SelectionManager<Note>;
     state: NotesEditorState;
     wasEditing: boolean;
     pointedPositionX: number;
     pointedBeats: number;
     beatFraction: number
     noteType: NoteType
-    timeDivision: number
     noteAbove: boolean
 
-    notePositions: NotePosition[];
 
     drawn: boolean;
 
@@ -59,7 +58,6 @@ class NotesEditor {
 
     $optionBox: ZEditableDropdownOptionBox;
     $typeOption: ZDropdownOptionBox;
-    $timeDivisionInput: ZArrowInputBox;
     $noteAboveOption: ZDropdownOptionBox;
     $editButton: ZButton
     allOption: EditableBoxOption
@@ -94,6 +92,8 @@ class NotesEditor {
     }
 
     constructor(editor: Editor, width: number, height: number) {
+        this.selectionManager = new SelectionManager()
+
         this.allOption = new EditableBoxOption("*", (_s, t) => {}, () => this.targetTree = null, () => undefined, false)
 
         this.$element = $("div").addClass("notes-editor");
@@ -105,9 +105,6 @@ class NotesEditor {
                 "tap", "hold", "flick", "drag"
             ], (v) => new BoxOption(v))
             ).onChange(() => this.noteType = NoteType[this.$typeOption.value.text])
-        this.$timeDivisionInput = new ZArrowInputBox()
-            .onChange((nb, _) => this.timeDivision = nb)
-            .setValue(4)
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
             .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above")
         this.$editButton = new ZButton("e/s")
@@ -116,7 +113,6 @@ class NotesEditor {
             })
         this.$statusBar.append(
             this.$optionBox,
-            this.$timeDivisionInput,
             this.$typeOption,
             this.$noteAboveOption,
             this.$editButton
@@ -134,7 +130,6 @@ class NotesEditor {
         this.timeGridSpan = 1;
         this.timeSpan = 2;
         this.timeRatio = (height - this.padding) / this.timeSpan;
-        this.timeDivision = 4;
         this.noteType = NoteType.tap;
         this.canvas = document.createElement("canvas");
         this.canvas.width = width;
@@ -145,14 +140,14 @@ class NotesEditor {
         on(["mousedown", "touchstart"], this.canvas, (event) => {this.downHandler(event)})
         on(["mouseup", "touchend"], this.canvas, (event) => this.upHandler(event))
         on(["mousemove", "touchmove"], this.canvas, (event) => {
-            const [x, y] = event instanceof MouseEvent ? [event.offsetX, event.offsetY] : [event.changedTouches[0].clientX - this.canvas.offsetLeft, event.changedTouches[0].clientY - this.canvas.offsetTop];
+            const [x, y] = getOffsetCoordFromEvent(event, this.canvas);
             const {width, height} = this.canvas
             const {padding} = this;
             this.pointedPositionX = Math.round(((x - width / 2 - padding) / this.positionRatio) / this.positionGridSpan) * this.positionGridSpan
             const accurateBeats = (height - y - padding) / this.timeRatio + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
-            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * this.timeDivision)
-            if (this.beatFraction === this.timeDivision) {
+            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor)
+            if (this.beatFraction === editor.timeDivisor) {
                 this.pointedBeats += 1
                 this.beatFraction = 0
             }
@@ -160,8 +155,9 @@ class NotesEditor {
             switch (this.state) {
                 case NotesEditorState.selecting:
                     console.log("det")
+                    console.log(this.selectedNote)
                     editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
-                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNode([this.pointedBeats, this.beatFraction, this.timeDivision])))
+                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNode([this.pointedBeats, this.beatFraction, editor.timeDivisor])))
                     editor.noteEditor.update()
 
             }
@@ -188,25 +184,18 @@ class NotesEditor {
         switch (this.state) {
             case NotesEditorState.select:
             case NotesEditorState.selecting:
-                const positions = this.notePositions;
-                const len = positions.length;
-                let i = 0;
-                for (; i < len; i++) {
-                    const notePos = positions[i];
-                    if (pointIsInRect(x, y, notePos, NODE_WIDTH, notePos.height)) {
-                        this.selectedNote = notePos.note
-                        console.log("dete")
-                        break;
-                    }
-                    console.log(notePos);
+                const snote = this.selectionManager.click(x, y);
+                this.state = !snote ? NotesEditorState.select : NotesEditorState.selecting
+                if (snote) {
+                    this.selectedNote = snote.target
+                    this.editor.switchSide(editor.noteEditor)
                 }
-                this.state = i === len ? NotesEditorState.select : NotesEditorState.selecting
                 console.log(NotesEditorState[this.state])
                 this.wasEditing = false;
                 break;
             case NotesEditorState.edit:
-                const {timeDivision, beatFraction, pointedBeats} = this
-                const startTime: TimeT = [pointedBeats, beatFraction, timeDivision];
+                const {beatFraction, pointedBeats} = this
+                const startTime: TimeT = [pointedBeats, beatFraction, editor.timeDivisor];
                 const endTime: TimeT = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime]
                 const note = new Note({
                     endTime: endTime,
@@ -306,8 +295,8 @@ class NotesEditor {
             
             context.save()
             context.lineWidth = 1
-            for (let i = 1; i < this.timeDivision; i++) {
-                const minorPosY = (time + i / this.timeDivision - beats) * timeRatio
+            for (let i = 1; i < editor.timeDivisor; i++) {
+                const minorPosY = (time + i / editor.timeDivisor - beats) * timeRatio
                 drawLine(context, -width / 2, -minorPosY, width / 2, -minorPosY);
             }
             context.restore()
@@ -315,7 +304,7 @@ class NotesEditor {
     }
     draw(beats?: number) {
         beats = beats || this.lastBeats || 0;
-        this.notePositions = [];
+        this.selectionManager.refresh()
         const {context, canvas} = this;
         const {width: canvasWidth, height: canvasHeight} = canvas;
         const {
@@ -383,11 +372,32 @@ class NotesEditor {
         if (isTruck) {
             context.drawImage(TRUCK, posLeft, posY , NOTE_WIDTH, NOTE_HEIGHT)
         }
-        this.notePositions.push({note, x: posX, y: posY, height: NOTE_HEIGHT, type: HEAD})
+        this.selectionManager.add({
+            target: note,
+            x: posLeft,
+            y: posY,
+            height: NOTE_HEIGHT,
+            width: NOTE_WIDTH,
+            priority: 1
+        })
         if (note.type === NoteType.hold) {
             context.drawImage(HOLD_BODY, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
-            this.notePositions.push({note, x: posX, y: -end * timeRatio, height: NOTE_HEIGHT, type: TAIL})
-            this.notePositions.push({note, x: posX, y: -end * timeRatio, height: (end - start) * timeRatio, type: BODY})
+            this.selectionManager.add({
+                target: note,
+                x: posLeft,
+                y: -end * timeRatio,
+                height: NOTE_HEIGHT,
+                width: NOTE_WIDTH,
+                priority: 1
+                })
+            this.selectionManager.add({
+                target: note,
+                x: posLeft,
+                y: -end * timeRatio,
+                height: (end - start) * timeRatio,
+                width: NOTE_WIDTH,
+                priority: 0
+            })
         }
         if (note === this.selectedNote) {
             if (note.type === NoteType.hold) {

@@ -37,9 +37,7 @@ class EventCurveEditors {
     element: HTMLDivElement;
     $bar: Z<"div">;
     $typeSelect: ZDropdownOptionBox;
-    $timeDivision: ZArrowInputBox;
 
-    timeDivision: number;
 
     moveX: EventCurveEditor;
     moveY: EventCurveEditor;
@@ -65,13 +63,11 @@ class EventCurveEditors {
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
         })
-        this.$timeDivision = new ZArrowInputBox();
-        this.$timeDivision.onChange((val) => this.timeDivision = val)
 
 
 
 
-        this.$bar.append(this.$typeSelect, this.$timeDivision)
+        this.$bar.append(this.$typeSelect)
         this.$element.append(this.$bar)
 
         this.element = this.$element.element;
@@ -148,7 +144,7 @@ class EventCurveEditor {
 
     lastBeats: number;
 
-    nodePositions: NodePosition[];
+    selectionManager: SelectionManager<EventNode>
     state: EventCurveEditorState;
     wasEditing: boolean
 
@@ -192,9 +188,8 @@ class EventCurveEditor {
         this.displayed = false;
         this.state = EventCurveEditorState.select
 
-        this.nodePositions = []
 
-
+        this.selectionManager = new SelectionManager()
 
 
         this.canvas = document.createElement("canvas")
@@ -224,8 +219,8 @@ class EventCurveEditor {
             this.pointedValue = Math.round(((x - this.valueBasis) / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan
             const accurateBeats = (x - width / 2) / this.timeRatio + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
-            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * this.parent.timeDivision)
-            if (this.beatFraction === this.parent.timeDivision) {
+            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor)
+            if (this.beatFraction === editor.timeDivisor) {
                 this.pointedBeats += 1
                 this.beatFraction = 0
             }
@@ -234,7 +229,6 @@ class EventCurveEditor {
                 case EventCurveEditorState.selecting:
                     console.log("det")
                     editor.chart.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue))
-                    editor.noteEditor.update()
 
             }
         })
@@ -256,27 +250,19 @@ class EventCurveEditor {
         switch (this.state) {
             case EventCurveEditorState.select:
             case EventCurveEditorState.selecting:
-                const positions = this.nodePositions;
-                const len = positions.length;
-                let i = 0;
-                for (; i < len; i++) {
-                    const notePos = positions[i];
-                    console.log(notePos)
-                    if (pointIsInRect(x, y, notePos, NODE_WIDTH, NODE_HEIGHT)) {
-                        this.selectedNode = notePos.node
-                        console.log("dete")
-                        break;
-                    }
-                    console.log(notePos);
+                const snode = this.selectionManager.click(x, y)
+                this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
+                if (snode) {
+                    this.selectedNode = snode.target
+                    editor.switchSide(editor.eventEditor)
                 }
-                this.state = i === len ? EventCurveEditorState.select : EventCurveEditorState.selecting
                 console.log(EventCurveEditorState[this.state])
                 this.wasEditing = false;
                 break;
             case EventCurveEditorState.edit:
-                const timeDivision = this.parent.timeDivision
+                const timeDivisor = editor.timeDivisor
                 const {beatFraction, pointedBeats} = this
-                const time: TimeT = [pointedBeats, beatFraction, timeDivision];
+                const time: TimeT = [pointedBeats, beatFraction, timeDivisor];
                 const prev = this.target.getNodeAt(TimeCalculator.toBeats(time))
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
@@ -305,7 +291,7 @@ class EventCurveEditor {
         const {
             timeGridSpan, valueGridSpan,
             valueRatio, timeRatio, context} = this;
-        const timeDivision = this.parent.timeDivision
+        const timeDivisor = editor.timeDivisor
         context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight)
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
@@ -332,8 +318,8 @@ class EventCurveEditor {
             
             context.save()
             context.lineWidth = 1
-            for (let i = 1; i < timeDivision; i++) {
-                const minorPosX = (time + i / timeDivision - beats) * timeRatio
+            for (let i = 1; i < timeDivisor; i++) {
+                const minorPosX = (time + i / timeDivisor - beats) * timeRatio
                 drawLine(context, minorPosX, height / 2, minorPosX, -height / 2);
             }
             context.restore()
@@ -347,15 +333,15 @@ class EventCurveEditor {
         if (!this.target) {
             return
         }
-        this.nodePositions = [];
         beats = beats || this.lastBeats || 0;
         const {height, width} = this.canvas;
         const {
             timeRatio, valueRatio,
             valueBasis: basis,
             context,
-            nodePositions
+            selectionManager
         }= this
+        selectionManager.refresh()
         this.drawCoordination(beats)
         context.save()
         this.context.fillStyle = "#EEE"
@@ -382,16 +368,23 @@ class EventCurveEditor {
             const endY   = endValue   * valueRatio + basis;
             const topEndY = -endY - NODE_HEIGHT / 2
 
-            nodePositions.push({
-                node: startNode,
+            selectionManager.add({
+                target: startNode,
                 x: startX,
-                y: topY
+                y: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
             })
-            nodePositions.push({
-                node: endNode,
+            selectionManager.add({
+                target: endNode,
                 x: endX,
-                y: topEndY
+                y: topEndY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
             })
+
 
             startNode.easing.drawCurve(context, startX, -startY, endX, -endY)
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT)
