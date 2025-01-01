@@ -15,6 +15,15 @@ class JumpArray<T extends TwoDirectionNode> {
     nextFn: (node: T, beats: number) => T | false;
     goPrev: (node: T) => T;
 
+    /**
+     * 
+     * @param head 链表头
+     * @param tail 链表尾
+     * @param originalListLength 
+     * @param effectiveBeats 有效拍数（等同于音乐拍数）
+     * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]
+     * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
+     */
     constructor(
         head: Header<T>,
         tail: Tailer<T>,
@@ -73,6 +82,11 @@ class JumpArray<T extends TwoDirectionNode> {
     updateRange(firstNode: TypeOrHeader<T>, lastNode: TypeOrTailer<T>) {
         console.log(firstNode, lastNode)
         const {endNextFn, effectiveBeats} = this;
+        /**
+         * 
+         * @param startTime 
+         * @param endTime 就是节点管辖范围的终止点，可以超过该刻度的最大值
+         */
         const fillMinor = (startTime: number, endTime: number) => {
             const minorArray: TypeOrTailer<T>[] = <T[]>jumpArray[jumpIndex];
             const currentJumpBeats: number = jumpIndex * averageBeats
@@ -94,7 +108,7 @@ class JumpArray<T extends TwoDirectionNode> {
                 endTime = effectiveBeats;
             }
             const currentJumpBeats: number = jumpIndex * averageBeats
-            // Hold树可能会出现这种情况，故需特别考虑
+            // Hold树可能会不出现这种情况，故需特别考虑
             if (endTime > previousEndTime) {
                 while (endTime >= (jumpIndex + 1) * averageBeats) {
                     if (lastMinorJumpIndex === jumpIndex) {
@@ -117,9 +131,16 @@ class JumpArray<T extends TwoDirectionNode> {
                 previousEndTime = endTime;
             }
             if (currentNode === lastNode) {
+                currentNode = nextNode; // 为了后续可能的填充，防止刻度不满引发错误
                 break
             }
-            currentNode = nextNode;
+            currentNode = nextNode
+        }
+        if (jumpIndex === lastMinorJumpIndex) {
+            const minor = jumpArray[jumpIndex]
+            if (!minor[MINOR_PARTS]) {
+                fillMinor(previousEndTime, Infinity)
+            }
         }
     }
     /**
@@ -155,11 +176,17 @@ class JumpArray<T extends TwoDirectionNode> {
         // console.log(this)
         while (next = nextFn(node, beats)) {
             node = next;
+            if ("tailing" in node) {
+                break;
+            }
         }
         return node
     }
 }
 
+/**
+ * @deprecated
+ */
 class Pointer<T extends TwoDirectionNode> {
     beats: number;
     node: T | Tailer<T>;

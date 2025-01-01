@@ -3,7 +3,7 @@
     "compilerOptions": {
         "target": "ES6",
         "lib": ["ES2016", "dom", "ES2021.WeakRef"],
-        "strictFunctionTypes": true
+        "strictFunctionTypes": true,
         // "strictNullChecks": true,
         // "strictPropertyInitialization": true
     }

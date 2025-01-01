@@ -25,6 +25,7 @@ class Player {
     aspect: number;
     noteSize: number;
     soundQueue: SoundEntity[];
+    lastBeats: number
     
     constructor(canvas: HTMLCanvasElement, editor: Editor) {
         this.canvas = canvas
@@ -262,7 +263,7 @@ class Player {
                     // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
                     // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                     
-                    let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true, tree.renderPointer);
+                    let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
                     
                     while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < end) {
                         this.renderSameTimeNotes(noteNode, false, judgeLine, timeCalculator);
@@ -311,28 +312,20 @@ class Player {
         */
     }
     renderSounds(tree: NoteTree, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator) {
-        
-        let noteRange = tree.movePointerBeforeStart(tree.hitPointer, beats);
-        const [start, end, distance] = noteRange;
-        if ("tailing" in start) {
-            return;
-        }
-        if (distance >= 0) {
-            let noteNode = start;
-            while (noteNode !== end) {
-                if ("tailing" in noteNode) {
-                    console.log(noteRange)
-                    break
-                }
-                const notes = noteNode.notes
-                , len = notes.length
-                for (let i = 0; i < len; i++) {
-                    const note = notes[i];
-                    soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator))
-                }
-                noteNode = <NoteNode>noteNode.next;
-                // 这里也忘了加（
+        const lastBeats = this.lastBeats
+        let node: Header<NoteNode> | NoteNode = tree.getNodeAt(beats).previous
+        while (true) {
+            if ("heading" in node || TimeCalculator.toBeats(node.startTime) < lastBeats) {
+                break;
             }
+            
+            const notes = node.notes
+            , len = notes.length
+            for (let i = 0; i < len; i++) {
+                const note = notes[i];
+                soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator))
+            }
+            node = node.previous
         }
     }
     renderHitEffects(judgeLine: JudgeLine, tree: NoteTree, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
@@ -423,6 +416,7 @@ class Player {
             this.render();
             this.update();
         })
+        this.lastBeats = this.beats
     }
     play() {
         this.audio.play()

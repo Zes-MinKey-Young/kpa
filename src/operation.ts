@@ -152,7 +152,7 @@ class NoteAddOperation extends Operation {
 }
 
 class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"startTime">, NoteRemoveOperation, NoteAddOperation]> {
-    
+    note: Note
     updatesEditor = true
     constructor(note: Note, noteNode: NoteNode) {
         super(
@@ -160,12 +160,16 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
             new NoteRemoveOperation(note),
             new NoteAddOperation(note, noteNode)
         )
+        this.note = note
     }
     rewrite(operation: NoteTimeChangeOperation): boolean {
-        if (operation.subOperations[0].note === this.subOperations[0].note) {
+        if (operation.note === this.note) {
             this.subOperations[0].value = operation.subOperations[0].value
             this.subOperations[0].do()
-            this.subOperations[1].do()
+            this.subOperations[1] = new NoteRemoveOperation(this.note)
+            if (!this.subOperations[1].ineffective) {
+                this.subOperations[1].do()
+            }
             this.subOperations[2].noteNode = operation.subOperations[2].noteNode
             this.subOperations[2].do()
             return true;
@@ -183,7 +187,7 @@ extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation
     constructor(note: Note, value: number, line: JudgeLine) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
         const tree = line.getNoteTree(value, note.type === NoteType.hold, true)
-        const node = tree.getNode(note.startTime);
+        const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
         const insert = new NoteAddOperation(note, node)
         super(valueChange, removal, insert);
@@ -199,7 +203,7 @@ extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperatio
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
             const tree = note.parent.parent.parent.getNoteTree(note.speed, !isHold, true)
-            const node = tree.getNode(note.startTime);
+            const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
             super(valueChange, removal, insert);

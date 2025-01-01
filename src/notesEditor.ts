@@ -157,7 +157,7 @@ class NotesEditor {
                     console.log("det")
                     console.log(this.selectedNote)
                     editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
-                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNode([this.pointedBeats, this.beatFraction, editor.timeDivisor])))
+                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf([this.pointedBeats, this.beatFraction, editor.timeDivisor])))
                     editor.noteEditor.update()
 
             }

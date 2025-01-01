@@ -126,7 +126,7 @@ class NoteNode implements TwoDirectionNode {
         note.parent = this
     }
     remove(note: Note) {
-        this.notes.splice(this.notes.indexOf(note))
+        this.notes.splice(this.notes.indexOf(note), 1)
         note.parent = null
     }
     static disconnect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>) {
@@ -162,9 +162,11 @@ class NoteTree {
     tail: Tailer<NoteNode>;
     currentPoint: NoteNode | Header<NoteNode>;
     // currentBranchPoint: NoteNode;
+    /*
     renderPointer: Pointer<NoteNode>;
     hitPointer: Pointer<NoteNode>;
     editorPointer: Pointer<NoteNode>;
+    */
     /** 定位上个Note头已过，本身未到的Note */
     jump: JumpArray<NoteNode>;
     timesWithNotes: number;
@@ -188,9 +190,11 @@ class NoteTree {
             parent: this
         };
         this.timesWithNotes = 0;
+        /*
         this.renderPointer = new Pointer();
         this.hitPointer = new Pointer();
         this.editorPointer = new Pointer()
+        */
         this.effectiveBeats = effectiveBeats
     }
     initJump() {
@@ -224,11 +228,14 @@ class NoteTree {
     initPointer(pointer: Pointer<NoteNode>) {
         pointer.pointTo(this.head.next, 0)
     }
-    initPointers() {
+    
+    //initPointers() {
+        /*
         this.initPointer(this.hitPointer);
         this.initPointer(this.renderPointer)
         this.initPointer(this.editorPointer);
-    }
+        */
+    //}
     /**
      * 
      * @param beats 目标位置
@@ -237,6 +244,7 @@ class NoteTree {
      * @returns 
      */
     getNodeAt(beats: number, beforeEnd=false, pointer?: Pointer<NoteNode>, ): NoteNode | Tailer<NoteNode> {
+        /*
         if (pointer) {
             if (beats !== pointer.beats) {
                 if (beforeEnd) {
@@ -250,19 +258,37 @@ class NoteTree {
             }
             return pointer.node
         }
+        */
         return this.jump.getNodeAt(beats);
     }
-    getNode(time: TimeT) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false, this.editorPointer);
+    /**
+     * Get or create a node of given time
+     * @param time 
+     * @returns 
+     */
+    getNodeOf(time: TimeT) {
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
 
-        if ("heading" in node.previous || TimeCalculator.ne(node.previous.startTime, time)) {
+
+        const isEqual = !("heading" in node) && TimeCalculator.eq(node.startTime, time)
+
+        if (!isEqual) {
             const newNode = new NoteNode(time);
-            NoteNode.insert(node.previous, newNode, node);
+            NoteNode.insert(node, newNode, node.next);
+            this.jump.updateRange(node, node.next);
             return newNode
         } else {
-            return node.previous;
+            return node;
         }
     }
+    /**
+     * @deprecated
+     * @param pointer 
+     * @param beats 
+     * @param jump 
+     * @param useEnd 
+     * @returns 
+     * /
     movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
         const original = pointer.node;
@@ -293,12 +319,23 @@ class NoteTree {
         pointer.pointTo(end, beats)
         return [original, end, distance]
     }
+    // */
+    /**
+     * @deprecated
+     * /
     movePointerBeforeStart(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.jump)
     }
+    /**
+     * @deprecated
+     * /
     movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
     }
+    // */
+    /**
+     * @deprecated
+     */
     static distanceFromPointer<T extends NNNode | NoteNode>(beats: number, pointer: Pointer<T>, useEnd: boolean=false): 1 | 0 | -1 {
         const note = pointer.node;
         if (!note) {
@@ -394,11 +431,19 @@ class HoldTree extends NoteTree {
             }
         )
     }
+    /**
+     * 
+     * @param pointer 
+     * @param beats 
+     * @returns 
+     * /
     movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
     }
+    //*/
     
     getNodeAt(beats: number, beforeEnd=false, pointer?: Pointer<NoteNode>): TypeOrTailer<NoteNode> {
+        /*
         if (pointer) {
             if (beats !== pointer.beats) {
                 if (beforeEnd) {
@@ -409,6 +454,7 @@ class HoldTree extends NoteTree {
             }
             return pointer.node
         }
+        */
         return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
     }
     insertNoteJumpUpdater(note: NoteNode): () => void {

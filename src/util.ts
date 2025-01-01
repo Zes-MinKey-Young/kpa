@@ -39,6 +39,7 @@ type RGB = [number, number, number]
 const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r}, ${g}, ${b}, ${a})`
 const rgb = (r: number, g: number, b: number) => `rgba(${r}, ${g}, ${b})`
 
+/** @deprecated */
 const toTimeString = (beaT: TimeT) /*`${number}:${number}/${number}`*/ =>  `${beaT[0]}:${beaT[1]}/${beaT[2]}`
 
 function drawLine(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number) {
@@ -48,12 +49,30 @@ function drawLine(context: CanvasRenderingContext2D, startX: number, startY: num
     context.stroke()
 }
 // ParameterListSoLoooongException()
+/**
+ * 
+ * @param context 
+ * @param startX 
+ * @param startY 
+ * @param endX 
+ * @param endY 
+ * @param cp1x control point 1
+ * @param cp1y 
+ * @param cp2x 
+ * @param cp2y 
+ */
 function drawBezierCurve(context: CanvasRenderingContext2D,startX: number, startY: number, endX: number, endY: number, cp1x: number, cp1y: number, cp2x: number, cp2y: number) {
     context.beginPath();
     context.moveTo(startX, startY);
     context.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
     context.stroke();
 }
+/**
+ * To assign the same handler for different event types on an element
+ * @param eventTypes array of strings representing the types
+ * @param element 
+ * @param handler 
+ */
 function on<K extends keyof HTMLElementEventMap>(
     eventTypes: K[],
     element: HTMLElement,
@@ -63,7 +82,10 @@ function on<K extends keyof HTMLElementEventMap>(
         element.addEventListener(type, handler);
     }
 }
-
+/**
+ * to print a two-directional node list
+ * @param list 
+ */
 function printList<T extends TwoDirectionNode>(list: List<T>) {
     let cur: Header<T> | Tailer<T> | T = list.head;
     while(1) {
@@ -78,10 +100,20 @@ function printList<T extends TwoDirectionNode>(list: List<T>) {
 
 
 type Vector = [x: number, y: number]
-
+/**
+ * to compute the length of a vector
+ * @param v 
+ * @returns length
+ */
 const absVector = (v: Vector) => {
     return Math.sqrt(Math.pow(v[0], 2) + Math.pow(v[1], 2));
 }
+/**
+ * 
+ * @param v1 
+ * @param v2 
+ * @returns 
+ */
 const innerProduct = (v1: Vector, v2: Vector) => {
     return v1[0] * v2[0] + v1[1] * v2[1];
 }
@@ -89,6 +121,12 @@ const innerProduct = (v1: Vector, v2: Vector) => {
 const pointIsInRect = (x: number, y: number, rectPos: Coordinate, width: number, height: number) => rectPos.x - width / 2 <= x && x <= rectPos.x + width / 2 
 && rectPos.y <= y && y <= rectPos.y + height
 
+/**
+ * To get offset coordinates from mouse or touch
+ * @param event 
+ * @param element 
+ * @returns 
+ */
 const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element: HTMLElement) => [number, number] = 
 (event: MouseEvent | TouchEvent, element: HTMLElement) => 
     event instanceof MouseEvent ?

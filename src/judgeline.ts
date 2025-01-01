@@ -64,7 +64,7 @@ class JudgeLine {
                     const tree: NoteTree = trees[speed];
                     NoteNode.connect(tree.currentPoint, tree.tail)
                     tree.initJump();
-                    tree.initPointers()
+                    // tree.initPointers()
                 }
             }
         }
@@ -302,6 +302,6 @@ class JudgeLine {
         const speed = note.speed;
         const isHold = note.type === NoteType.hold
         const tree = this.getNoteTree(speed, isHold, initsJump)
-        return tree.getNode(note.startTime)
+        return tree.getNodeOf(note.startTime)
     }
 }
