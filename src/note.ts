@@ -397,6 +397,18 @@ class NoteTree {
         return destNote.previous
     }
     */
+    dumpKPA(): NoteTreeDataKPA {
+        const nodes: NoteNodeDataKPA[] = []
+        let node: TypeOrTailer<NoteNode> = this.head.next
+        while (!("tailing" in node)) {
+            nodes.push(node.dumpKPA())
+            node = node.next
+        }
+        return {
+            speed: this.speed,
+            noteNodes: nodes
+        }
+    }
 }
 
 class HoldTree extends NoteTree {
