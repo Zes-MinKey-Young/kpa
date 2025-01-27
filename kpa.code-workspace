@@ -12,6 +12,7 @@
 		"git.enabled": true,
 		"cSpell.words": [
 			"easings"
-		]
+		],
+		"liveServer.settings.multiRootWorkspaceName": "kpa"
 	}
 }
