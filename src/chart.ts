@@ -137,7 +137,54 @@ interface ChartDataKPA {
         level: string;
         name: string
     }
+}
+
+interface NoteNodeDataKPA {
+    notes: NoteDataRPE;
+    startTime: TimeT;
+}
+
+interface NoteTreeDataKPA {
+    speed: number;
+    noteNodes: NoteNodeDataKPA[];
+}
+
+interface JudgeLineDataKPA {
+    noteTrees: {[k: string]: NoteTreeDataKPA};
+    holdTrees: {[k: string]: NoteTreeDataKPA};
+    // Group: number;
+    Name: string;
+    Texture: string;
+    // alphaControl: Array<any>; // ?
+    // bpmfactor: 1.0;
+    eventLayers: EventLayerDataRPE[];
+    children: JudgeLineDataKPA[];
+    // extended: {inclineEvents: EventDataRPE[]};
+    // father: number;
+    // children: number[];
+    // isCover: Bool;
+    // numOfNotes: number;
+    // posControl: any[];
+    // sizeControl: any[];
+    // skewControl: any[];
+    // yControl: any[];
+    // zOrder: number;
+}
+
+interface EventNodeSequenceDataKPA {
+    nodes: EventDataRPE;
+}
+
+interface ChartDataKPA {
+    offset: number;
+    info: {
+        level: string;
+        name: string
+    }
     envEasings: CustomEasingData[]; // New!
+    eventNodeSequences: EventNodeSequenceDataKPA[];
+    orphanLines: JudgeLineDataKPA[];
+    bpmList: BPMSegmentData[];
     eventNodeSequences: EventNodeSequenceDataKPA[];
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
@@ -160,6 +207,25 @@ function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boole
     return ret;
 }
 
+type Plain<T> = {[k: string]: T}
+
+/**
+ * 相当于 Python 推导式
+ * @param obj
+ * @param expr 
+ * @param guard 
+ * @returns 
+ */
+ function dictForIn<T, RT>(obj: Plain<T>, expr: (v: T) => RT, guard?: (v: T) => boolean): Plain<RT> {
+    let ret: Plain<RT> = {}
+    for (let key in obj) {
+        const each = obj[key]
+        if (!guard || guard && guard(each)) {
+            ret[key] = expr(each)
+        }
+    }
+    return ret;
+}
 type Plain<T> = {[k: string]: T}
 
 /**
@@ -243,10 +309,12 @@ class Chart {
         console.log(chart, chart.getEffectiveBeats())
         chart.noteNodeTree = new NoteNodeTree(chart.getEffectiveBeats())
         /*
+        /*
         if (data.envEasings) {
             chart.templateEasingLib.add(...data.envEasings)
 
         }
+        */
         */
         // let line = data.judgeLineList[0];
         const length = data.judgeLineList.length
@@ -288,6 +356,24 @@ class Chart {
         const EB = this.timeCalculator.secondsToBeats(duration);
         for (let i = 0; i < this.judgeLines.length; i++) {
             const judgeLine = this.judgeLines[i]
+        }
+    }
+    dumpKPA(): ChartDataKPA {
+        const eventNodeSequences = new Set()
+        const orphanLines = []
+        for (let line of this.orphanLines) {
+            orphanLines.push(line.dumpKPA(eventNodeSequences))
+        }
+        return {
+            bpmList: this.timeCalculator.dump(),
+            envEasings: this.templateEasingLib.dump(eventNodeSequences),
+            eventNodeSequences: null,
+            info: {
+                level: this.level,
+                name: this.name
+            },
+            offset: this.offset,
+            orphanLines: orphanLines
         }
     }
     dumpKPA(): ChartDataKPA {

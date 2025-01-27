@@ -304,4 +304,18 @@ class JudgeLine {
         const tree = this.getNoteTree(speed, isHold, initsJump)
         return tree.getNodeOf(note.startTime)
     }
+    dumpKPA(eventNodeSequences: EventNodeSequence[]): JudgeLineDataKPA {
+        const children: JudgeLineDataKPA[] = [];
+        for (let line of this.children) {
+            children.push(line.dumpKPA(eventNodeSequences))
+        }
+        return {
+            Name: this.name,
+            Texture: "line.png",
+            children: children,
+            eventLayers: null,
+            holdTrees: dictForIn(this.holdTrees, (t) => t.dumpKPA()),
+            noteTrees: dictForIn(this.noteTrees, (t) => t.dumpKPA())
+        }
+    }
 }
