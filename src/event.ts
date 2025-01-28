@@ -79,6 +79,28 @@ class EventStartNode extends EventNode {
     constructor(time: TimeT, value: number) {
         super(time, value);
     }
+    dump(): EventDataRPE {
+        const endNode = this.next as EventEndNode;
+        const easing = this.easing
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: 0, // 假设默认值为 0
+            easingRight: 0, // 假设默认值为 0
+            easingType: easing instanceof TemplateEasing ?
+                easing.name :
+                easing instanceof NormalEasing ?
+                    easing.id :
+                    null,
+            end: endNode.value,
+            endTime: endNode.time,
+            linkgroup: 0, // 假设默认值为 0
+            start: this.value,
+            startTime: this.time,
+        }
+    }
     getValueAt(beats: number) {
         // 除了尾部的开始节点，其他都有下个节点
         // 钩定型缓动也有
@@ -160,6 +182,7 @@ enum EventType {
  * 为一个链表结构。会有一个数组进行快跳。
  */
 class EventNodeSequence {
+    id: string;
     type: EventType;
     head: Header<EventStartNode>;
     tail: Tailer<EventStartNode>;
@@ -344,6 +367,24 @@ class EventNodeSequence {
             currentStartNode.cachedIntegral = totalIntegral;
             previousStartNode = currentStartNode;
         }
+    }
+    dump(): EventNodeSequenceDataKPA {
+        const nodes: EventDataRPE[] = [];
+        let currentNode: EventStartNode = this.head.next;
+
+        while (currentNode && !("tailing" in currentNode.next)) {
+
+            const eventData: EventDataRPE = currentNode.dump();
+
+            nodes.push(eventData);
+
+            currentNode = currentNode.next.next;
+        }
+
+        return {
+            nodes: nodes,
+            id: this.id // 或者使用其他唯一标识符
+        };
     }
 }
 

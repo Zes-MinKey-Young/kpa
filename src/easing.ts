@@ -204,11 +204,17 @@ class BezierEasing extends Easing {
     }
 }
 
+/**
+ * 模板缓动
+ * to implement an easing with an eventNodeSequence
+ */
 class TemplateEasing extends Easing {
     eventNodeSequence: EventNodeSequence;
-    constructor(nodes: EventNodeSequence) {
+    name: string;
+    constructor(name: string, nodes: EventNodeSequence) {
         super()
         this.eventNodeSequence = nodes;
+        this.name = name;
     }
     getValue(t: number) {
         let seq = this.eventNodeSequence
@@ -222,6 +228,10 @@ class TemplateEasing extends Easing {
     }
 }
 
+/**
+ * 参数方程缓动
+ * to implement an easing with a parametric equation
+ */
 class ParametricEquationEasing extends Easing {
     _getValue: (x: number) => number;
     constructor(equation: string) {
@@ -234,13 +244,28 @@ class ParametricEquationEasing extends Easing {
     }
 }
 
+
+
+/**
+ * 缓动库
+ * 用于管理模板缓动
+ * for template easing management
+ * a property of chart
+ * To load a chart, the eventNodeSquences will be first loaded, during which process
+ * the easings will be added to the easing library but not implemented immediately.
+ * They will be implemented when the template easings are read from data.
+ * 
+ */
 class TemplateEasingLib {
     easings: {
         [name: string]: TemplateEasing
     }
-    constructor() {
+    chart: Chart;
+    constructor(chart: Chart) {
         this.easings = {};
+        this.chart = chart;
     }
+    /*
     add(...customEasingData: CustomEasingData[]) {
         const easings: {[name: string]: CustomEasingData} = {};
         for (let each of customEasingData) {
@@ -278,20 +303,61 @@ class TemplateEasingLib {
             }
         }
     }
+    */
     /**
-     * 有顺序不用考虑依赖处理
+     * register a template easing when reading eventNodeSequences, but does not implement it immediately
+     */
+    require(name: string) {
+        this.easings[name] = new TemplateEasing(name, null);
+    }
+    /**
+     * check if all easings are implemented
+     * should be invoked after all template easings are read
+     */
+    check() {
+        for (let key in this.easings) {
+            if (!this.easings[key].eventNodeSequence) {
+                throw new Error(`未实现的缓动：${key}`);
+            }
+        }
+    }
+    /**
      * @param customEasingData
      */
-    addOrdered(customEasingData: CustomEasingData[]) {
+    add(customEasingData: CustomEasingData[]) {
         for (let each of customEasingData) {
-            this.easings[each.name] = new TemplateEasing(
-            EventNodeSequence.fromRPEJSON(EventType.easing, each.content, this, undefined)
-            );
+            if (this.easings[each.name]) {
+                if (this.easings[each.name].eventNodeSequence) {
+                    throw new Error(`重复的缓动名：${each.name}`);
+                }
+                this.easings[each.name].eventNodeSequence = this.chart.sequenceMap[each.content]
+            }
+            this.easings[each.name] = new TemplateEasing(each.name, this.chart.sequenceMap[each.content])
+            
         }
         
     }
     get(key: string) {
         return this.easings[key];
+    }
+    
+    dump(eventNodeSequences: Set<EventNodeSequence>): CustomEasingData[] {
+        const customEasingDataList: CustomEasingData[] = [];
+        for (let key in this.easings) {
+            const templateEasing = this.easings[key];
+            const eventNodeSequence = templateEasing.eventNodeSequence;
+            if (eventNodeSequences.has(eventNodeSequence)) {
+                continue;
+            }
+            eventNodeSequences.add(eventNodeSequence);
+            customEasingDataList.push({
+                name: key,
+                content: eventNodeSequence.id, // 这里只存储编号，具体内容在保存时再编码
+                usedBy: [],
+                dependencies: []
+            });
+        }
+        return customEasingDataList;
     }
 }
 

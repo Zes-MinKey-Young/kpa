@@ -62,6 +62,14 @@ interface EventLayerDataRPE {
     speedEvents: EventDataRPE[];
 }
 
+interface EventLayerDataKPA {
+    moveX: string;
+    moveY: string;
+    rotate: string;
+    alpha: string;
+    speed: string;
+}
+
 interface JudgeLineDataRPE {
     _id: number;
     notes: NoteDataRPE[];
@@ -83,11 +91,14 @@ interface JudgeLineDataRPE {
     zOrder: number;
 }
 interface CustomEasingData {
-    content: EventDataRPE[];
+    content: string;
     name: string;
     usedBy: string[];
     dependencies: string[];
 }
+
+
+
 interface ChartDataRPE {
     BPMList: BPMSegmentData[];
     META: MetaData;
@@ -96,7 +107,7 @@ interface ChartDataRPE {
 }
 
 interface NoteNodeDataKPA {
-    notes: NoteDataRPE;
+    notes: NoteDataRPE[];
     startTime: TimeT;
 }
 
@@ -113,7 +124,7 @@ interface JudgeLineDataKPA {
     Texture: string;
     // alphaControl: Array<any>; // ?
     // bpmfactor: 1.0;
-    eventLayers: EventLayerDataRPE[];
+    eventLayers: EventLayerDataKPA[];
     children: JudgeLineDataKPA[];
     // extended: {inclineEvents: EventDataRPE[]};
     // father: number;
@@ -127,52 +138,11 @@ interface JudgeLineDataKPA {
     // zOrder: number;
 }
 
-interface EventNodeSequenceDataKPA {
-    nodes: EventDataRPE;
-}
 
-interface ChartDataKPA {
-    offset: number;
-    info: {
-        level: string;
-        name: string
-    }
-}
-
-interface NoteNodeDataKPA {
-    notes: NoteDataRPE;
-    startTime: TimeT;
-}
-
-interface NoteTreeDataKPA {
-    speed: number;
-    noteNodes: NoteNodeDataKPA[];
-}
-
-interface JudgeLineDataKPA {
-    noteTrees: {[k: string]: NoteTreeDataKPA};
-    holdTrees: {[k: string]: NoteTreeDataKPA};
-    // Group: number;
-    Name: string;
-    Texture: string;
-    // alphaControl: Array<any>; // ?
-    // bpmfactor: 1.0;
-    eventLayers: EventLayerDataRPE[];
-    children: JudgeLineDataKPA[];
-    // extended: {inclineEvents: EventDataRPE[]};
-    // father: number;
-    // children: number[];
-    // isCover: Bool;
-    // numOfNotes: number;
-    // posControl: any[];
-    // sizeControl: any[];
-    // skewControl: any[];
-    // yControl: any[];
-    // zOrder: number;
-}
 
 interface EventNodeSequenceDataKPA {
-    nodes: EventDataRPE;
+    nodes: EventDataRPE[];
+    id: string;
 }
 
 interface ChartDataKPA {
@@ -182,9 +152,6 @@ interface ChartDataKPA {
         name: string
     }
     envEasings: CustomEasingData[]; // New!
-    eventNodeSequences: EventNodeSequenceDataKPA[];
-    orphanLines: JudgeLineDataKPA[];
-    bpmList: BPMSegmentData[];
     eventNodeSequences: EventNodeSequenceDataKPA[];
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
@@ -207,25 +174,6 @@ function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boole
     return ret;
 }
 
-type Plain<T> = {[k: string]: T}
-
-/**
- * 相当于 Python 推导式
- * @param obj
- * @param expr 
- * @param guard 
- * @returns 
- */
- function dictForIn<T, RT>(obj: Plain<T>, expr: (v: T) => RT, guard?: (v: T) => boolean): Plain<RT> {
-    let ret: Plain<RT> = {}
-    for (let key in obj) {
-        const each = obj[key]
-        if (!guard || guard && guard(each)) {
-            ret[key] = expr(each)
-        }
-    }
-    return ret;
-}
 type Plain<T> = {[k: string]: T}
 
 /**
@@ -283,15 +231,17 @@ class Chart {
     operationList: OperationList;
     noteNodeTree: NoteNodeTree;
     effectiveBeats: number;
+    sequenceMap: Plain<EventNodeSequence>;
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
         this.orphanLines = [];
-        this.templateEasingLib = new TemplateEasingLib();
+        this.templateEasingLib = new TemplateEasingLib(this);
         // this.comboMapping = {};
         this.name = "uk";
         this.level = "uk";
         this.offset = 0;
+        this.sequenceMap = {}
 
         this.operationList = new OperationList()
     }
@@ -308,14 +258,14 @@ class Chart {
         chart.updateCalculator()
         console.log(chart, chart.getEffectiveBeats())
         chart.noteNodeTree = new NoteNodeTree(chart.getEffectiveBeats())
-        /*
+        
         /*
         if (data.envEasings) {
             chart.templateEasingLib.add(...data.envEasings)
 
         }
         */
-        */
+        
         // let line = data.judgeLineList[0];
         const length = data.judgeLineList.length
         const orphanLines: JudgeLineDataRPE[] = [];
@@ -359,40 +309,27 @@ class Chart {
         }
     }
     dumpKPA(): ChartDataKPA {
-        const eventNodeSequences = new Set()
-        const orphanLines = []
+        const eventNodeSequences = new Set<EventNodeSequence>();
+        const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences))
+            orphanLines.push(line.dumpKPA(eventNodeSequences));
+        }
+        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
+        const eventNodeSequenceData: EventNodeSequenceDataKPA[] = [];
+        for (let sequence of eventNodeSequences) {
+            eventNodeSequenceData.push(sequence.dump());
         }
         return {
             bpmList: this.timeCalculator.dump(),
-            envEasings: this.templateEasingLib.dump(eventNodeSequences),
-            eventNodeSequences: null,
+            envEasings: envEasings,
+            eventNodeSequences: eventNodeSequenceData,
             info: {
                 level: this.level,
                 name: this.name
             },
             offset: this.offset,
             orphanLines: orphanLines
-        }
-    }
-    dumpKPA(): ChartDataKPA {
-        const eventNodeSequences = []
-        const orphanLines = []
-        for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA())
-        }
-        return {
-            bpmList: this.timeCalculator.dump(),
-            envEasings: this.templateEasingLib.dump(),
-            eventNodeSequences: null,
-            info: {
-                level: this.level,
-                name: this.name
-            },
-            offset: this.offset,
-            orphanLines: 
-        }
+        };
     }
     /*
     getComboInfoEntity(time: TimeT) {

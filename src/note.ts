@@ -153,6 +153,12 @@ class NoteNode implements TwoDirectionNode {
         this.connect(note1, inserted);
         this.connect(inserted, note2);
     }
+    dump(): NoteNodeDataKPA {
+        return {
+            notes: this.notes.map(note => note.dumpRPE()),
+            startTime: this.startTime
+        }
+    }
 }
 
 
@@ -401,7 +407,7 @@ class NoteTree {
         const nodes: NoteNodeDataKPA[] = []
         let node: TypeOrTailer<NoteNode> = this.head.next
         while (!("tailing" in node)) {
-            nodes.push(node.dumpKPA())
+            nodes.push(node.dump())
             node = node.next
         }
         return {

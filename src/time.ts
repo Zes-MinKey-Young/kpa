@@ -90,6 +90,9 @@ class TimeCalculator {
     static ne(beaT1:TimeT, beaT2: TimeT): boolean {
         return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1]
     }
+    dump(): BPMSegmentData[] {
+        return this.bpmList;
+    }
 }
 
 const TC = TimeCalculator;

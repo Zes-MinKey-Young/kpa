@@ -148,6 +148,7 @@ class Editor {
     playButton: HTMLButtonElement;
     $timeDivisor: ZArrowInputBox;
     timeDivisor: number
+    $saveButton: ZButton;
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -241,6 +242,11 @@ class Editor {
         this.$timeDivisor.setValue(4)
         this.timeDivisor = 4
         this.topbarEle.append(this.$timeDivisor.release())
+        this.$saveButton = new ZButton("保存")
+        this.$saveButton.onClick(() => {
+            saveTextToFile(JSON.stringify(this.chart.dumpKPA()), this.chart.name + ".kpa.json")
+        })
+        this.topbarEle.append(this.$saveButton.release())
     }
     shownSideEditor: SideEditor<any>;
     switchSide(editor: SideEditor<any>) {

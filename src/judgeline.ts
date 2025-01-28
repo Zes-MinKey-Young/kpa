@@ -80,9 +80,9 @@ class JudgeLine {
                 speed: EventNodeSequence.fromRPEJSON(EventType.speed, layerData.speedEvents, templates, timeCalculator)
             };
             line.eventLayers[index] = layer;
-            for (let each in layerData) {
-                let type = each.slice(-6); // 去掉后面的“Event”
-                line.eventLayers[index][type]
+            for (let type in layer) {
+                layer[type].id = `#${id}.${index}.${type}`
+                chart.sequenceMap[layer[type].id] = layer[type];
             }
         }
         // line.updateNoteSpeeds();
@@ -304,16 +304,32 @@ class JudgeLine {
         const tree = this.getNoteTree(speed, isHold, initsJump)
         return tree.getNodeOf(note.startTime)
     }
-    dumpKPA(eventNodeSequences: EventNodeSequence[]): JudgeLineDataKPA {
+    /**
+     * 
+     * @param eventNodeSequences To Collect the sequences used in this line
+     * @returns 
+     */
+    dumpKPA(eventNodeSequences: Set<EventNodeSequence>): JudgeLineDataKPA {
         const children: JudgeLineDataKPA[] = [];
         for (let line of this.children) {
             children.push(line.dumpKPA(eventNodeSequences))
+        }
+        const eventLayers: EventLayerDataKPA[] = [];
+        for (let i = 0; i < this.eventLayers.length; i++) {
+            const layer = this.eventLayers[i];
+            let layerData = {}
+            for (let type in layer) {
+                const sequence = layer[type as keyof EventLayer];
+                eventNodeSequences.add(sequence);
+                layerData[type] = sequence.id;
+            }
+            eventLayers.push(layerData as EventLayerDataKPA);
         }
         return {
             Name: this.name,
             Texture: "line.png",
             children: children,
-            eventLayers: null,
+            eventLayers: eventLayers,
             holdTrees: dictForIn(this.holdTrees, (t) => t.dumpKPA()),
             noteTrees: dictForIn(this.noteTrees, (t) => t.dumpKPA())
         }

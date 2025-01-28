@@ -132,3 +132,28 @@ const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element: HTMLEle
     event instanceof MouseEvent ?
      [event.offsetX, event.offsetY] :
      [event.changedTouches[0].clientX - element.offsetTop, event.changedTouches[0].clientY - element.offsetTop]
+
+function saveTextToFile(text: string, filename: string) {
+    // 创建一个 Blob 对象
+    const blob = new Blob([text], { type: 'text/plain' });
+
+    // 创建一个 URL 对象
+    const url = URL.createObjectURL(blob);
+
+    // 创建一个 <a> 元素
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+
+    // 将 <a> 元素添加到文档中
+    document.body.appendChild(a);
+
+    // 触发点击事件
+    a.click();
+
+    // 移除 <a> 元素
+    document.body.removeChild(a);
+
+    // 释放 URL 对象
+    URL.revokeObjectURL(url);
+}
