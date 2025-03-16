@@ -1,11 +1,12 @@
 class JudgeLine {
-    holdTrees: {[key: string]: HoldTree};
-    noteTrees: {[key: string]: NoteTree};
+    hnLists: {[key: string]: HNList};
+    nnLists: {[key: string]: NNList};
     eventLayers: EventLayer[];
     // notePosition: Float64Array;
     // noteSpeeds: NoteSpeeds;
     father: JudgeLine;
     children: JudgeLine[];
+
     moveX: number;
     moveY: number;
     rotate: number;
@@ -19,8 +20,8 @@ class JudgeLine {
         this.chart = chart;
         this.eventLayers = [];
         this.children = [];
-        this.holdTrees = {};
-        this.noteTrees = {};
+        this.hnLists = {};
+        this.nnLists = {};
         // this.noteSpeeds = {};
     }
     static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
@@ -28,10 +29,10 @@ class JudgeLine {
         line.id = id;
         line.name = data.Name;
 
-        const noteNodeTree = chart.noteNodeTree;
+        const noteNodeTree = chart.nnnList;
         if (data.notes) {
-            const holdTrees = line.holdTrees;
-            const noteTrees = line.noteTrees;
+            const holdTrees = line.hnLists;
+            const noteTrees = line.nnLists;
             let notes = data.notes;
             notes.sort((n1: NoteDataRPE, n2: NoteDataRPE) => {
                 if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
@@ -61,7 +62,7 @@ class JudgeLine {
             }
             for (let trees of [holdTrees, noteTrees]) {
                 for (let speed in trees) {
-                    const tree: NoteTree = trees[speed];
+                    const tree: NNList = trees[speed];
                     NoteNode.connect(tree.currentPoint, tree.tail)
                     tree.initJump();
                     // tree.initPointers()
@@ -73,11 +74,11 @@ class JudgeLine {
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             const layer: EventLayer = {
-                moveX: EventNodeSequence.fromRPEJSON(EventType.moveX, layerData.moveXEvents, templates, undefined),
-                moveY: EventNodeSequence.fromRPEJSON(EventType.moveY, layerData.moveYEvents, templates, undefined),
-                rotate: EventNodeSequence.fromRPEJSON(EventType.rotate, layerData.rotateEvents, templates, undefined),
-                alpha: EventNodeSequence.fromRPEJSON(EventType.alpha, layerData.alphaEvents, templates, undefined),
-                speed: EventNodeSequence.fromRPEJSON(EventType.speed, layerData.speedEvents, templates, timeCalculator)
+                moveX: EventNodeSequence.fromRPEJSON(EventType.moveX, layerData.moveXEvents, chart),
+                moveY: EventNodeSequence.fromRPEJSON(EventType.moveY, layerData.moveYEvents, chart),
+                rotate: EventNodeSequence.fromRPEJSON(EventType.rotate, layerData.rotateEvents, chart),
+                alpha: EventNodeSequence.fromRPEJSON(EventType.alpha, layerData.alphaEvents, chart),
+                speed: EventNodeSequence.fromRPEJSON(EventType.speed, layerData.speedEvents, chart)
             };
             line.eventLayers[index] = layer;
             for (let type in layer) {
@@ -89,13 +90,42 @@ class JudgeLine {
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
+    static fromKPAJSON(chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
+        let line = new JudgeLine(chart)
+        line.id = id;
+        line.name = data.Name;
+        const nnnList = chart.nnnList;
+        for (let isHold of [false, true]) {
+            const key = `${isHold ? "hn" : "nn"}Lists`
+            const lists: Plain<NNListDataKPA> = data[key];
+            for (let name in lists) {
+                const listData = lists[name];
+                const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList)
+                list.id = name
+                line[key][name] = list;
+            }
+        }
+        for (let child of data.children) {
+            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
+        }
+        for (let eventLayerData of data.eventLayers) {
+            let eventLayer: EventLayer = {} as EventLayer;
+            for (let key in eventLayerData) {
+                // use "fromRPEJSON" for they have the same logic
+                eventLayer[key] = chart.sequenceMap[eventLayerData[key]]
+            }
+            line.eventLayers.push(eventLayer);
+        }
+        chart.judgeLines.push(line);
+        return line;
+    }
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
         for (let eventLayer of this.eventLayers) {
             eventLayer.speed.updateNodesIntegralFrom(beats, timeCalculator);
         }
     }
     /**
-     * 
+     * startY and endY must not be negative
      * @param beats 
      * @param timeCalculator 
      * @param startY 
@@ -127,7 +157,7 @@ class JudgeLine {
         let nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
         let nextSpeed = this.getStackedValue("speed", nextTime, true)
         let range: [number, number] = [undefined, undefined];
-        const computeTime = (speed: number, current: number, fore: number) => timeCalculator.secondsToBeats(current / (speed * 120) + timeCalculator.toSeconds(fore));
+        const computeTime = (speed: number, currentPos: number, fore: number) => timeCalculator.secondsToBeats(currentPos / (speed * 120) + timeCalculator.toSeconds(fore));
         for (let i = 0; i < len - 1;) {
             const thisTime = nextTime;
             const thisPosY = nextPosY;
@@ -174,7 +204,10 @@ class JudgeLine {
                         thisSpeed,
                         (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime)
                     if (range[0] > range[1]){
-                        debugger
+                        console.error("range start should be smaller than range end.")
+                        console.log("\nRange is:", range, "thisTime:", thisTime, "thisSpeed:", thisSpeed, "thisPosY:", thisPosY,
+                                "\nstartY:", startY, "endY:", endY, "nextTime:", nextTime, "nextPosY:", nextPosY, "nextSpeed:", nextSpeed,
+                                "\njudgeLine:", this)
                     }
                     result.push(range)
                     range = [undefined, undefined];
@@ -285,17 +318,18 @@ class JudgeLine {
      * 获取对应速度和类型的Note树,没有则创建
      */
     getNoteTree(speed: number, isHold: boolean, initsJump: boolean) {
-        const trees = isHold ? this.holdTrees : this.noteTrees;
+        const trees = isHold ? this.hnLists : this.nnLists;
         for (let treename in trees) {
             const tree = trees[treename]
             if (tree.speed == speed) {
                 return tree
             }
         }
-        const tree = isHold ? new HoldTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NoteTree(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
-        tree.parent = this
+        const tree = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
+        tree.parent = this;
         if (initsJump) tree.initJump();
-        trees[(isHold ? "$" : "#") + speed] = tree
+        const id = (isHold ? "$" : "#") + speed;
+        (trees[id] = tree).id = id;
         return tree;
     }
     getNode(note: Note, initsJump: boolean) {
@@ -326,12 +360,53 @@ class JudgeLine {
             eventLayers.push(layerData as EventLayerDataKPA);
         }
         return {
+            id: this.id,
             Name: this.name,
             Texture: "line.png",
             children: children,
             eventLayers: eventLayers,
-            holdTrees: dictForIn(this.holdTrees, (t) => t.dumpKPA()),
-            noteTrees: dictForIn(this.noteTrees, (t) => t.dumpKPA())
+            hnLists: dictForIn(this.hnLists, (t) => t.dumpKPA()),
+            nnLists: dictForIn(this.nnLists, (t) => t.dumpKPA())
         }
     }
+    dumpRPE(templateLib: TemplateEasingLib): JudgeLineDataRPE {
+        return {
+            notes: this.notes.map(note => note.dumpRPE()),
+            Group: this.groupId,
+            Name: this.name,
+            Texture: this.texturePath,
+            alphaControl: this.alphaEvents.map(e => this.dumpControlEvent(e)),
+            bpmfactor: 1.0,
+            eventLayers: this.eventLayers.map(layer => ({
+                moveXEvents: layer.moveX.dumpRPE(),
+                moveYEvents: layer.moveY.dumpRPE(),
+                rotateEvents: layer.rotate.dumpRPE(),
+                alphaEvents: layer.alpha.dumpRPE(),
+                speedEvents: layer.speed.dumpRPE()
+            })),
+            extended: {
+                inclineEvents: this.inclineEvents.dumpRPE()
+            },
+            father: this.parent?.id ?? -1,
+            children: this.children.map(c => c.id),
+            isCover: this.isCover ? 1 : 0,
+            numOfNotes: this.notes.length,
+            posControl: this.positionControl.map(c => this.dumpControlEvent(c)),
+            sizeControl: this.sizeControl.map(c => this.dumpControlEvent(c)),
+            skewControl: this.skewControl.map(c => this.dumpControlEvent(c)),
+            yControl: this.yControl.map(c => this.dumpControlEvent(c)),
+            zOrder: this.zIndex
+        };
+    }
+
+    private dumpControlEvent(event: ControlEvent): any {
+        return {
+            startTime: event.startTime,
+            endTime: event.endTime,
+            startValue: event.startValue,
+            endValue: event.endValue,
+            easing: templateLib.resolveEasing(event.easing)
+        };
+    }
+    
 }

@@ -29,6 +29,9 @@ class OperationList {
             const lastOp = this.operations[this.operations.length - 1]
             if (operation.constructor === lastOp.constructor) {
                 if (lastOp.rewrite(operation)) {
+                    if (operation.updatesEditor) {
+                        editor.update()
+                    }
                     return;
                 }
             }
@@ -161,6 +164,9 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
             new NoteAddOperation(note, noteNode)
         )
         this.note = note
+        if (note.parent === noteNode) {
+            this.ineffective = true
+        }
     }
     rewrite(operation: NoteTimeChangeOperation): boolean {
         if (operation.note === this.note) {
@@ -181,9 +187,9 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
 class NoteSpeedChangeOperation
 extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor = true
-    originalTree: NoteTree;
+    originalTree: NNList;
     judgeLine: JudgeLine;
-    targetTree: NoteTree
+    targetTree: NNList
     constructor(note: Note, value: number, line: JudgeLine) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
         const tree = line.getNoteTree(value, note.type === NoteType.hold, true)
@@ -218,19 +224,26 @@ class NoteTreeChangeOperation extends NoteAddOperation {
 }
 
 class EventNodePairRemoveOperation extends Operation {
-    updatesEditor = true
-    node: EventStartNode;
+    updatesEditor = true;
+    endNode: EventEndNode;
+    startNode: EventStartNode;
+    sequence: EventNodeSequence;
     originalPrev: EventStartNode
     constructor(node: EventStartNode) {
-        super()
-        this.node = node;
-        this.originalPrev = node.previous.previous
+        super();
+        if (node.isFirstStart()) {
+            this.ineffective = true;
+            return;
+        }
+        [this.endNode, this.startNode] = EventNode.getEndStart(node)
+        this.sequence = this.startNode.parent
+        this.originalPrev = (<EventEndNode>node.previous).previous
     }
     do() {
-        EventNode.disconnect(this.node)
+        this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
     }
     undo() {
-        EventNode.insert(this.node, this.originalPrev)
+        this.sequence.jump.updateRange(...EventNode.insert(this.startNode, this.originalPrev))
     }
 }
 
@@ -238,17 +251,16 @@ class EventNodePairInsertOperation extends Operation {
     updatesEditor = true
     node: EventStartNode;
     tarPrev: EventStartNode;
-    originalTarPrev: EventStartNode
     constructor(node: EventStartNode, targetPrevious: EventStartNode) {
         super()
         this.node = node;
         this.tarPrev = targetPrevious
     }
     do() {
-        EventNode.insert(this.node, this.tarPrev)
+        this.node.parent.jump.updateRange(...EventNode.insert(this.node, this.tarPrev))
     }
     undo() {
-        EventNode.disconnect(this.node)
+        this.node.parent.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
     }
 }
 
@@ -277,4 +289,79 @@ class EventNodeValueChangeOperation extends Operation {
         }
         return false;
     }
+}
+
+class EventNodeTimeChangeOperation extends Operation {
+    updatesEditor = true
+    sequence: EventNodeSequence;
+    /**
+     * 这里两个node不是面对面，而是背靠背
+     * i. e. EndNode -> StartNode
+     */
+    startNode: EventStartNode;
+    endNode: EventEndNode;
+    value: TimeT;
+    originalValue: TimeT;
+    originalPrevious: EventStartNode;
+    newPrevious: EventStartNode;
+    constructor(node: EventStartNode | EventEndNode, val: TimeT) {
+        super()
+        if ("heading" in node.previous) {
+            this.ineffective = true;
+            return;
+        }
+        if (!TimeCalculator.gt(val, [0, 0, 1])) {
+            this.ineffective = true;
+            return;
+        }
+        [this.endNode, this.startNode] = EventNode.getEndStart(node)
+        const seq = this.sequence = node.parent
+        const mayBeThere = seq.getNodeAt(TimeCalculator.toBeats(val))
+        if (mayBeThere && TC.eq(mayBeThere.time, val)) { // 不是arrayEq，这里踩坑
+            this.ineffective = true;
+            return;
+        }
+        this.originalPrevious = this.endNode.previous;
+        this.newPrevious = mayBeThere === this.startNode ? (<EventEndNode>this.startNode.previous).previous : mayBeThere
+        this.value = val;
+        this.originalValue = node.time
+        console.log("操作：", this)
+    }
+    do() { // 这里其实还要设计重新选址的问题
+        this.startNode.time = this.endNode.time = this.value;
+        if (this.newPrevious !== this.originalPrevious) {
+            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
+            EventNode.insert(this.startNode, this.newPrevious)
+        }
+        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode))
+    }
+    undo() {
+        this.endNode.time = this.startNode.time = this.originalValue;
+        if (this.newPrevious !== this.originalPrevious) {
+            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
+            EventNode.insert(this.startNode, this.originalPrevious)
+        }
+        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode))
+    }
+
+}
+
+class EventNodeInnerEasingChangeOperation extends Operation {
+    updatesEditor = true
+    startNode: EventStartNode;
+    value: Easing;
+    originalValue: Easing
+    constructor(node: EventStartNode | EventEndNode, val: Easing) {
+        super();
+        let _;
+        [_, this.startNode] = EventNode.getEndStart(node)
+        this.value = val;
+        this.originalValue = node.easing
+    }
+    do() {
+        this.startNode.innerEasing = this.value
+    }
+   undo() {
+        this.startNode.innerEasing = this.originalValue
+   }
 }

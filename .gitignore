@@ -1,5 +1,3 @@
 test
-dist/*
-dist
 .gitignore
 *.kpa.json

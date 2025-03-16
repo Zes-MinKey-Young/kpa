@@ -13,6 +13,8 @@
 		"cSpell.words": [
 			"easings"
 		],
-		"liveServer.settings.multiRootWorkspaceName": "kpa"
+		"liveServer.settings.multiRootWorkspaceName": "kpa",
+		"vscode.tsc.compiler.alertOnError": "never",
+		"vscode.tsc.compiler.alertTSConfigChanges": "never"
 	}
 }

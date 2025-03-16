@@ -1,3 +1,7 @@
+const DRAWS_NN = true
+const COLOR_1 = "#66ccff"
+const COLOR_2 ="#ffcc66"
+
 
 const HEAD = 1;
 const BODY = 2;
@@ -29,7 +33,7 @@ class NotesEditor {
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
     _target: JudgeLine;
-    targetTree?: NoteTree;
+    targetTree?: NNList;
     positionBasis: number
     positionRatio: number;
     positionGridSpan: number;
@@ -67,27 +71,52 @@ class NotesEditor {
     }
 
     set target(line) {
-        if (this._target !== line) {
-            this._target = line;
-            // update the OptionBox options
-            const options = [this.allOption]
-            for (let trees of [line.noteTrees, line.holdTrees]) {
-                for (let name in trees) {
-                    const tree = trees[name];
-                    const option = new EditableBoxOption(
-                        name,
-                        (_, t) => {
-                            trees[name] = null;
-                            name = t
-                            trees[name] = tree
-                        },
-                        () => this.targetTree = tree
-                        )
-                    options.push(option)
-                }
-
+        if (this._target === line) {
+            return 
+        }
+        this._target = line;
+        // update the OptionBox options
+        const options = [this.allOption]
+        for (let trees of [line.nnLists, line.hnLists]) {
+            for (let name in trees) {
+                const tree = trees[name];
+                const option = new EditableBoxOption(
+                    name,
+                    (_, t) => {
+                        trees[name] = null;
+                        name = t
+                        trees[name] = tree
+                    },
+                    () => this.targetTree = tree
+                    )
+                options.push(option)
             }
-            this.$optionBox.replaceWithOptions(options)
+
+        }
+        this.$optionBox.replaceWithOptions(options)
+        if (this.targetTree) {
+            const name = this.targetTree.id || "#1"
+            options.forEach((option) => {
+                if (option.text === name) {
+                    this.$optionBox.value = option
+                }
+            })
+            if (this.targetTree instanceof HNList) {
+                if (name in line.hnLists) {
+                    this.targetTree = line.hnLists[name]
+                } else {
+                    this.targetTree = null;
+                    this.$optionBox.value = this.allOption
+                }
+            } else {
+                if (name in line.nnLists) {
+                    this.targetTree = line.nnLists[name]
+                } else {
+                    this.targetTree = null;
+                    this.$optionBox.value = this.allOption
+                }
+            }
+
         }
     }
 
@@ -158,7 +187,6 @@ class NotesEditor {
                     console.log(this.selectedNote)
                     editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
                     editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf([this.pointedBeats, this.beatFraction, editor.timeDivisor])))
-                    editor.noteEditor.update()
 
             }
         })
@@ -166,7 +194,6 @@ class NotesEditor {
             if (this.drawn) {
                 return
             }
-            requestAnimationFrame(() => this.draw(this.lastBeats));
             this.drawn = true;
         })
         
@@ -241,12 +268,13 @@ class NotesEditor {
         this.context.translate(this.canvas.width / 2, this.canvas.height - this.padding)
         this.context.strokeStyle = "#EEE"
         this.context.fillStyle = "#333"
+        this.context.font = "20px phigros"
         this.context.lineWidth = 2
     }
     drawCoordination(beats: number) {
         const {context, canvas} = this;
         const {width: canvasWidth, height: canvasHeight} = canvas;
-        console.log(canvasWidth, canvasHeight)
+        // console.log(canvasWidth, canvasHeight)
         const {
             positionGridSpan,
             positionRatio,
@@ -260,6 +288,7 @@ class NotesEditor {
             padding} = this;
         const width = canvasWidth - padding * 2
         const height = canvasHeight - padding * 2
+        context.fillStyle = "#333"
 
         context.fillRect(-canvasWidth / 2, padding - canvasHeight, canvasWidth, canvasHeight)
 
@@ -268,9 +297,13 @@ class NotesEditor {
         context.strokeStyle = "#EEE";
         // 基线
         drawLine(context, -canvasWidth / 2, 0, canvasWidth / 2, 0);
+        context.fillStyle = "#EEE";
+        context.fillText("State:" + NotesEditorState[this.state], 0, -height + 20)
+        if (this.targetTree && this.targetTree.timeRanges) {
+            context.fillText("Range:" + arrayForIn(this.targetTree.timeRanges, (range) => range.join("-")).join(","), -100, -height + 50)
+        }
         context.restore()
 
-        context.strokeText("State:" + NotesEditorState[this.state], 0, -height + 2)
         // 绘制x坐标线
         // 计算上下界
         const upperEnd = Math.ceil((width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan
@@ -281,7 +314,8 @@ class NotesEditor {
         for (let value = lowerEnd; value < upperEnd; value += positionGridSpan) {
             const positionX = value * positionRatio + positionBasis;
             drawLine(context, positionX, -height + padding, positionX, 0);
-            context.strokeText(value + "", positionX, -height + padding)
+            context.fillStyle = rgb(...this.positionGridColor)
+            context.fillText(value + "", positionX, -height + padding)
             // debugger
         }
         context.strokeStyle = rgb(...this.timeGridColor)
@@ -291,9 +325,10 @@ class NotesEditor {
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionY = (time - beats)  * timeRatio
             drawLine(context, -width / 2, -positionY, width / 2, -positionY);
-            context.strokeText(time + "", -width / 2, -positionY)
-            
             context.save()
+            context.fillStyle = rgb(...this.timeGridColor)
+            context.fillText(time + "", -width / 2, -positionY)
+            
             context.lineWidth = 1
             for (let i = 1; i < editor.timeDivisor; i++) {
                 const minorPosY = (time + i / editor.timeDivisor - beats) * timeRatio
@@ -324,18 +359,54 @@ class NotesEditor {
         if (this.targetTree) {
             this.drawTree(this.targetTree, beats)
         } else {
-            for (let trees of [this.target.noteTrees, this.target.holdTrees]) {
+            for (let trees of [this.target.nnLists, this.target.hnLists]) {
                 for (let speed in trees) {
                     let tree = trees[speed];
                     this.drawTree(tree, beats)
                 }
             }
         }
+        if (DRAWS_NN && this.targetTree) {
+            context.save()
+            context.lineWidth = 3;
+            const jump = this.targetTree.jump;
+            const averageBeats = jump.averageBeats;
+            const start = Math.floor(beats / averageBeats)
+            const end = Math.ceil((beats + timeRange) / averageBeats)
+            const array = jump.array;
+            let lastNode = null;
+            let color = COLOR_1;
+            const minorAverageBeats = jump.averageBeats / MINOR_PARTS;
+            const x = width / 2 - 10;
+            const switchColor = () => (context.strokeStyle = color = color === COLOR_1 ? COLOR_2 : COLOR_1)
+            for (let i = start; i < end; i++) {
+                const scale: TypeOrTailer<NoteNode> | TypeOrTailer<NoteNode>[] = array[i]
+                const y = -(i * averageBeats - beats) * timeRatio;
+                console.log(i, y)
+                if (Array.isArray(scale)) {
+                    for (let j = 0; j < MINOR_PARTS; j++) {
+                        const node = scale[j];
+                        if (node !== lastNode) {
+                            switchColor()
+                            lastNode = node
+                        }
+                        drawLine(context, x - 4, y - j * minorAverageBeats * timeRatio, x, y - (j + 1) * minorAverageBeats * timeRatio + 5)
+                    }
+                } else {
+                    if (scale !== lastNode) {
+                        switchColor()
+                        lastNode = scale
+                    }
+                    drawLine(context, x - 10, y, x + 10, y - averageBeats * timeRatio + 5)
+                }
+            }
+            context.restore()
+        }
         
         this.drawn = false;
         this.lastBeats = beats
     }
-    drawTree(tree: NoteTree, beats: number) {
+    drawTree(tree: NNList, beats: number) {
         const timeRange = this.timeSpan
         let noteNode = tree.getNodeAt(beats, true, tree.editorPointer);
         if ("tailing" in noteNode) {

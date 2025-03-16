@@ -8,7 +8,7 @@ const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
 
 
-const $ = <K extends keyof HTMLElementTagNameMap>(...args: [K]) => new Z(...args);
+
 
 class JudgeLinesEditor {
     editor: Editor;
@@ -132,7 +132,8 @@ class Editor {
     notesEditor: NotesEditor;
     eventEditor: EventEditor
     chart: Chart;
-    chartData: ChartDataRPE
+    chartType: "rpejson" | "kpajson";
+    chartData: ChartDataRPE | ChartDataKPA;
     progressBar: ProgressBar;
     fileInput: HTMLInputElement
     musicInput: HTMLInputElement
@@ -255,6 +256,7 @@ class Editor {
         }
         this.shownSideEditor.hide()
         editor.show()
+        this.shownSideEditor = editor
     }
     checkAndInit() {
         if (this.initialized) {
@@ -275,6 +277,11 @@ class Editor {
             }
             let data = JSON.parse(reader.result)
             this.chartData = data
+            if ("META" in this.chartData) {
+                this.chartType = "rpejson"
+            } else {
+                this.chartType = "kpajson"
+            }
             this.chartInitialized = true;
             this.checkAndInit()
             /**
@@ -284,7 +291,7 @@ class Editor {
         })
     }
     loadChart() {
-        let chart = Chart.fromRPEJSON(this.chartData);
+        let chart = this.chartType === "rpejson" ? Chart.fromRPEJSON(this.chartData as ChartDataRPE) : Chart.fromKPAJSON(this.chartData as ChartDataKPA);
         this.player.chart = chart;
         this.chart = chart;
         this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
@@ -343,15 +350,19 @@ class Editor {
             }
             this.updateEventSequences()
             this.judgeLinesEditor.update()
-            this.updateNoteEditor()
+            this.updateNotesEditor()
+            this.updateShownEditor()
             console.log("updated")
         })
     }
     updateEventSequences() {
         this.eventCurveEditors.draw(this.player.beats)
     }
-    updateNoteEditor() {
+    updateNotesEditor() {
         this.notesEditor.draw(this.player.beats)
+    }
+    updateShownEditor() {
+        this.shownSideEditor.update()
     }
     get playing(): boolean {
         return this.player.playing
@@ -366,6 +377,7 @@ class Editor {
     }
     pause() {
         this.player.pause()
+        this.update()
         this.playButton.innerHTML = "继续"
     }
 }

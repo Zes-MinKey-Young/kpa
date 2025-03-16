@@ -5,6 +5,8 @@ const MINOR_PARTS = 16;
 
 type EndNextFn<T extends TwoDirectionNode> = (node: TypeOrTailer<T> | Header<T>) => [endBeats: number, next: TypeOrTailer<T>];
 
+
+
 class JumpArray<T extends TwoDirectionNode> {
     header: Header<T>;
     tailer: Tailer<T>;
@@ -21,7 +23,7 @@ class JumpArray<T extends TwoDirectionNode> {
      * @param tail 链表尾
      * @param originalListLength 
      * @param effectiveBeats 有效拍数（等同于音乐拍数）
-     * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]
+     * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]（停止遍历的条件是抵达尾部而不是得到null）
      * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
      */
     constructor(
@@ -35,17 +37,18 @@ class JumpArray<T extends TwoDirectionNode> {
         ) {
         this.header = head;
         this.tailer = tail;
-        this.effectiveBeats = effectiveBeats;
         this.endNextFn = endNextFn;
         this.nextFn = nextFn;
         // const originalListLength = this.listLength
         const listLength: number = Math.max(MIN_LENGTH, Math.min(originalListLength * 4, MAX_LENGTH));
         const averageBeats: number = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
         const exactLength: number = Math.ceil(effectiveBeats / averageBeats);
+        console.log(exactLength, listLength, averageBeats, exactLength)
         // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
         const jumpArray: (TypeOrTailer<T> | TypeOrTailer<T>[])[] = new Array(exactLength);
         this.array = jumpArray;
         this.averageBeats = averageBeats;
+        this.effectiveBeats = exactLength * averageBeats;
         this.updateRange(head, tail)
     }
     updateEffectiveBeats(val: number) {
@@ -95,36 +98,38 @@ class JumpArray<T extends TwoDirectionNode> {
             for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
                 minorArray[minorIndex] = currentNode;
             }
+            console.log(jumpIndex, arrayForIn(minorArray, (n) => node2string(n)).join("]["))
+            console.log("cur:", currentNode)
         }
         const jumpArray = this.array
         const averageBeats: number = this.averageBeats;
         const minorBeats: number = averageBeats / MINOR_PARTS;
         let [previousEndTime, currentNode] = endNextFn(firstNode);
-        let jumpIndex = Math.ceil(previousEndTime);
-        let lastMinorJumpIndex = -1;
+        let jumpIndex = Math.floor(previousEndTime / averageBeats); // 这里写漏了特此留念
         for (;;) {
             let [endTime, nextNode] = endNextFn(currentNode);
+            console.log("----Node:", currentNode, "next:", nextNode, "endTime:", endTime, "previousEndTime:", previousEndTime )
             if (endTime === null) {
                 endTime = effectiveBeats;
             }
-            const currentJumpBeats: number = jumpIndex * averageBeats
             // Hold树可能会不出现这种情况，故需特别考虑
             if (endTime > previousEndTime) {
                 while (endTime >= (jumpIndex + 1) * averageBeats) {
-                    if (lastMinorJumpIndex === jumpIndex) {
+                    if (Array.isArray(jumpArray[jumpIndex])) {
                         fillMinor(previousEndTime, endTime)
-                        
                     } else {
                         try {
+                            console.log(jumpIndex, currentNode)
                         jumpArray[jumpIndex] = currentNode;
                         } catch (E) {console.log(jumpIndex, jumpArray);debugger}
                     }
                     jumpIndex++;
                 }
+                const currentJumpBeats: number = jumpIndex * averageBeats // 放错了
                 if (endTime > currentJumpBeats) {
-                    if (lastMinorJumpIndex !== jumpIndex) {
+                    let minor = jumpArray[jumpIndex];
+                    if (!Array.isArray(minor)) {
                         jumpArray[jumpIndex] = new Array(MINOR_PARTS);
-                        lastMinorJumpIndex = jumpIndex
                     }
                     fillMinor(previousEndTime, endTime)
                 }
@@ -136,10 +141,26 @@ class JumpArray<T extends TwoDirectionNode> {
             }
             currentNode = nextNode
         }
-        if (jumpIndex === lastMinorJumpIndex) {
-            const minor = jumpArray[jumpIndex]
-            if (!minor[MINOR_PARTS]) {
-                fillMinor(previousEndTime, Infinity)
+        const minor = jumpArray[jumpIndex];
+        if (Array.isArray(minor)) {
+            console.log("minor", arrayForIn(minor, (n) => node2string(n)))
+            if (!minor[MINOR_PARTS - 1]) {
+                if (!currentNode) {
+                    currentNode = this.tailer
+                    fillMinor(previousEndTime, effectiveBeats)
+                    return;
+                }
+                do {
+                    let [endTime, nextNode] = endNextFn(currentNode);
+                    if (endTime === null) {
+                        endTime = this.effectiveBeats;
+                    }
+                    if (endTime > previousEndTime) {
+                        fillMinor(previousEndTime, endTime)
+                        previousEndTime = endTime;
+                    }
+                    currentNode = nextNode;
+                } while (previousEndTime < (jumpIndex + 1) * averageBeats)
             }
         }
     }
@@ -169,7 +190,7 @@ class JumpArray<T extends TwoDirectionNode> {
         }
         // console.log(this, node, jumpPos, beats)
         if (!node) {
-            console.log(node, jumpPos, beats)
+            console.warn("No node:", node, beats)
             debugger
         }
         let next: T | false;

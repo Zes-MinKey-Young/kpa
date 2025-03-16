@@ -100,7 +100,11 @@ const easingFnMap = {
     "elastic": [easeInElastic, easeOutElastic, toEaseInOut(easeInElastic, easeOutElastic)],
     "bounce": [easeInBounce, easeOutBounce, toEaseInOut(easeInBounce, easeOutBounce)]
 }
-
+/**
+ * 缓动基类
+ * Easings are used to describe the rate of change of a parameter over time.
+ * They are used in events, curve note filling, etc.
+ */
 abstract class Easing {
     constructor() {
 
@@ -111,6 +115,11 @@ abstract class Easing {
      * @param t 一个0-1的浮点数，代表当前经过时间与总时间之比
      */
     abstract getValue(t: number): number;
+    segmentedValueGetter(easingLeft: number, easingRight: number) {
+        const leftValue = this.getValue(easingLeft);
+        const rightValue =  this.getValue(easingRight);
+        return (t: number) => (this.getValue(t) - leftValue) / (rightValue - leftValue);
+    }
     drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number): void {
         const delta = endY - startY;
         const timeDelta = endX - startX;
@@ -131,6 +140,23 @@ type TupleCoordinate = [number, number]
 
 type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) => void
 
+class SegmentedEasing extends Easing {
+    getter: (t: number) => number;
+    constructor(public easing: Easing, public left: number, public right: number) {
+        super()
+        this.getter = easing.segmentedValueGetter(left, right)
+    }
+    getValue(t: number): number {
+        return this.getter(t)
+    }
+}
+
+
+/**
+ * 普通缓动
+ * See https://easings.net/zh-cn to learn about the basic types of easing.
+ * 
+ */
 class NormalEasing extends Easing {
     rpeId: number;
     id: number;
@@ -168,7 +194,10 @@ interface Coordinate {
     x:number;
     y: number;
 }
-
+/**
+ * 贝塞尔曲线缓动
+ * uses the Bezier curve formula to describe an easing.
+ */
 class BezierEasing extends Easing {
     cp1: Coordinate;
     cp2: Coordinate;
@@ -206,7 +235,8 @@ class BezierEasing extends Easing {
 
 /**
  * 模板缓动
- * to implement an easing with an eventNodeSequence
+ * to implement an easing with an eventNodeSequence.
+ * This is inspired by the "template" concept in wikitext.
  */
 class TemplateEasing extends Easing {
     eventNodeSequence: EventNodeSequence;
@@ -230,7 +260,11 @@ class TemplateEasing extends Easing {
 
 /**
  * 参数方程缓动
- * to implement an easing with a parametric equation
+ * to implement an easing with a parametric equation.
+ * RPE also has Parametric Equations, but it does not use it as an easing type;
+ * It instead just generate a sequence of linear events through interpolation, which is irreversible.
+ * Here in KPA we use it as an easing type, to increase reusability.
+ * We do not segment it until the chart is converted to an RPEJSON.
  */
 class ParametricEquationEasing extends Easing {
     _getValue: (x: number) => number;
@@ -265,45 +299,14 @@ class TemplateEasingLib {
         this.easings = {};
         this.chart = chart;
     }
-    /*
-    add(...customEasingData: CustomEasingData[]) {
-        const easings: {[name: string]: CustomEasingData} = {};
-        for (let each of customEasingData) {
-            easings[each.name] = each;
-        }
-        for (let each of customEasingData) {
-            if (each.dependencies.length !== 0) {
-                for (let dependency of each.dependencies) {
-                    if (easings[dependency].usedBy.includes(each.name)) {
-                        continue
-                    }
-                    easings[dependency].usedBy.push(each.name)
-                }
-            }
-        }
-        for (let each of customEasingData) {
-            this.addOne(each, easings);
+    getOrNew(name: string): TemplateEasing {
+        if (this.easings[name]) {
+            return this.easings[name];
+        } else {
+            const easing = new TemplateEasing(name, EventNodeSequence.newSeq(EventType.easing));
+            return this.easings[name] = easing;
         }
     }
-    private addOne(customEasingData: CustomEasingData, mayDepend: {[name: string]: CustomEasingData}) {
-
-        if (customEasingData.dependencies.length !== 0) {
-            return
-        }
-        this.easings[customEasingData.name] = new TemplateEasing(
-            EventNodeSequence.fromRPEJSON(EventType.easing, customEasingData.content, this, undefined)
-            );
-        if (customEasingData.usedBy) {
-            for (let name of customEasingData.usedBy) {
-                const dependencies = mayDepend[name].dependencies;
-                dependencies.splice(dependencies.indexOf(customEasingData.name))
-                if (dependencies.length === 0) {
-                    this.addOne(mayDepend[name], mayDepend)
-                }
-            }
-        }
-    }
-    */
     /**
      * register a template easing when reading eventNodeSequences, but does not implement it immediately
      */

@@ -8,7 +8,7 @@ abstract class SideEditor<T extends object> {
     $body: Z<"div">
     _target: WeakRef<T>;
     get target() {
-        return this._target.deref();
+        return this._target?.deref();
     }
     set target(val) {
         this._target = new WeakRef(val);
@@ -106,27 +106,59 @@ class EventEditor extends SideEditor<EventNode> {
     $time: ZFractionInput;
     $value: ZInputBox;
     $easing: ZEasingBox;
+    $radioTabs: ZRadioTabs;
+    $templateEasing: ZInputBox;
     constructor() {
         super()
         this.$element.addClass("event-editor")
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
-        this.$easing = new ZEasingBox();
+        this.$easing = new ZEasingBox()
+        this.$templateEasing = new ZInputBox().addClass("template-easing-box");
+        this.$radioTabs = new ZRadioTabs("easing-type", {
+            "Normal": this.$easing,
+            "Template": this.$templateEasing
+        })
         this.$body.append(
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
-            $("span").text("easing"), this.$easing
+            this.$radioTabs
         )
         this.$time.onChange((t) => this.target.time = t)
         this.$value.onChange(() => this.target.value = this.$value.getNum())
-        this.$easing.onChange((id) => this.target.easing = easingArray[id])
+        this.$easing.onChange((id) => this.setNormalEasing(id))
+        this.$templateEasing.onChange((name) => this.setTemplateEasing(name))
+        this.$radioTabs.$radioBox.onChange((id) => {
+            if (id === 0) {
+                this.setNormalEasing(this.$easing.value)
+            } else if (id === 1) {
+                if (!this.$templateEasing.getValue()) { return; }
+                this.setTemplateEasing(this.$templateEasing.getValue())
+            }
+        })
     }
-    update() {
+    setNormalEasing(id: number): void {
+        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]))
+        this.target.innerEasing = easingArray[id]
+    }
+    setTemplateEasing(name: string): void {
+        const chart = editor.chart;
+        const easing = chart.templateEasingLib.getOrNew(name);
+        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing))
+    }
+    update(): void {
         const eventNode = this.target;
         if (!eventNode) {
             return;
         }
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
+        if (eventNode.innerEasing instanceof NormalEasing) {
+            this.$radioTabs.$radioBox.switchTo(0)
+            this.$easing.setValue(eventNode.innerEasing);
+        } else if (eventNode.innerEasing instanceof TemplateEasing) {
+            this.$radioTabs.$radioBox.switchTo(1)
+
+        }
     }
 }

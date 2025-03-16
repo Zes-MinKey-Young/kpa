@@ -70,13 +70,34 @@ interface EventLayerDataKPA {
     speed: string;
 }
 
+interface Control {
+    easing: number;
+    x: number;
+}
+
+interface AlphaControl extends Control {
+    alpha: number;
+}
+interface PosControl extends Control {
+    pos: number;
+}
+interface SizeControl extends Control {
+    size: number;
+}
+interface SkewControl extends Control {
+    skew: number;
+}
+interface YControl extends Control {
+    y: number;
+}
+
 interface JudgeLineDataRPE {
-    _id: number;
+    _id?: number;
     notes: NoteDataRPE[];
     Group: number;
     Name: string;
     Texture: string;
-    alphaControl: Array<any>; // ?
+    alphaControl: AlphaControl[]; // ?
     bpmfactor: 1.0;
     eventLayers: EventLayerDataRPE[];
     extended: {inclineEvents: EventDataRPE[]};
@@ -84,10 +105,10 @@ interface JudgeLineDataRPE {
     children: number[];
     isCover: Bool;
     numOfNotes: number;
-    posControl: any[];
-    sizeControl: any[];
-    skewControl: any[];
-    yControl: any[];
+    posControl: PosControl[];
+    sizeControl: SizeControl[];
+    skewControl: SkewControl[];
+    yControl: YControl[];
     zOrder: number;
 }
 interface CustomEasingData {
@@ -111,14 +132,15 @@ interface NoteNodeDataKPA {
     startTime: TimeT;
 }
 
-interface NoteTreeDataKPA {
+interface NNListDataKPA {
     speed: number;
     noteNodes: NoteNodeDataKPA[];
 }
 
 interface JudgeLineDataKPA {
-    noteTrees: {[k: string]: NoteTreeDataKPA};
-    holdTrees: {[k: string]: NoteTreeDataKPA};
+    id: number;
+    nnLists: {[k: string]: NNListDataKPA};
+    hnLists: {[k: string]: NNListDataKPA};
     // Group: number;
     Name: string;
     Texture: string;
@@ -143,6 +165,7 @@ interface JudgeLineDataKPA {
 interface EventNodeSequenceDataKPA {
     nodes: EventDataRPE[];
     id: string;
+    type: EventType;
 }
 
 interface ChartDataKPA {
@@ -219,7 +242,6 @@ interface ComboMapping {
 
 class Chart {
     judgeLines: JudgeLine[];
-    templateEasingLib: TemplateEasingLib;
     bpmList: BPMSegmentData[];
     timeCalculator: TimeCalculator;
     orphanLines: JudgeLine[];
@@ -227,11 +249,16 @@ class Chart {
     name: string;
     level: string;
     offset: number;
-
+    
+    /** initialized in constructor */
+    templateEasingLib: TemplateEasingLib;
+    /** initialized in constructor */
     operationList: OperationList;
-    noteNodeTree: NoteNodeTree;
-    effectiveBeats: number;
+    /** initialized in constructor */
     sequenceMap: Plain<EventNodeSequence>;
+
+    effectiveBeats: number;
+    nnnList: NNNList;
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
@@ -247,7 +274,8 @@ class Chart {
     }
     getEffectiveBeats() {
         console.log(editor.player.audio.src)
-        return this.timeCalculator.secondsToBeats(editor.player.audio.duration)
+        this.effectiveBeats = this.timeCalculator.secondsToBeats(editor.player.audio.duration)
+        return this.effectiveBeats
     }
     static fromRPEJSON(data: ChartDataRPE) {
         let chart = new Chart();
@@ -257,7 +285,7 @@ class Chart {
         chart.offset = data.META.offset;
         chart.updateCalculator()
         console.log(chart, chart.getEffectiveBeats())
-        chart.noteNodeTree = new NoteNodeTree(chart.getEffectiveBeats())
+        chart.nnnList = new NNNList(chart.getEffectiveBeats())
         
         /*
         if (data.envEasings) {
@@ -298,6 +326,29 @@ class Chart {
         }
         return chart
     }
+    static fromKPAJSON(data: ChartDataKPA) {
+        const chart = new Chart();
+        chart.bpmList = data.bpmList;
+        chart.name = data.info.name;
+        chart.level = data.info.level;
+        chart.offset = data.offset;
+        chart.updateCalculator()
+        chart.nnnList = new NNNList(chart.getEffectiveBeats())
+        const sequences = data.eventNodeSequences
+        const length = data.eventNodeSequences.length
+        for (let i = 0; i < length; i++) {
+            const sequence = sequences[i];
+            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.nodes, chart)).id = sequence.id;
+        }
+        chart.templateEasingLib.add(data.envEasings)
+        chart.templateEasingLib.check()
+        for (let lineData of data.orphanLines) {
+            const line: JudgeLine = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator)
+            chart.orphanLines.push(line)
+        }
+
+        return chart;
+    }
     updateCalculator() {
         this.timeCalculator.bpmList = this.bpmList;
         this.timeCalculator.update()
@@ -330,6 +381,41 @@ class Chart {
             offset: this.offset,
             orphanLines: orphanLines
         };
+    }
+    dumpRPE(): ChartDataRPE {
+        // 完整META字段处理
+        const META: MetaData = {
+            RPEVersion: 1, // 默认版本号
+            background: '', // 需补充默认值
+            charter: '',
+            composer: '',
+            id: crypto.randomUUID(), // 生成唯一ID
+            level: this.level,
+            name: this.name,
+            offset: this.offset,
+            song: this.name // 默认使用chart名称
+        };
+
+        // 完整判定线数据处理
+        const judgeLineList = this.judgeLines.map(line => 
+            line.dumpRPE(this.templateEasingLib)
+        );
+
+        // 完整BPM列表结构
+        const BPMList = this.timeCalculator.dump()
+
+        return {
+            BPMList,
+            META,
+            judgeLineList,
+            judgeLineGroup: []
+        };
+    }
+    getJudgeLineGroups(): string[] {
+        // 实现分组逻辑（示例实现）
+        return Array.from(new Set(
+            this.judgeLines.map(line => line.groupId.toString())
+        ));
     }
     /*
     getComboInfoEntity(time: TimeT) {

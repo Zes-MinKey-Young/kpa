@@ -1,10 +1,37 @@
+/**
+ * @author Zes M Young
+ */
 
-
+const node2string = (node: NoteNode | Tailer<NoteNode>) => {
+    if (!node) {
+        return "" + node
+    }
+    if ("heading" in node || "tailing" in node) {
+        return "heading" in node ? "H" : "tailing" in node ? "T" : "???"
+    }
+    if (!node.notes) {
+        return "EventNode"
+    }
+    return `NN(${node.notes.length}) at ${node.startTime}`
+}
+/**
+ * 音符
+ * Basic element in music game.
+ * Has 4 types: tap, drag, flick and hold.
+ * Only hold has endTime; others' endTime is equal to startTime.
+ * For this reason, holds are store in a special list (HNList),
+ * which is sorted by both startTime and endTime,
+ * so that they are accessed correctly and rapidly in the renderer.
+ * Note that Hold and HoldNode are not individually-declared classes.
+ * Hold is a note with type being NoteType.hold,
+ * while HoldNode is a node that contains holds.
+ */
 class Note {
     above: boolean;
     alpha: number;
     endTime: [number, number, number]
     isFake: boolean;
+    /** x coordinate in the judge line */
     positionX: number;
     size: number;
     speed: number;
@@ -107,13 +134,21 @@ class NoteNode implements TwoDirectionNode {
         }
         this._previous = new WeakRef(val)
     }
-    parent: NoteTree
+    parent: NNList
     constructor(time: TimeT) {
         this.startTime = [...time];
         this.notes = [];
     }
+    static fromKPAJSON(data: NoteNodeDataKPA) {
+        const node = new NoteNode(data.startTime);
+        for (let noteData of data.notes) {
+            const note = new Note(noteData);
+            node.add(note);
+        }
+        return node
+    }
     get isHold() {
-        return this.parent instanceof HoldTree
+        return this.parent instanceof HNList
     }
     get endTime() {
         return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime
@@ -140,9 +175,11 @@ class NoteNode implements TwoDirectionNode {
     }
     static connect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>) {
         if (note1) {
+            // @ts-expect-error
             note1.next = note2;
         }
         if (note2) {
+            // @ts-expect-error
             note2.previous = note1;
         }
         if (note1 && note2) {
@@ -162,7 +199,8 @@ class NoteNode implements TwoDirectionNode {
 }
 
 
-class NoteTree {
+class NNList {
+    id: string;
     speed: number;
     head: Header<NoteNode>;
     tail: Tailer<NoteNode>;
@@ -202,6 +240,21 @@ class NoteTree {
         this.editorPointer = new Pointer()
         */
         this.effectiveBeats = effectiveBeats
+    }
+    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList) {
+        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats)
+        const nnlength = data.noteNodes.length
+        let cur: TypeOrHeader<NoteNode> = list.head;
+        for (let i = 0; i < nnlength; i++) {
+            const nnData = data.noteNodes[i];
+            const nn = NoteNode.fromKPAJSON(nnData)
+            NoteNode.connect(cur, nn);
+            cur = nn;
+            nnnList.addNoteNode(nn);
+        }
+        NoteNode.connect(cur, list.tail);
+        list.initJump();
+        return list
     }
     initJump() {
         const originalListLength = this.timesWithNotes;
@@ -273,15 +326,18 @@ class NoteTree {
      * @returns 
      */
     getNodeOf(time: TimeT) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false)
+                    .previous;
 
 
         const isEqual = !("heading" in node) && TimeCalculator.eq(node.startTime, time)
 
         if (!isEqual) {
             const newNode = new NoteNode(time);
-            NoteNode.insert(node, newNode, node.next);
-            this.jump.updateRange(node, node.next);
+            const next = node.next
+            NoteNode.insert(node, newNode, next);
+            console.log("created:", node2string(newNode))
+            this.jump.updateRange(node, next);
             return newNode
         } else {
             return node;
@@ -403,7 +459,7 @@ class NoteTree {
         return destNote.previous
     }
     */
-    dumpKPA(): NoteTreeDataKPA {
+    dumpKPA(): NNListDataKPA {
         const nodes: NoteNodeDataKPA[] = []
         let node: TypeOrTailer<NoteNode> = this.head.next
         while (!("tailing" in node)) {
@@ -417,7 +473,13 @@ class NoteTree {
     }
 }
 
-class HoldTree extends NoteTree {
+
+/**
+ * HoldNode的链表
+ * HN is the abbreviation of HoldNode, which is not individually declared.
+ * A NN that contains holds (a type of note) is a HN.
+ */
+class HNList extends NNList {
     /**
      * 最早的还未结束Hold
      */
@@ -518,7 +580,14 @@ class NNNode implements TwoDirectionNode {
     }
 }
 
-class NoteNodeTree {
+
+/**
+ * 二级音符节点链表
+ * contains NNNs
+ * NNN is the abbreviation of NoteNodeNode, which store note (an element in music game) nodes with same startTime
+ * NN is the abbreviation of NoteNode, which stores the notes with the same startTime.
+ */
+class NNNList {
     jump: JumpArray<NNNode>
     parent: Chart;
     head: Header<NNNode>;
@@ -582,7 +651,7 @@ class NoteNodeTree {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
     }
     movePointerWithGivenJumpArray(pointer: Pointer<NNNode>, beats: number, jump: JumpArray<NNNode>, useEnd: boolean=false): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number] {
-        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
+        const distance = NNList.distanceFromPointer(beats, pointer, useEnd);
         const original = pointer.node;
         if (distance === 0) {
             pointer.beats = beats;

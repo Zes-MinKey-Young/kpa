@@ -11,6 +11,10 @@ body, html {
     overflow: hidden;
 }
 
+canvas {
+    font-family: "phigros";
+}
+
 input:not(:focus) {
     font-family: "phigros";
 }
@@ -245,4 +249,14 @@ input:not(:focus) {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
+}
+
+.side-editor .radio-tabs {
+    grid-column: span 2;
+}
+
+.radio-box {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
 }

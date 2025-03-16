@@ -157,3 +157,8 @@ function saveTextToFile(text: string, filename: string) {
     // 释放 URL 对象
     URL.revokeObjectURL(url);
 }
+
+function shortenFloat(num: number, decimalPlaces: number) {
+    const multiplier = Math.pow(10, decimalPlaces);
+    return Math.round(num * multiplier) / multiplier;
+}

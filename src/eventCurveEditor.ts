@@ -95,7 +95,7 @@ class EventCurveEditors {
     draw(beats?: number) {
         beats = beats || this.lastBeats
         this.lastBeats = beats;
-        console.log("draw")
+        //console.log("draw")
         this.selectedEditor.draw(beats)
     }
     changeTarget(target: JudgeLine) {
@@ -132,6 +132,10 @@ class EventCurveEditor {
     valueRatio: number;
     timeRatio: number;
     valueRange: number;
+    /**
+     * the y position(pxs) of the time axis in the canvas' coordinate system
+     * The canvas's O point itself is centered at the origin
+     */
     valueBasis: number;
     timeRange: number;
     timeGridSpan: number;
@@ -148,7 +152,7 @@ class EventCurveEditor {
     state: EventCurveEditorState;
     wasEditing: boolean
 
-    _selectedNode: WeakRef<EventNode>;
+    _selectedNode: WeakRef<EventStartNode | EventEndNode>;
     pointedValue: number;
     pointedBeats: number;
     beatFraction: number;
@@ -158,7 +162,7 @@ class EventCurveEditor {
         }
         return this._selectedNode.deref()
     }
-    set selectedNode(val: EventNode) {
+    set selectedNode(val: EventStartNode | EventEndNode) {
         this._selectedNode = new WeakRef(val);
         editor.eventEditor.target = val;
     }
@@ -210,14 +214,15 @@ class EventCurveEditor {
         this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
         this.valueGridColor = [255, 170, 120];
-        this.update()
+        this.initContext()
 
         on(["mousemove", "touchmove"], this.canvas, (event) => {
-            const [x, y] = getOffsetCoordFromEvent(event, this.canvas);
+            const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
             const {width, height} = this.canvas
+            const [x, y] = [offsetX - width / 2, offsetY - height / 2 - this.valueBasis];
             const {padding} = this;
-            this.pointedValue = Math.round(((x - this.valueBasis) / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan
-            const accurateBeats = (x - width / 2) / this.timeRatio + this.lastBeats
+            this.pointedValue = -Math.round((y / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan
+            const accurateBeats = x / this.timeRatio + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor)
             if (this.beatFraction === editor.timeDivisor) {
@@ -227,13 +232,19 @@ class EventCurveEditor {
 
             switch (this.state) {
                 case EventCurveEditorState.selecting:
-                    console.log("det")
+                    // console.log("det")
                     editor.chart.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue))
+                    editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]))
 
             }
         })
         on(["mousedown", "touchstart"], this.canvas, (event) => {
             this.downHandler(event)
+            this.draw()
+        })
+        on(["mouseup", "touchend"], this.canvas, (event) => {
+            this.upHandler(event)
+            this.draw()
         })
 
     }
@@ -246,7 +257,7 @@ class EventCurveEditor {
         const {padding} = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const [x, y] = [offsetX - width / 2, offsetY - height / 2];
-        console.log("ECECoord:" , [x, y])
+        // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
             case EventCurveEditorState.selecting:
@@ -256,7 +267,7 @@ class EventCurveEditor {
                     this.selectedNode = snode.target
                     editor.switchSide(editor.eventEditor)
                 }
-                console.log(EventCurveEditorState[this.state])
+                // console.log(EventCurveEditorState[this.state])
                 this.wasEditing = false;
                 break;
             case EventCurveEditorState.edit:
@@ -271,15 +282,28 @@ class EventCurveEditor {
                 const node = new EventStartNode(time, this.pointedValue)
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                editor.chart.operationList.do(new   EventNodePairInsertOperation(node, prev));
+                editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
                 this.wasEditing = true;
                 break;
         }
     }
+    upHandler(event: MouseEvent | TouchEvent) {
+        switch (this.state) {
+            case EventCurveEditorState.selecting:
+                if (!this.wasEditing) {
+                    this.state = EventCurveEditorState.select
+                } else {
+                    this.state = EventCurveEditorState.edit
+                }
+                break;
+            default:
+                this.state = EventCurveEditorState.select;
+        }
+    }
 
-    update() {
+    initContext() {
         this.context.translate(this.canvas.width / 2, this.canvas.height / 2)
         this.context.strokeStyle = "#EEE"
         this.context.fillStyle = "#333"
@@ -304,16 +328,16 @@ class EventCurveEditor {
         for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
             const positionY = value * valueRatio + this.valueBasis;
             drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
-            context.strokeText(value + "", -width / 2, -positionY)
+            context.fillText(value + "", -width / 2, -positionY)
         }
         context.strokeStyle = rgb(...this.timeGridColor)
         
         const stopBeats = Math.ceil((beats + this.timeRange / 2) / timeGridSpan) * timeGridSpan;
-        const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionX = (time - beats)  * timeRatio
             drawLine(context, positionX, height / 2, positionX, -height / 2);
-            context.strokeText(time + "", positionX, height / 2)
+            context.fillText(time + "", positionX, height / 2)
 
             
             context.save()
@@ -345,7 +369,9 @@ class EventCurveEditor {
         this.drawCoordination(beats)
         context.save()
         this.context.fillStyle = "#EEE"
-        this.context.fillText("State: " + EventCurveEditorState[this.state], 0, -10)
+        this.context.fillText("State: " + EventCurveEditorState[this.state], 0, -30)
+        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 0, -10)
+        this.context.fillText("Sequence: " + this.target.id, 0, -50)
         context.restore()
         const startBeats = beats - this.timeRange / 2;
         const endBeats = beats + this.timeRange / 2;
@@ -378,7 +404,7 @@ class EventCurveEditor {
             })
             selectionManager.add({
                 target: endNode,
-                x: endX,
+                x: endX - NODE_WIDTH,
                 y: topEndY,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
@@ -389,11 +415,12 @@ class EventCurveEditor {
             startNode.easing.drawCurve(context, startX, -startY, endX, -endY)
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT)
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT)
-            console.log(this.type, EventType.speed)
+            // console.log(this.type, EventType.speed)
             if (this.type === EventType.speed) {
                 console.log(startNode)
+                console.log(startNode.easing)
                 context.lineWidth = 1;
-                context.strokeText(("" + startNode.cachedIntegral).slice(0, 6), startX, 0)
+                context.fillText(("" + startNode.cachedIntegral).slice(0, 6), startX, 0)
                 context.lineWidth = 3
             }
             previousEndNode = endNode;
