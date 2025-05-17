@@ -1,54 +1,158 @@
+/**
+ *
+ */
+class BPMStartNode extends EventStartNode {
+    spb: number;
+    cachedStartIntegral?: number;
+    cachedIntegral?: number;
+    next: BPMEndNode | Tailer<BPMStartNode>;
+    constructor(startTime: TimeT, bpm: number) {
+        super(startTime, bpm);
+        this.spb = 60 / bpm;
+    }
+    getIntegral(beats: number): number {
+        return (beats - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+    }
+    /**
+     * may only used with a startnode whose next is not tail
+     * @returns 
+     */
+    getFullIntegral(): number {
+        return (TimeCalculator.toBeats(this.next.time) - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+    }
+    /*
+    static connect(node1: BPMStartNode, node2: BPMEndNode | Tailer<EventStartNode>): void;
+    static connect(node1: BPMEndNode | Header<BPMStartNode>, node2: BPMStartNode): void;
+    static connect(node1: EventNode | Header<EventNode>, node2: EventNode | Tailer<EventNode>): void {
+        super.connect(node1, node2);
+    }
+    */
+}
+class BPMEndNode extends EventEndNode {
+    spb: number;
+    previous: BPMStartNode;
+    next: BPMStartNode;
+    constructor(endTime: TimeT) {
+        super(endTime, null);
+    }
+    // @ts-expect-error
+    get value(): number {
+        return this.previous.value
+    }
+    set value(val) {}
+}
 
+/**
+ * 拥有与事件类似的逻辑
+ * 每对节点之间代表一个BPM相同的片段
+ * 片段之间BPM可以发生改变
+ */
+
+class BPMSequence extends EventNodeSequence {
+    head: Header<BPMStartNode>;
+    tail: Tailer<BPMStartNode>;
+    /** 从拍数访问节点 */
+    jump: JumpArray<EventStartNode>;
+    /** 以秒计时的跳数组，处理从秒访问节点 */
+    secondJump: JumpArray<BPMStartNode>;
+    constructor(bpmList: BPMSegmentData[], public duration: number) {
+        super(EventType.bpm, null);
+        let curPos: Header<BPMStartNode> | BPMEndNode = this.head;
+        let next = bpmList[0];
+        this.listLength = bpmList.length;
+        for (let i = 1; i < bpmList.length; i++) {
+            const each = next;
+            next = bpmList[i];
+            const startNode = new BPMStartNode(each.startTime, each.bpm);
+            const endNode = new BPMEndNode(next.startTime);
+            BPMStartNode.connect(startNode, endNode);
+            BPMStartNode.connect(curPos, startNode);
+            curPos = endNode;
+        }
+        const last = new BPMStartNode(next.startTime, next.bpm)
+        BPMStartNode.connect(curPos, last);
+        BPMStartNode.connect(last, this.tail);
+        this.initJump();
+    }
+    initJump(): void {
+        console.log(this)
+        this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.time)
+        super.initJump();
+        this.updateSecondJump();
+    }
+    updateSecondJump(): void {
+        let integral = 0;
+        // 计算积分并缓存到BPMNode
+        let node: TypeOrHeader<BPMStartNode> = this.head.next;
+        while (true) {
+            if ("tailing" in node.next) {
+                break;
+            }
+            const endNode = <BPMEndNode>(<BPMStartNode>node).next;
+            node.cachedStartIntegral = integral;
+            integral += node.getFullIntegral();
+            node.cachedIntegral = integral;
+
+            node = endNode.next;
+        }
+        node.cachedStartIntegral = integral;
+        const originalListLength = this.listLength;
+        this.secondJump = new JumpArray(
+            this.head,
+            this.tail,
+            originalListLength,
+            this.duration,
+            (node) => {
+                if ("tailing" in node) {
+                    return [null, null];
+                }
+                if ("heading" in node) {
+                    return [0, node.next];
+                }
+                const endNode = <BPMEndNode>(<BPMStartNode>node).next;
+                const time = node.cachedIntegral;
+                const nextNode = endNode.next;
+                if ("tailing" in nextNode.next) {
+                    return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
+                } else {
+                    return [time, nextNode];
+                }
+            },
+            (node: BPMStartNode, seconds: number) => {
+                return node.cachedIntegral > seconds ? false : (<BPMEndNode>node.next).next;
+            }
+        );
+    }
+
+    getNodeBySeconds(seconds: number): BPMStartNode {
+        const node = this.secondJump.getNodeAt(seconds);
+        if ("tailing" in node) {
+            return node.previous;
+        }
+        return node;
+    }
+}
+
+/**
+ * TimeT是用带分数表示的拍数，该元组的第一个元素表示整数部分，第二个元素表示分子，第三个元素表示分母。
+ */
 class TimeCalculator {
     bpmList: BPMSegmentData[];
-    segmentSeconds: Float64Array;
-    segmentBeats: Float64Array;
-    segmentBPM: Float64Array;
+    bpmSequence: BPMSequence;
+    duration: number;
+
     constructor() {
     }
 
     update() {
-        /**
-         * bpmList项数=SPB数量=片段拍数、秒数-1
-         * 最后一个片段是没有时长的
-         */
         let bpmList = this.bpmList;
-        let length = bpmList.length;
-        let segmentSeconds: Float64Array, segmentBeats: Float64Array, segmentBPM: Float64Array;
-
-        this.segmentSeconds = segmentSeconds = new Float64Array(length - 1);
-        this.segmentBeats = segmentBeats = new Float64Array(length - 1)
-        this.segmentBPM = segmentBPM = new Float64Array(length)
-        let index = 0;
-        let next = bpmList[0];
-        let nextBeats = TimeCalculator.toBeats(next.startTime);
-        for (; index < length - 1; index++) {
-            let each = next;
-            next = bpmList[index + 1]
-            // let spb = 60 / each.bpm;
-            let startTime = each.startTime;
-            let startBeats = TimeCalculator.toBeats(startTime);
-            let duration = nextBeats - startBeats;
-            nextBeats = startBeats;
-            segmentBPM[index] = each.bpm;
-            segmentBeats[index] = duration;
-            segmentSeconds[index] = duration * 60 / each.bpm;
-        }
-        segmentBPM[index] = next.bpm; // 最后一个SPB在上面不会存
+        this.bpmSequence = new BPMSequence(bpmList, this.duration);
     }
     toSeconds(beats: number) {
-        let {segmentSeconds, segmentBeats, segmentBPM: segmentBPM} = this;
-        let seconds = 0;
-        let currentBeats = segmentBeats[0];
-        if (segmentBeats.length === 0) {
-            return beats * 60 / segmentBPM[0]
-        }
-        let index = 0;
-        for (; currentBeats < beats; index++) {
-            seconds += segmentSeconds[index];
-            currentBeats += segmentBeats[index + 1]
-        }
-        return seconds + (beats - segmentBeats[index]) * 60 / segmentBPM[index]
+        const node: BPMStartNode = this.bpmSequence.getNodeAt(beats);
+        // console.log(node)
+        const pre = !("heading" in node.previous) ? node.previous.previous.cachedIntegral : 0;
+        return node.cachedStartIntegral + node.getIntegral(beats)
     }
     segmentToSeconds(beats1: number, beats2: number): number {
         let ret = this.toSeconds(beats2) - this.toSeconds(beats1)
@@ -58,18 +162,10 @@ class TimeCalculator {
         return ret
     }
     secondsToBeats(seconds: number) {
-        let {segmentSeconds, segmentBeats, segmentBPM: segmentBPM} = this;
-        let beats = 0;
-        let currentSeconds = segmentSeconds[0];
-        if (segmentSeconds.length === 0) {
-            return seconds * segmentBPM[0] / 60
-        }
-        let index = 0;
-        for (; currentSeconds < seconds; index++) {
-            beats += segmentBeats[index];
-            currentSeconds += segmentSeconds[index + 1]
-        }
-        return beats + (seconds - segmentSeconds[index]) * segmentBPM[index] / 60
+        const node = this.bpmSequence.getNodeBySeconds(seconds);
+        // console.log("node:", node)
+        const beats = (seconds - node.cachedStartIntegral) / node.spb;
+        return TimeCalculator.toBeats(node.time) + beats
     }
     static toBeats(beaT: TimeT): number {
         if (!beaT) debugger
@@ -89,6 +185,66 @@ class TimeCalculator {
     }
     static ne(beaT1:TimeT, beaT2: TimeT): boolean {
         return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1]
+    }
+    static sub(beaT1: TimeT, beaT2: TimeT): TimeT {
+        return [beaT1[0] - beaT2[0], beaT1[1] * beaT2[2] - beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]]
+    }
+    static div(beaT1: TimeT, beaT2: TimeT): [number, number] {
+        return [(beaT1[0] * beaT1[2] + beaT1[1]) * beaT2[2], (beaT2[0] * beaT2[2] + beaT2[1]) * beaT1[2]]
+    }
+    static mul(beaT: TimeT, ratio: [number, number]): TimeT {
+        // 将带分数beaT: TimeT乘一个分数[number, number]得到一个新的带分数returnval: TimeT，不要求这个带分数分子不超过分母，但所有的数都是整数
+        // （输入的两个元组都是整数元组）
+        const [numerator, denominator] = ratio
+        const b0nume = beaT[0] * numerator;
+        const remainder = b0nume % denominator;
+        if (remainder === 0) {
+            return [b0nume / denominator, beaT[1] * numerator, beaT[2] * denominator]
+        } else {
+            return [Math.floor(b0nume / denominator), beaT[1] * numerator + remainder * beaT[2], beaT[2] * denominator]
+        }
+    }
+    /**
+     * 原地规范化时间元组，但仍然返回这个元组，方便使用
+     * validate TimeT in place
+     * @param beaT 
+     */
+    static validate(beaT: TimeT): TimeT {
+        if (beaT === undefined || beaT[2] === 0) {
+            throw new Error("Invalid time" + beaT.valueOf());
+        }
+        if (beaT[1] >= beaT[2]) {
+            const quotient = Math.floor(beaT[1] / beaT[2]);
+            const remainder = beaT[1] % beaT[2];
+            beaT[0] += quotient;
+            beaT[1] = remainder;
+        } else if (beaT[1] < 0) {
+            const quotient = Math.floor(beaT[1] / beaT[2]);
+            const remainder = beaT[2] + beaT[1] % beaT[2];
+            beaT[0] += quotient;
+            beaT[1] = remainder;
+        }
+        if (beaT[1] === 0) {
+            beaT[2] = 1;
+            return beaT;
+        }
+        const gcd = this.gcd(beaT[2], beaT[1]);
+        if (gcd > 1) {
+            beaT[1] /= gcd;
+            beaT[2] /= gcd;
+        }
+        return beaT;
+    }
+    static gcd(a: number, b: number): number {
+        if (a === 0 || b === 0) {
+            return 0;
+        }
+        while (b !== 0) {
+            const r = a % b;
+            a = b;
+            b = r;
+        }
+        return a;
     }
     dump(): BPMSegmentData[] {
         return this.bpmList;

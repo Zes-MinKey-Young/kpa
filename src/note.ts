@@ -135,6 +135,7 @@ class NoteNode implements TwoDirectionNode {
         this._previous = new WeakRef(val)
     }
     parent: NNList
+    chart: Chart;
     constructor(time: TimeT) {
         this.startTime = [...time];
         this.notes = [];
@@ -338,6 +339,11 @@ class NNList {
             NoteNode.insert(node, newNode, next);
             console.log("created:", node2string(newNode))
             this.jump.updateRange(node, next);
+
+            if (this.parent?.chart) {
+                this.parent.chart.nnnList.getNode(time).add(newNode)
+            }
+
             return newNode
         } else {
             return node;
@@ -695,11 +701,12 @@ class NNNList {
         return this.jump.getNodeAt(beats);
     }
     getNode(time: TimeT) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false, this.editorPointer);
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false);
         if ("tailing" in node || TimeCalculator.ne(node.startTime, time)) {
             const newNode = new NNNode(time);
-            NoteNode.insert(node.previous, newNode, node);
-            this.jump.updateRange(node.previous, node)
+            const previous = node.previous
+            NoteNode.insert(previous, newNode, node);
+            this.jump.updateRange(previous, node)
             return newNode
         } else {
             return node;

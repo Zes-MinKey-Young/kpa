@@ -5,7 +5,8 @@
         "lib": ["ES2016", "dom", "ES2021.WeakRef"],
         "strictFunctionTypes": true,
         "outFile": "../dist/index.js",
-        "sourceMap": true
+        "sourceMap": true,
+        "declaration": true
     },
     "include": ["easing.ts","ui.ts","util.ts","operation.ts","jumparray.ts","settings.ts","sideEditor.ts","selectionManager.ts","eventCurveEditor.ts","notesEditor.ts","editor.ts","note.ts","judgeline.ts","chart.ts","","event.ts","audio.ts","images.ts","player.ts","time.ts","main.ts"]
 }

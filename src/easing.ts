@@ -236,6 +236,7 @@ class BezierEasing extends Easing {
 /**
  * 模板缓动
  * to implement an easing with an eventNodeSequence.
+ * 这是受wikitext的模板概念启发的。
  * This is inspired by the "template" concept in wikitext.
  */
 class TemplateEasing extends Easing {
@@ -261,9 +262,13 @@ class TemplateEasing extends Easing {
 /**
  * 参数方程缓动
  * to implement an easing with a parametric equation.
+ * RPE 亦有参数方程，但是它并不是作为缓动类型使用的；
  * RPE also has Parametric Equations, but it does not use it as an easing type;
+ * 相反，RPE只是通过插值生成一个线性事件序列，是无法逆向的。
  * It instead just generate a sequence of linear events through interpolation, which is irreversible.
+ * 这里在KPA中我们使用它作为缓动类型，以增加复用性。
  * Here in KPA we use it as an easing type, to increase reusability.
+ * 在转换为RPEJSON前，都不需要对其进行分割。
  * We do not segment it until the chart is converted to an RPEJSON.
  */
 class ParametricEquationEasing extends Easing {
@@ -284,7 +289,9 @@ class ParametricEquationEasing extends Easing {
  * 缓动库
  * 用于管理模板缓动
  * for template easing management
+ * 谱面的一个属性
  * a property of chart
+ * 加载谱面时，先加载事件序列，所需的模板缓动会被加入到缓动库，但并不立即实现，在读取模板缓动时，才实现缓动。
  * To load a chart, the eventNodeSquences will be first loaded, during which process
  * the easings will be added to the easing library but not implemented immediately.
  * They will be implemented when the template easings are read from data.
@@ -308,13 +315,16 @@ class TemplateEasingLib {
         }
     }
     /**
+     * 注册一个模板缓动，但不会实现它
      * register a template easing when reading eventNodeSequences, but does not implement it immediately
      */
     require(name: string) {
         this.easings[name] = new TemplateEasing(name, null);
     }
     /**
+     * 检查所有模板缓动是否实现
      * check if all easings are implemented
+     * 应当在读取完所有模板缓动后调用
      * should be invoked after all template easings are read
      */
     check() {
@@ -361,6 +371,15 @@ class TemplateEasingLib {
             });
         }
         return customEasingDataList;
+    }
+    expandTemplates() {
+        const map = new Map<EventNodeSequence, EventNodeSequence>();
+        for (let key in this.easings) {
+            const templateEasing = this.easings[key];
+            const eventNodeSequence = templateEasing.eventNodeSequence;
+            const newEventNodeSequence = eventNodeSequence.substitute(map);
+            map.set(eventNodeSequence, newEventNodeSequence);
+        }
     }
 }
 
