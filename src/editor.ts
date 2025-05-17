@@ -114,15 +114,11 @@ class JudgeLineEditor {
 }
 
 
-// @ts-ignore
-const WeakRef = "WeakRef" in globalThis ? globalThis.WeakRef : (obj) => ({deref() {
-    return obj
-}})
 
 
 
 
-class Editor {
+class Editor extends EventTarget {
     initialized: boolean;
     chartInitialized: boolean;
     audioInitialized: boolean;
@@ -155,7 +151,11 @@ class Editor {
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
 
+    renderingTime: number;
+    lastRenderingTime: number;
+
     constructor() {
+        super()
         this.initialized = false;
         this.imageInitialized = false;
         this.audioInitialized = false;
@@ -221,7 +221,7 @@ class Editor {
             }
             const audio = this.player.audio;
             let currentTime = audio.currentTime;
-            console.log(event.deltaY)
+            // console.log(event.deltaY)
             currentTime += event.deltaY / 500;
             if (currentTime > audio.duration) {
                 currentTime = audio.duration
@@ -264,8 +264,10 @@ class Editor {
         }
         this.initialized = this.chartInitialized && this.imageInitialized && this.audioInitialized
         if (this.initialized) {
+            this.addEventListener("chartloaded", (e) => {
+                this.initFirstFrame()
+            })
             this.loadChart();
-            this.initFirstFrame();
         }
     }
     readChart(file: File) {
@@ -291,10 +293,24 @@ class Editor {
         })
     }
     loadChart() {
-        let chart = this.chartType === "rpejson" ? Chart.fromRPEJSON(this.chartData as ChartDataRPE) : Chart.fromKPAJSON(this.chartData as ChartDataKPA);
-        this.player.chart = chart;
-        this.chart = chart;
-        this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
+        const assignChart = (chart: Chart) => {
+            this.player.chart = chart;
+            this.chart = chart;
+            this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
+            this.dispatchEvent(new Event("chartloaded"))
+        }
+        if (this.chartType === "rpejson") {
+            // 若为1.6.0版本以后，元数据中有时长信息，直接使用以建立谱面
+            // 否则等待<audio>加载完
+            if (this.chartData.META.duration) {
+                assignChart(Chart.fromRPEJSON(this.chartData as ChartDataRPE, this.chartData.META.duration))
+            } else {
+                assignChart(Chart.fromRPEJSON(this.chartData as ChartDataRPE, this.player.audio.duration))
+                
+            }
+            return
+        }
+        assignChart(Chart.fromKPAJSON(this.chartData as ChartDataKPA))
     }
     initFirstFrame() {
         const chart = this.chart;
@@ -352,6 +368,9 @@ class Editor {
             this.judgeLinesEditor.update()
             this.updateNotesEditor()
             this.updateShownEditor()
+            const now = performance.now();
+            this.renderingTime = this.lastRenderingTime ? (now - this.lastRenderingTime) : 0;
+            this.lastRenderingTime = now;
             console.log("updated")
         })
     }

@@ -70,7 +70,7 @@ class Player {
         hitCanvas.height = height;
         hitCanvas.width = width
         
-        const RATIO = 0.6
+        const RATIO = 1.0
         // 计算最终的变换矩阵
         const sx1 = width / 1350
         const sy1 = height / 900
@@ -280,9 +280,15 @@ class Player {
                     // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                     
                     let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
+                    let startBeats;
                     
-                    while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < end) {
-                        this.renderSameTimeNotes(noteNode, false, judgeLine, timeCalculator);
+                    while (!("tailing" in noteNode)
+                        && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end
+                    ) {
+                        // 判断是否为多押
+                        const isDuplicate = noteNode.notes.length > 1
+                            || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length)
+                        this.renderSameTimeNotes(noteNode, isDuplicate, judgeLine, timeCalculator);
                         noteNode = noteNode.next;
                     }
                     
@@ -292,7 +298,7 @@ class Player {
                 // 打击特效
                 if (beats > 0) {
                     if (tree instanceof HNList) {
-
+                        this.renderHoldHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     } else {
                         this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     }
@@ -369,6 +375,34 @@ class Player {
 
             noteNode = <NoteNode>noteNode.next
         } 
+    }
+    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
+        let noteNode = tree.getNodeAt(startBeats, true);
+        const end = tree.getNodeAt(endBeats);
+        if ("tailing" in noteNode) {
+            return;
+        }
+        while (noteNode !== end) {
+            const beats = TimeCalculator.toBeats(noteNode.startTime);
+            const base = judgeLine.getBaseCoordinate(beats);
+            const thisCoord = judgeLine.getThisCoordinate(beats);
+            const bx = base[0] + thisCoord[0]
+            const by = base[1] + thisCoord[1];
+            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
+            const notes = noteNode.notes
+            , len = notes.length
+            for (let i = 0; i < len; i++) {
+                const note = notes[i];
+                if (startBeats > TimeCalculator.toBeats(note.endTime)) {
+                    continue;
+                }
+                const posX = note.positionX;
+                const x = bx + posX * vx, y = by + posX * vy;
+                const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
+                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
+            }
+            noteNode = <NoteNode>noteNode.next
+        }
     }
     renderSameTimeNotes(noteNode: NoteNode, duplicated: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
         if (noteNode.isHold) {

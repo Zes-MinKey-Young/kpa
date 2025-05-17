@@ -490,7 +490,6 @@ class ZMemorableBox extends ZEditableDropdownOptionBox {
     }
 }
 
-
 namespace EasingOptions {
     export const IN = new BoxOption("in");
     export const OUT = new BoxOption("out");

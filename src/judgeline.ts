@@ -1,4 +1,7 @@
 class JudgeLine {
+    texture: string;
+    groupId: string;
+    cover: boolean;
     hnLists: {[key: string]: HNList};
     nnLists: {[key: string]: NNList};
     eventLayers: EventLayer[];
@@ -22,12 +25,17 @@ class JudgeLine {
         this.children = [];
         this.hnLists = {};
         this.nnLists = {};
+        this.groupId = "Default"
+        this.texture = "line.png";
+        this.cover = true;
         // this.noteSpeeds = {};
     }
     static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
+        line.groupId = chart._lineGroups[data.Group]
+        line.cover = Boolean(data.isCover);
 
         const noteNodeTree = chart.nnnList;
         if (data.notes) {
@@ -71,20 +79,27 @@ class JudgeLine {
         }
         const eventLayers = data.eventLayers;
         const length = eventLayers.length;
+        const createSequence = (type: EventType, events: EventDataRPE[], index: number) =>  {
+            if (events) {
+                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
+                sequence.id = `#${id}.${index}.${EventType[type]}`;
+                chart.sequenceMap[sequence.id] = sequence;
+                return sequence;
+            }
+        }
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
+            if (!layerData) {
+                continue;
+            }
             const layer: EventLayer = {
-                moveX: EventNodeSequence.fromRPEJSON(EventType.moveX, layerData.moveXEvents, chart),
-                moveY: EventNodeSequence.fromRPEJSON(EventType.moveY, layerData.moveYEvents, chart),
-                rotate: EventNodeSequence.fromRPEJSON(EventType.rotate, layerData.rotateEvents, chart),
-                alpha: EventNodeSequence.fromRPEJSON(EventType.alpha, layerData.alphaEvents, chart),
-                speed: EventNodeSequence.fromRPEJSON(EventType.speed, layerData.speedEvents, chart)
+                moveX: createSequence(EventType.moveX, layerData.moveXEvents, index),
+                moveY: createSequence(EventType.moveY, layerData.moveYEvents, index),
+                rotate: createSequence(EventType.rotate, layerData.rotateEvents, index),
+                alpha: createSequence(EventType.alpha, layerData.alphaEvents, index),
+                speed: createSequence(EventType.speed, layerData.speedEvents, index)
             };
             line.eventLayers[index] = layer;
-            for (let type in layer) {
-                layer[type].id = `#${id}.${index}.${type}`
-                chart.sequenceMap[layer[type].id] = layer[type];
-            }
         }
         // line.updateNoteSpeeds();
         // line.computeNotePositionY(timeCalculator);
@@ -121,7 +136,7 @@ class JudgeLine {
     }
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
         for (let eventLayer of this.eventLayers) {
-            eventLayer.speed.updateNodesIntegralFrom(beats, timeCalculator);
+            eventLayer?.speed?.updateNodesIntegralFrom(beats, timeCalculator);
         }
     }
     /**
@@ -139,7 +154,10 @@ class JudgeLine {
         let times: number[] = [];
         let result: [number, number][] = [];
         for (let eventLayer of this.eventLayers) {
-            const sequence = eventLayer.speed;
+            const sequence = eventLayer?.speed;
+            if (!sequence) {
+                continue;
+            }
             let node: EventStartNode | Tailer<EventStartNode> = sequence.getNodeAt(beats);
             let endNode: EventEndNode | Tailer<EventStartNode>
             while (true) {
@@ -293,7 +311,7 @@ class JudgeLine {
         let current = 0;
         for (let index = 0; index < length; index++) {
             const layer = this.eventLayers[index];
-            if (!layer) {
+            if (!layer || !layer[type]) {
                 break;
             }
             current += layer[type].getValueAt(beats, usePrev);
@@ -306,7 +324,7 @@ class JudgeLine {
         let current = 0;
         for (let index = 0; index < length; index++) {
             const layer = this.eventLayers[index];
-            if (!layer) {
+            if (!layer || !layer.speed) {
                 break;
             }
             current += layer.speed.getIntegral(beats, timeCalculator);
@@ -351,9 +369,11 @@ class JudgeLine {
         const eventLayers: EventLayerDataKPA[] = [];
         for (let i = 0; i < this.eventLayers.length; i++) {
             const layer = this.eventLayers[i];
+            if (!layer) continue;
             let layerData = {}
             for (let type in layer) {
                 const sequence = layer[type as keyof EventLayer];
+                if (!sequence) continue;
                 eventNodeSequences.add(sequence);
                 layerData[type] = sequence.id;
             }
@@ -370,32 +390,44 @@ class JudgeLine {
         }
     }
     dumpRPE(templateLib: TemplateEasingLib): JudgeLineDataRPE {
+        const notes = [];
+        for (let lists of [this.hnLists, this.nnLists]) {
+            for (let name in lists) {
+                const list = lists[name]
+                let node: TypeOrTailer<NoteNode> = list.head.next;
+                while (!("tailing" in node)) {
+                    notes.push(...node.notes.map(note => note.dumpRPE()))
+                    node = node.next;
+                }
+            }
+        }
         return {
-            notes: this.notes.map(note => note.dumpRPE()),
+            notes: notes,
             Group: this.groupId,
             Name: this.name,
-            Texture: this.texturePath,
-            alphaControl: this.alphaEvents.map(e => this.dumpControlEvent(e)),
+            Texture: this.texture,
+            // alphaControl: this.alphaEvents.map(e => this.dumpControlEvent(e)),
             bpmfactor: 1.0,
             eventLayers: this.eventLayers.map(layer => ({
-                moveXEvents: layer.moveX.dumpRPE(),
-                moveYEvents: layer.moveY.dumpRPE(),
-                rotateEvents: layer.rotate.dumpRPE(),
-                alphaEvents: layer.alpha.dumpRPE(),
-                speedEvents: layer.speed.dumpRPE()
+                moveXEvents: layer.moveX.dumpRPE(templateLib),
+                moveYEvents: layer.moveY.dumpRPE(templateLib),
+                rotateEvents: layer.rotate.dumpRPE(templateLib),
+                alphaEvents: layer.alpha.dumpRPE(templateLib),
+                speedEvents: layer.speed.dumpRPE(templateLib)
             })),
+            /*
             extended: {
                 inclineEvents: this.inclineEvents.dumpRPE()
             },
-            father: this.parent?.id ?? -1,
-            children: this.children.map(c => c.id),
-            isCover: this.isCover ? 1 : 0,
-            numOfNotes: this.notes.length,
-            posControl: this.positionControl.map(c => this.dumpControlEvent(c)),
-            sizeControl: this.sizeControl.map(c => this.dumpControlEvent(c)),
-            skewControl: this.skewControl.map(c => this.dumpControlEvent(c)),
-            yControl: this.yControl.map(c => this.dumpControlEvent(c)),
-            zOrder: this.zIndex
+            */
+            father: this.father?.id ?? -1,
+            isCover: this.cover ? 1 : 0,
+            numOfNotes: notes.length,
+            // posControl: this.positionControl.map(c => this.dumpControlEvent(c)),
+            // sizeControl: this.sizeControl.map(c => this.dumpControlEvent(c)),
+            // skewControl: this.skewControl.map(c => this.dumpControlEvent(c)),
+            // yControl: this.yControl.map(c => this.dumpControlEvent(c)),
+            zOrder: 0
         };
     }
 
@@ -409,4 +441,18 @@ class JudgeLine {
         };
     }
     
+    updateEffectiveBeats(EB: number) {
+        for (let i = 0; i < this.eventLayers.length; i++) {
+            const layer = this.eventLayers[i];
+            for (let type in layer) {
+                const sequence = layer[type as keyof EventLayer];
+                sequence.effectiveBeats = EB;
+            }
+        }
+        for (let lists of [this.nnLists, this.hnLists]) {
+            for (let name in lists) {
+                lists[name as keyof typeof lists].effectiveBeats = EB;
+            }
+        }
+    }
 }

@@ -37,6 +37,7 @@ class EventCurveEditors {
     element: HTMLDivElement;
     $bar: Z<"div">;
     $typeSelect: ZDropdownOptionBox;
+    $layerSelect: ZDropdownOptionBox;
 
 
     moveX: EventCurveEditor;
@@ -52,22 +53,27 @@ class EventCurveEditors {
         this.$element.addClass("event-curve-editors")
 
         this.$bar = $("div").addClass("flex-row")
-        this.$typeSelect = new ZDropdownOptionBox(arrayForIn([
+        this.$typeSelect = new ZDropdownOptionBox([
             "moveX",
             "moveY",
             "alpha",
             "rotate",
             "speed",
             "easing"
-        ], (s) => new BoxOption(s)), true);
+        ].map((s) => new BoxOption(s)), true);
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
+        })
+
+        this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
+        this.$layerSelect.onChange((val) => {
+            this.selectedLayer = val;
         })
 
 
 
 
-        this.$bar.append(this.$typeSelect)
+        this.$bar.append(this.$typeSelect, this.$layerSelect)
         this.$element.append(this.$bar)
 
         this.element = this.$element.element;
@@ -92,16 +98,28 @@ class EventCurveEditors {
         val.displayed = true;
         this.draw()
     }
+    _selectedLayer: "0" | "1" | "2" | "3" | "ex" = "0";
+    get selectedLayer() {
+        return this._selectedLayer
+    }
+    set selectedLayer(val) {
+        this._selectedLayer = val;
+        ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
+            this[type].changeTarget(this.target, val)
+        })
+    }
     draw(beats?: number) {
         beats = beats || this.lastBeats
         this.lastBeats = beats;
         //console.log("draw")
         this.selectedEditor.draw(beats)
     }
+    target: JudgeLine;
     changeTarget(target: JudgeLine) {
         ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
-            this[type].target = target.eventLayers[0][type]
+            this[type].changeTarget(target, this.selectedLayer)
         })
+        this.target = target;
         this.draw()
     }
 }
@@ -372,6 +390,7 @@ class EventCurveEditor {
         this.context.fillText("State: " + EventCurveEditorState[this.state], 0, -30)
         this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 0, -10)
         this.context.fillText("Sequence: " + this.target.id, 0, -50)
+        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 0, -70);
         context.restore()
         const startBeats = beats - this.timeRange / 2;
         const endBeats = beats + this.timeRange / 2;
@@ -417,8 +436,8 @@ class EventCurveEditor {
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT)
             // console.log(this.type, EventType.speed)
             if (this.type === EventType.speed) {
-                console.log(startNode)
-                console.log(startNode.easing)
+                // console.log(startNode)
+                // console.log(startNode.easing)
                 context.lineWidth = 1;
                 context.fillText(("" + startNode.cachedIntegral).slice(0, 6), startX, 0)
                 context.lineWidth = 3
@@ -436,5 +455,13 @@ class EventCurveEditor {
             context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
         }
         this.lastBeats = beats;
+    }
+    changeTarget(line: JudgeLine, index: number) {
+        if (this.type === EventType.easing) {
+            console.error("Easing does not use changeTarget. Assign directly instead.")
+            return;
+        }
+        line.eventLayers[index] = line.eventLayers[index] || {};
+        this.target = line.eventLayers[index][EventType[this.type]] || EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
     }
 }

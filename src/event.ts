@@ -22,11 +22,16 @@ function arrEq<T>(arr1: Array<T>, arr2: Array<T>) {
 /**
  * 事件节点基类
  * event node.
+ * 用于代表事件的开始和结束。（EventStartNode表开始，EventEndNode表结束）
  * Used to represent the starts (EventStartNode) and ends (EventEndNode) of events.
+ * 事件指的是判定线在某个时间段上的状态变化。
  * Events is the changing of judge line's state in a certain time.
+ * 五种事件类型：移动X，移动Y，旋转，透明度，速度。
  * 5 basic types of events: moveX, moveY, rotate, alpha, speed.
+ * 事件节点没有类型，类型由它所属的序列决定。
  * Type is not event nodes' property; it is the property of EventNodeSequence.
  * Events' type is determined by which sequence it belongs to.
+ * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
  * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
  */
 abstract class EventNode {
@@ -48,6 +53,22 @@ abstract class EventNode {
         this.ratio = 1;
         this.easing = linearEasing
     }
+    clone(): EventStartNode | EventEndNode {
+        const ret = new (this.constructor as (typeof EventStartNode | typeof EventEndNode))
+                        ([...this.time], this.value);
+        ret.easing = this.easing;
+        ret.ratio = this.ratio;
+        return ret;
+    }
+    //#region 
+    /**
+     * gets the easing object from RPEEventData
+     * @param data 
+     * @param left 
+     * @param right 
+     * @param templates 
+     * @returns 
+     */
     static getEasing(data: EventDataRPE, left: number, right: number, templates: TemplateEasingLib): Easing {
         if ((left && right) && (left !== 0.0 || right !== 1.0)) {
             return new SegmentedEasing(EventNode.getEasing(data, 0.0, 1.0, templates), left, right)
@@ -68,6 +89,12 @@ abstract class EventNode {
             return linearEasing
         }
     }
+    /**
+     * constructs EventStartNode and EventEndNode from EventDataRPE
+     * @param data 
+     * @param templates 
+     * @returns 
+     */
     static fromEvent(data: EventDataRPE, templates: TemplateEasingLib): [EventStartNode, EventEndNode] {
         let start = new EventStartNode(data.startTime, data.start)
         let end = new EventEndNode(data.endTime, data.end);
@@ -140,6 +167,13 @@ abstract class EventNode {
     static secondPreviousStartOfEnd(node: EventEndNode): EventStartNode | Header<EventStartNode> {
         return this.previousStartOfStart(node.previous);
     }
+    static nextStartInJumpArray(node: EventStartNode): EventStartNode | Tailer<EventStartNode> {
+        if ((<EventEndNode>node.next).next.isLastStart()) {
+            return node.next.next.next;
+        } else {
+            return node.next.next;
+        }
+    }
     /**
      * 获得一对背靠背的节点。不适用于第一个StartNode
      * @param node 
@@ -171,7 +205,28 @@ abstract class EventNode {
             this.easing = easing;
         }
     }
+    // #endregion
 }
+/*
+enum EventNodeType {
+    first,
+    middle,
+    last
+}
+
+
+interface StartNextMap {
+    [EventNodeType.first]: EventEndNode;
+    [EventNodeType.middle]: EventEndNode;
+    [EventNodeType.last]: Tailer<EventStartNode<EventNodeType.last>>;
+}
+interface StartPreviousMap {
+    [EventNodeType.first]: Header<EventStartNode<EventNodeType.first>>;
+    [EventNodeType.middle]: EventEndNode;
+    [EventNodeType.last]: EventEndNode;
+}
+*/
+
 class EventStartNode extends EventNode {
     next: EventEndNode | Tailer<EventStartNode>;
     previous: EventEndNode | Header<EventStartNode>;
@@ -186,6 +241,10 @@ class EventStartNode extends EventNode {
         return this.easing instanceof SegmentedEasing;
     }
     parent: EventNodeSequence;
+    /**
+     * 因为是RPE和KPA共用的方法所以easingType可以为字符串
+     * @returns 
+     */
     dump(): EventDataRPE {
         const endNode = this.next as EventEndNode;
         const isSegmented = this.easingIsSegmented
@@ -197,8 +256,9 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? (this.easing as SegmentedEasing).left : 0.0,
             easingRight: isSegmented ? (this.easing as SegmentedEasing).right : 1.0,
+            // @ts-expect-error
             easingType: easing instanceof TemplateEasing ?
-                easing.name :
+                (easing.name) :
                 easing instanceof NormalEasing ?
                     easing.rpeId :
                     null,
@@ -268,7 +328,18 @@ class EventStartNode extends EventNode {
     isFirstStart() {
         return this.previous && "heading" in this.previous
     }
+    isLastStart() {
+        return this.next && "tailing" in this.next
+    }
+    clone(): EventStartNode {
+        return super.clone() as EventStartNode;
+    };
 }
+/*
+type AnyStartNode = EventStartNode<EventNodeType.first>
+                  | EventStartNode<EventNodeType.middle>
+                  | EventStartNode<EventNodeType.last>
+                  */
 class EventEndNode extends EventNode {
     next: EventStartNode;
     previous: EventStartNode;
@@ -280,6 +351,9 @@ class EventEndNode extends EventNode {
     getValueAt(beats: number) {
         return this.previous.getValueAt(beats);
     }
+    clone(): EventEndNode {
+        return super.clone() as EventEndNode;
+    }
 }
 
 enum EventType {
@@ -288,25 +362,33 @@ enum EventType {
     rotate,
     alpha,
     speed,
-    easing
+    easing,
+    bpm
 }
 
 /**
  * 为一个链表结构。会有一个数组进行快跳。
  * is the list of event nodes, but not purely start nodes.
+ * 结构如下：Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
  * The structure is like this: Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
+ * 用括号标出的两个节点是一个事件，用方括号标出的两个节点是同一时间点的节点。
  * The each 2 nodes marked by parentheses is an event; the each 2 nodes marked by brackets have the same time.
+ * 注意尾节点之前的节点不是一个结束节点，而是一个开始节点，其缓动无效。
  * Note that the node before the tailer is not an end node, but a start node whose easing is meaningless.
+ * 就是说最后一个节点后取值，显然会取得这个节点的值，与缓动无关。
  * (i. e. the value after the last event node is its value, not subject to easing, obviously.)
+ * 如果尾之前的节点是一个结束节点，那么取值会返回undefined，这是不期望的。
  * If so, the value after that will be undefined, which is not expected.
  * ("so" refers to the assumption that the node before the tailer is an end node)
+ * 和NNList和NNNList一样，有跳数组以加速随机读取。
  * Like NNList and NNNList, it has a jump array to speed up random reading.
+ * 插入或删除节点时，需要更新跳数组。
  * Remember to update the jump array when inserting or deleting nodes.
  */
 class EventNodeSequence {
+    chart: Chart;
     /** id follows the format `#${lineid}.${layerid}.${typename}` by default */
     id: string;
-    type: EventType;
     /** has no time or value */
     head: Header<EventStartNode>;
     /** has no time or value */
@@ -315,13 +397,11 @@ class EventNodeSequence {
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
-    effectiveBeats: number;
     // nodes: EventNode[];
     // startNodes: EventStartNode[];
     // endNodes: EventEndNode[];
     // eventTime: Float64Array;
-    constructor(type: EventType, chart: Chart) {
-        this.type = type;
+    constructor(public type: EventType, public effectiveBeats: number) {
         this.head = {
             heading: true,
             next: null,
@@ -333,7 +413,6 @@ class EventNodeSequence {
             parent: this
         }
         this.listLength = 1;
-        this.effectiveBeats = chart.effectiveBeats
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
         // this.startNodes = [];
@@ -344,7 +423,7 @@ class EventNodeSequence {
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
-        const seq = new EventNodeSequence(type, chart);
+        const seq = new EventNodeSequence(type, chart.effectiveBeats);
         let listLength = length;
         let lastEnd: EventEndNode | Header<EventStartNode> = seq.head
 
@@ -398,8 +477,8 @@ class EventNodeSequence {
         seq.initJump();
         return seq;
     }
-    static newSeq(type: EventType, chart: Chart): EventNodeSequence {
-        const sequence = new EventNodeSequence(type, chart);
+    static newSeq(type: EventType, effectiveBeats: number): EventNodeSequence {
+        const sequence = new EventNodeSequence(type, effectiveBeats);
         const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
         EventNode.connect(sequence.head, node)
         EventNode.connect(node, sequence.tail)
@@ -439,13 +518,13 @@ class EventNodeSequence {
     initJump() {
         const originalListLength = this.listLength;
         const effectiveBeats: number = this.effectiveBeats;
-        this.jump = new JumpArray(
+        this.jump = new JumpArray<AnyStartNode>(
             this.head,
             this.tail,
             originalListLength,
             effectiveBeats,
             (node) => {
-                console.log(node)
+                // console.log(node)
                 if ("tailing" in node) {
                     return [null, null]
                 }
@@ -462,7 +541,7 @@ class EventNodeSequence {
                 }
             },
             (node: EventStartNode, beats: number) => {
-                return TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : (<EventEndNode>node.next).next
+                return TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : EventNode.nextStartInJumpArray(node)
             },
             /*(node: EventStartNode) => {
                 const prev = node.previous;
@@ -527,6 +606,56 @@ class EventNodeSequence {
             nodes: nodes,
             id: this.id // 或者使用其他唯一标识符
         };
+    }
+    /**
+     * 将当前序列中所有通过模板缓动引用了其他序列的事件直接展开为被引用的序列内容
+     * transform all events that reference other sequences by template easing
+     * into the content of the referenced sequence
+     * 有点类似于MediaWiki的{{subst:templateName}}
+     * @param map 由TemplateEasingLib提供
+     * @returns 
+     */
+    substitute(map: Map<EventNodeSequence, EventNodeSequence>) {
+        if (map.has(this)) {
+            return map.get(this);
+        }
+        let currentNode: EventStartNode = this.head.next;
+        const newSeq = new EventNodeSequence(this.type, this.effectiveBeats);
+        map.set(this, newSeq);
+        let currentPos: Header<EventStartNode> | EventEndNode = newSeq.head;
+        while (true) {
+            if (!currentNode || ("tailing" in currentNode.next)) {
+                break;
+            }
+            const endNode = currentNode.next;
+            if (currentNode.easing instanceof TemplateEasing) {
+                const quoted: EventNodeSequence = currentNode.easing.eventNodeSequence.substitute(map);
+                /** 只对头尾数值相同的模板缓动有效 */
+                const ratio: number = currentNode.ratio;
+                const startTime: TimeT = currentNode.time;
+                const endTime: TimeT = endNode.time;
+                const start: number = currentNode.value;
+                const end: number = endNode.value;
+                const delta = end - start;
+                const originalDelta = quoted.head.next.value - quoted.tail.previous.value;
+                const convert: (v: number) => number
+                    = delta === 0
+                    ? (value: number) => start + value * ratio
+                    : (value: number) => start + value * delta / originalDelta;
+                let node = quoted.head.next;
+                while (true) {
+                    const newNode = new EventStartNode(node.time, convert(node.value))
+                    
+                }
+            } else {
+                const newStartNode = currentNode.clone();
+                const newEndNode = endNode.clone();
+                EventNode.connect(currentPos, newStartNode)
+                EventNode.connect(newStartNode, newEndNode);
+                currentPos = newEndNode;
+            }
+            currentNode = endNode.next;
+        }
     }
 }
 

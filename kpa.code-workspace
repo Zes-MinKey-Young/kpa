@@ -5,6 +5,12 @@
 		},
 		{
 			"path": "../sim-phi"
+		},
+		{
+			"path": "../phigodot"
+		},
+		{
+			"path": "../phizoneplayer"
 		}
 	],
 	"settings": {
