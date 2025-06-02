@@ -501,7 +501,7 @@ class Chart {
 
 class JudgeLineGroup {
     constructor(public name: string) {
-
+        this.judgeLines = []
     }
     addJudgeLine(judgeLine: JudgeLine) {
         this.judgeLines.push(judgeLine)

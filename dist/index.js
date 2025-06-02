@@ -4050,6 +4050,7 @@ class Chart {
 class JudgeLineGroup {
     constructor(name) {
         this.name = name;
+        this.judgeLines = [];
     }
     addJudgeLine(judgeLine) {
         this.judgeLines.push(judgeLine);
