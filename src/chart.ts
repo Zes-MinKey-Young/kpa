@@ -219,6 +219,7 @@ interface NNListDataKPA {
 
 interface JudgeLineDataKPA {
     id: number;
+    group: number;
     nnLists: {[k: string]: NNListDataKPA};
     hnLists: {[k: string]: NNListDataKPA};
     // Group: number;
@@ -259,6 +260,7 @@ interface ChartDataKPA {
     eventNodeSequences: EventNodeSequenceDataKPA[];
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
+    judgeLineGroups: string[];
 }
 
 /**
@@ -340,8 +342,8 @@ class Chart {
 
     effectiveBeats: number;
     nnnList: NNNList;
-    /** 仅在载入RPE谱面时使用 */
-    _lineGroups: string[];
+    /**  */
+    judgeLineGroups: JudgeLineGroup[];
     duration: number;
     constructor() {
         this.timeCalculator = new TimeCalculator();
@@ -365,7 +367,7 @@ class Chart {
     }
     static fromRPEJSON(data: ChartDataRPE, duration: number) {
         let chart = new Chart();
-        chart._lineGroups = data.judgeLineGroup;
+        chart.judgeLineGroups = data.judgeLineGroup.map(group => new JudgeLineGroup(group));
         chart.bpmList = data.BPMList;
         chart.name = data.META.name;
         chart.level = data.META.level;
@@ -455,7 +457,7 @@ class Chart {
         const eventNodeSequences = new Set<EventNodeSequence>();
         const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences));
+            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
         }
         const envEasings = this.templateEasingLib.dump(eventNodeSequences);
         const eventNodeSequenceData: EventNodeSequenceDataKPA[] = [];
@@ -472,36 +474,8 @@ class Chart {
                 name: this.name
             },
             offset: this.offset,
-            orphanLines: orphanLines
-        };
-    }
-    dumpRPE(): ChartDataRPE {
-        // 完整META字段处理
-        const META: MetaData = {
-            RPEVersion: 1, // 默认版本号
-            background: '', // 需补充默认值
-            charter: '',
-            composer: '',
-            id: crypto.randomUUID(), // 生成唯一ID
-            level: this.level,
-            name: this.name,
-            offset: this.offset,
-            song: this.name // 默认使用chart名称
-        };
-
-        // 完整判定线数据处理
-        const judgeLineList = this.judgeLines.map(line => 
-            line.dumpRPE(this.templateEasingLib)
-        );
-
-        // 完整BPM列表结构
-        const BPMList = this.timeCalculator.dump()
-
-        return {
-            BPMList,
-            META,
-            judgeLineList,
-            judgeLineGroup: []
+            orphanLines: orphanLines,
+            judgeLineGroups: this.judgeLineGroups.map(g => g.name),
         };
     }
     getJudgeLineGroups(): string[] {
@@ -523,6 +497,17 @@ class Chart {
     createNNNode(time: TimeT) {
      return new NNNode(time)
     }
+}
+
+class JudgeLineGroup {
+    constructor(public name: string) {
+
+    }
+    addJudgeLine(judgeLine: JudgeLine) {
+        this.judgeLines.push(judgeLine)
+        judgeLine.group = this
+    }
+    judgeLines: JudgeLine[];
 }
 
 /*

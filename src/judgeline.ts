@@ -1,6 +1,6 @@
 class JudgeLine {
     texture: string;
-    groupId: string;
+    group: JudgeLineGroup;
     cover: boolean;
     hnLists: {[key: string]: HNList};
     nnLists: {[key: string]: NNList};
@@ -25,7 +25,6 @@ class JudgeLine {
         this.children = [];
         this.hnLists = {};
         this.nnLists = {};
-        this.groupId = "Default"
         this.texture = "line.png";
         this.cover = true;
         // this.noteSpeeds = {};
@@ -34,7 +33,7 @@ class JudgeLine {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
-        line.groupId = chart._lineGroups[data.Group]
+        chart.judgeLineGroups[data.Group].addJudgeLine(line);
         line.cover = Boolean(data.isCover);
 
         const noteNodeTree = chart.nnnList;
@@ -109,6 +108,7 @@ class JudgeLine {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
+        chart.judgeLineGroups[data.group].addJudgeLine(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
             const key = `${isHold ? "hn" : "nn"}Lists`
@@ -361,10 +361,10 @@ class JudgeLine {
      * @param eventNodeSequences To Collect the sequences used in this line
      * @returns 
      */
-    dumpKPA(eventNodeSequences: Set<EventNodeSequence>): JudgeLineDataKPA {
+    dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA {
         const children: JudgeLineDataKPA[] = [];
         for (let line of this.children) {
-            children.push(line.dumpKPA(eventNodeSequences))
+            children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups))
         }
         const eventLayers: EventLayerDataKPA[] = [];
         for (let i = 0; i < this.eventLayers.length; i++) {
@@ -380,6 +380,7 @@ class JudgeLine {
             eventLayers.push(layerData as EventLayerDataKPA);
         }
         return {
+            group: judgeLineGroups.indexOf(this.group),
             id: this.id,
             Name: this.name,
             Texture: "line.png",
@@ -388,47 +389,6 @@ class JudgeLine {
             hnLists: dictForIn(this.hnLists, (t) => t.dumpKPA()),
             nnLists: dictForIn(this.nnLists, (t) => t.dumpKPA())
         }
-    }
-    dumpRPE(templateLib: TemplateEasingLib): JudgeLineDataRPE {
-        const notes = [];
-        for (let lists of [this.hnLists, this.nnLists]) {
-            for (let name in lists) {
-                const list = lists[name]
-                let node: TypeOrTailer<NoteNode> = list.head.next;
-                while (!("tailing" in node)) {
-                    notes.push(...node.notes.map(note => note.dumpRPE()))
-                    node = node.next;
-                }
-            }
-        }
-        return {
-            notes: notes,
-            Group: this.groupId,
-            Name: this.name,
-            Texture: this.texture,
-            // alphaControl: this.alphaEvents.map(e => this.dumpControlEvent(e)),
-            bpmfactor: 1.0,
-            eventLayers: this.eventLayers.map(layer => ({
-                moveXEvents: layer.moveX.dumpRPE(templateLib),
-                moveYEvents: layer.moveY.dumpRPE(templateLib),
-                rotateEvents: layer.rotate.dumpRPE(templateLib),
-                alphaEvents: layer.alpha.dumpRPE(templateLib),
-                speedEvents: layer.speed.dumpRPE(templateLib)
-            })),
-            /*
-            extended: {
-                inclineEvents: this.inclineEvents.dumpRPE()
-            },
-            */
-            father: this.father?.id ?? -1,
-            isCover: this.cover ? 1 : 0,
-            numOfNotes: notes.length,
-            // posControl: this.positionControl.map(c => this.dumpControlEvent(c)),
-            // sizeControl: this.sizeControl.map(c => this.dumpControlEvent(c)),
-            // skewControl: this.skewControl.map(c => this.dumpControlEvent(c)),
-            // yControl: this.yControl.map(c => this.dumpControlEvent(c)),
-            zOrder: 0
-        };
     }
 
     private dumpControlEvent(event: ControlEvent): any {

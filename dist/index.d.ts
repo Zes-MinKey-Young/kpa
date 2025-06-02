@@ -1213,7 +1213,7 @@ declare class NNNList {
 }
 declare class JudgeLine {
     texture: string;
-    groupId: string;
+    group: JudgeLineGroup;
     cover: boolean;
     hnLists: {
         [key: string]: HNList;
@@ -1277,8 +1277,7 @@ declare class JudgeLine {
      * @param eventNodeSequences To Collect the sequences used in this line
      * @returns
      */
-    dumpKPA(eventNodeSequences: Set<EventNodeSequence>): JudgeLineDataKPA;
-    dumpRPE(templateLib: TemplateEasingLib): JudgeLineDataRPE;
+    dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     private dumpControlEvent;
     updateEffectiveBeats(EB: number): void;
 }
@@ -1479,6 +1478,7 @@ interface NNListDataKPA {
 }
 interface JudgeLineDataKPA {
     id: number;
+    group: number;
     nnLists: {
         [k: string]: NNListDataKPA;
     };
@@ -1506,6 +1506,7 @@ interface ChartDataKPA {
     eventNodeSequences: EventNodeSequenceDataKPA[];
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
+    judgeLineGroups: string[];
 }
 /**
  * 相当于 Python 推导式
@@ -1556,8 +1557,8 @@ declare class Chart {
     sequenceMap: Plain<EventNodeSequence>;
     effectiveBeats: number;
     nnnList: NNNList;
-    /** 仅在载入RPE谱面时使用 */
-    _lineGroups: string[];
+    /**  */
+    judgeLineGroups: JudgeLineGroup[];
     duration: number;
     constructor();
     getEffectiveBeats(): number;
@@ -1566,9 +1567,21 @@ declare class Chart {
     updateCalculator(): void;
     updateEffectiveBeats(duration: number): void;
     dumpKPA(): ChartDataKPA;
-    dumpRPE(): ChartDataRPE;
     getJudgeLineGroups(): string[];
     createNNNode(time: TimeT): NNNode;
+}
+declare class JudgeLineGroup {
+    name: string;
+    constructor(name: string);
+    addJudgeLine(judgeLine: JudgeLine): void;
+    judgeLines: JudgeLine[];
+}
+declare class RPEChartCompiler {
+    constructor();
+    dumpChart(chart: Chart): ChartDataRPE;
+    dumpJudgeLine(judgeLine: JudgeLine, templateLib: TemplateEasingLib): JudgeLineDataRPE;
+    dumpEventNodeSequence(sequence: EventNodeSequence): EventNodeSequenceDataRPE;
+    dumpNoteNode(note: Note): NoteNodeDataRPE;
 }
 /**
  * To compare two arrays

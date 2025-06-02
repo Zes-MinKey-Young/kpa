@@ -3465,7 +3465,6 @@ class JudgeLine {
         this.children = [];
         this.hnLists = {};
         this.nnLists = {};
-        this.groupId = "Default";
         this.texture = "line.png";
         this.cover = true;
         // this.noteSpeeds = {};
@@ -3474,7 +3473,7 @@ class JudgeLine {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
-        line.groupId = chart._lineGroups[data.Group];
+        chart.judgeLineGroups[data.Group].addJudgeLine(line);
         line.cover = Boolean(data.isCover);
         const noteNodeTree = chart.nnnList;
         if (data.notes) {
@@ -3548,6 +3547,7 @@ class JudgeLine {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
+        chart.judgeLineGroups[data.group].addJudgeLine(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
             const key = `${isHold ? "hn" : "nn"}Lists`;
@@ -3792,10 +3792,10 @@ class JudgeLine {
      * @param eventNodeSequences To Collect the sequences used in this line
      * @returns
      */
-    dumpKPA(eventNodeSequences) {
+    dumpKPA(eventNodeSequences, judgeLineGroups) {
         const children = [];
         for (let line of this.children) {
-            children.push(line.dumpKPA(eventNodeSequences));
+            children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups));
         }
         const eventLayers = [];
         for (let i = 0; i < this.eventLayers.length; i++) {
@@ -3813,6 +3813,7 @@ class JudgeLine {
             eventLayers.push(layerData);
         }
         return {
+            group: judgeLineGroups.indexOf(this.group),
             id: this.id,
             Name: this.name,
             Texture: "line.png",
@@ -3820,48 +3821,6 @@ class JudgeLine {
             eventLayers: eventLayers,
             hnLists: dictForIn(this.hnLists, (t) => t.dumpKPA()),
             nnLists: dictForIn(this.nnLists, (t) => t.dumpKPA())
-        };
-    }
-    dumpRPE(templateLib) {
-        var _a, _b;
-        const notes = [];
-        for (let lists of [this.hnLists, this.nnLists]) {
-            for (let name in lists) {
-                const list = lists[name];
-                let node = list.head.next;
-                while (!("tailing" in node)) {
-                    notes.push(...node.notes.map(note => note.dumpRPE()));
-                    node = node.next;
-                }
-            }
-        }
-        return {
-            notes: notes,
-            Group: this.groupId,
-            Name: this.name,
-            Texture: this.texture,
-            // alphaControl: this.alphaEvents.map(e => this.dumpControlEvent(e)),
-            bpmfactor: 1.0,
-            eventLayers: this.eventLayers.map(layer => ({
-                moveXEvents: layer.moveX.dumpRPE(templateLib),
-                moveYEvents: layer.moveY.dumpRPE(templateLib),
-                rotateEvents: layer.rotate.dumpRPE(templateLib),
-                alphaEvents: layer.alpha.dumpRPE(templateLib),
-                speedEvents: layer.speed.dumpRPE(templateLib)
-            })),
-            /*
-            extended: {
-                inclineEvents: this.inclineEvents.dumpRPE()
-            },
-            */
-            father: (_b = (_a = this.father) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : -1,
-            isCover: this.cover ? 1 : 0,
-            numOfNotes: notes.length,
-            // posControl: this.positionControl.map(c => this.dumpControlEvent(c)),
-            // sizeControl: this.sizeControl.map(c => this.dumpControlEvent(c)),
-            // skewControl: this.skewControl.map(c => this.dumpControlEvent(c)),
-            // yControl: this.yControl.map(c => this.dumpControlEvent(c)),
-            zOrder: 0
         };
     }
     dumpControlEvent(event) {
@@ -3962,7 +3921,7 @@ class Chart {
     }
     static fromRPEJSON(data, duration) {
         let chart = new Chart();
-        chart._lineGroups = data.judgeLineGroup;
+        chart.judgeLineGroups = data.judgeLineGroup.map(group => new JudgeLineGroup(group));
         chart.bpmList = data.BPMList;
         chart.name = data.META.name;
         chart.level = data.META.level;
@@ -4049,7 +4008,7 @@ class Chart {
         const eventNodeSequences = new Set();
         const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences));
+            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
         }
         const envEasings = this.templateEasingLib.dump(eventNodeSequences);
         const eventNodeSequenceData = [];
@@ -4066,31 +4025,8 @@ class Chart {
                 name: this.name
             },
             offset: this.offset,
-            orphanLines: orphanLines
-        };
-    }
-    dumpRPE() {
-        // 完整META字段处理
-        const META = {
-            RPEVersion: 1, // 默认版本号
-            background: '', // 需补充默认值
-            charter: '',
-            composer: '',
-            id: crypto.randomUUID(), // 生成唯一ID
-            level: this.level,
-            name: this.name,
-            offset: this.offset,
-            song: this.name // 默认使用chart名称
-        };
-        // 完整判定线数据处理
-        const judgeLineList = this.judgeLines.map(line => line.dumpRPE(this.templateEasingLib));
-        // 完整BPM列表结构
-        const BPMList = this.timeCalculator.dump();
-        return {
-            BPMList,
-            META,
-            judgeLineList,
-            judgeLineGroup: []
+            orphanLines: orphanLines,
+            judgeLineGroups: this.judgeLineGroups.map(g => g.name),
         };
     }
     getJudgeLineGroups() {
@@ -4109,6 +4045,15 @@ class Chart {
     */
     createNNNode(time) {
         return new NNNode(time);
+    }
+}
+class JudgeLineGroup {
+    constructor(name) {
+        this.name = name;
+    }
+    addJudgeLine(judgeLine) {
+        this.judgeLines.push(judgeLine);
+        judgeLine.group = this;
     }
 }
 /*
@@ -4152,6 +4097,81 @@ class ComboInfoEntity {
     }
 }
 */ 
+class RPEChartCompiler {
+    constructor() {
+    }
+    dumpChart(chart) {
+        const templateLib = chart.templateEasingLib;
+        const judgeLineGroups = chart.judgeLineGroups.map(group => group.name);
+        const judgeLineList = chart.judgeLines.map(line => this.dumpJudgeLine(line, templateLib));
+        const BPMList = chart.timeCalculator.dump();
+        const META = {
+            RPEVersion: 1,
+            background: '',
+            charter: '',
+            composer: '',
+            id: crypto.randomUUID(),
+            level: chart.level,
+            name: chart.name,
+            offset: chart.offset,
+            song: chart.name
+        };
+        return {
+            BPMList,
+            META,
+            judgeLineList,
+            judgeLineGroup: judgeLineGroups
+        };
+    }
+    dumpJudgeLine(judgeLine, templateLib) {
+        const notes = [];
+        for (let lists of [judgeLine.hnLists, judgeLine.nnLists]) {
+            for (let name in lists) {
+                const list = lists[name];
+                let node = list.head.next;
+                while (!("tailing" in node)) {
+                    notes.push(...node.notes.map(note => this.dumpNoteNode(note)));
+                    node = node.next;
+                }
+            }
+        }
+        return {
+            notes: notes,
+            Group: judgeLine.groupId,
+            Name: judgeLine.name,
+            Texture: judgeLine.texture,
+            bpmfactor: 1.0,
+            eventLayers: judgeLine.eventLayers.map(layer => ({
+                moveXEvents: layer.moveX ? this.dumpEventNodeSequence(layer.moveX) : null,
+                moveYEvents: layer.moveY ? this.dumpEventNodeSequence(layer.moveY) : null,
+                rotateEvents: layer.rotate ? this.dumpEventNodeSequence(layer.rotate) : null,
+                alphaEvents: layer.alpha ? this.dumpEventNodeSequence(layer.alpha) : null,
+                speedEvents: layer.speed ? this.dumpEventNodeSequence(layer.speed) : null
+            }))
+        };
+    }
+    dumpEventNodeSequence(sequence) {
+        return {
+            nodes: sequence.nodes.map(node => ({
+                time: node.time,
+                value: node.value,
+                easing: templateLib.resolveEasing(node.easing),
+                ratio: node.ratio
+            })),
+            id: sequence.id,
+            type: sequence.type
+        };
+    }
+    dumpNoteNode(note) {
+        return {
+            startTime: note.startTime,
+            endTime: note.endTime,
+            type: NoteType[note.type],
+            isFake: note.isFake,
+            speed: note.speed
+        };
+    }
+}
 // interface TemplateEasingLib {[name: string]: TemplateEasing}
 /**
  * To compare two arrays
