@@ -2,23 +2,23 @@
  *
  */
 class BPMStartNode extends EventStartNode {
-    spb: number;
+    nspb: number;
     cachedStartIntegral?: number;
     cachedIntegral?: number;
     next: BPMEndNode | Tailer<BPMStartNode>;
     constructor(startTime: TimeT, bpm: number) {
         super(startTime, bpm);
-        this.spb = 60 / bpm;
+        this.nspb = Math.round(60_000_000_000 / bpm);
     }
     getIntegral(beats: number): number {
-        return (beats - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+        return Math.round((beats - TimeCalculator.toBeats(this.time)) * this.nspb);
     }
     /**
      * may only used with a startnode whose next is not tail
      * @returns 
      */
     getFullIntegral(): number {
-        return (TimeCalculator.toBeats(this.next.time) - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+        return Math.round((TimeCalculator.toBeats(this.next.time) - TimeCalculator.toBeats(this.time)) * this.nspb);
     }
     /*
     static connect(node1: BPMStartNode, node2: BPMEndNode | Tailer<EventStartNode>): void;
@@ -81,7 +81,8 @@ class BPMSequence extends EventNodeSequence {
         this.updateSecondJump();
     }
     updateSecondJump(): void {
-        let integral = 0;
+        // 用纳秒计算，相加的时候两边都是整形，减少浮点误差
+        let integralNs = 0;
         // 计算积分并缓存到BPMNode
         let node: TypeOrHeader<BPMStartNode> = this.head.next;
         while (true) {
@@ -89,19 +90,21 @@ class BPMSequence extends EventNodeSequence {
                 break;
             }
             const endNode = <BPMEndNode>(<BPMStartNode>node).next;
-            node.cachedStartIntegral = integral;
-            integral += node.getFullIntegral();
-            node.cachedIntegral = integral;
+            const nodeIntegral = node.getFullIntegral();
+            console.log(nodeIntegral, integralNs)
+            node.cachedStartIntegral = integralNs;
+            integralNs += Math.round(nodeIntegral);
+            node.cachedIntegral = integralNs;
 
             node = endNode.next;
         }
-        node.cachedStartIntegral = integral;
+        node.cachedStartIntegral = integralNs;
         const originalListLength = this.listLength;
         this.secondJump = new JumpArray(
             this.head,
             this.tail,
             originalListLength,
-            this.duration,
+            this.duration * 1_000_000_000,
             (node) => {
                 if ("tailing" in node) {
                     return [null, null];
@@ -118,14 +121,15 @@ class BPMSequence extends EventNodeSequence {
                     return [time, nextNode];
                 }
             },
-            (node: BPMStartNode, seconds: number) => {
-                return node.cachedIntegral > seconds ? false : (<BPMEndNode>node.next).next;
+            (node: BPMStartNode, nanoseconds: number) => {
+                return node.cachedIntegral > nanoseconds ? false : (<BPMEndNode>node.next).next;
             }
         );
+        debugger;
     }
 
     getNodeBySeconds(seconds: number): BPMStartNode {
-        const node = this.secondJump.getNodeAt(seconds);
+        const node = this.secondJump.getNodeAt(seconds * 1_000_000_000);
         if ("tailing" in node) {
             return node.previous;
         }
@@ -152,7 +156,7 @@ class TimeCalculator {
         const node: BPMStartNode = this.bpmSequence.getNodeAt(beats);
         // console.log(node)
         const pre = !("heading" in node.previous) ? node.previous.previous.cachedIntegral : 0;
-        return node.cachedStartIntegral + node.getIntegral(beats)
+        return (node.cachedStartIntegral + node.getIntegral(beats)) / 1_000_000_000;
     }
     segmentToSeconds(beats1: number, beats2: number): number {
         let ret = this.toSeconds(beats2) - this.toSeconds(beats1)
@@ -162,9 +166,10 @@ class TimeCalculator {
         return ret
     }
     secondsToBeats(seconds: number) {
-        const node = this.bpmSequence.getNodeBySeconds(seconds);
+        const nanoseconds = seconds * 1_000_000_000;
+        const node = this.bpmSequence.getNodeBySeconds(nanoseconds);
         // console.log("node:", node)
-        const beats = (seconds - node.cachedStartIntegral) / node.spb;
+        const beats = (nanoseconds - node.cachedStartIntegral) / node.nspb;
         return TimeCalculator.toBeats(node.time) + beats
     }
     static toBeats(beaT: TimeT): number {
