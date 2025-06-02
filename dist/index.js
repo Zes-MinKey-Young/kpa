@@ -2785,25 +2785,19 @@ class Editor extends EventTarget {
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
     readAudio(file) {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.addEventListener("load", () => {
-            this.player.audio.src = reader.result;
-            this.player.audio.addEventListener("canplaythrough", () => {
-                this.audioInitialized = true;
-                this.checkAndInit();
-            });
+        const url = URL.createObjectURL(file);
+        this.player.audio.src = url;
+        this.player.audio.addEventListener("canplaythrough", () => {
+            this.audioInitialized = true;
+            this.checkAndInit();
         });
     }
     readImage(file) {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.addEventListener("load", () => {
-            this.player.background = new Image();
-            this.player.background.src = reader.result;
-            this.imageInitialized = true;
-            this.checkAndInit();
-        });
+        const url = URL.createObjectURL(file);
+        this.player.background = new Image();
+        this.player.background.src = url;
+        this.imageInitialized = true;
+        this.checkAndInit();
     }
     update() {
         requestAnimationFrame(() => {
