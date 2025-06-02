@@ -4,6 +4,8 @@ Kipphi Apparatus (KPA), A New concept Phigros Chart Editor written in TypeScript
 
 URL：https://pgrfm.miraheze.org/wiki/%E5%A5%87%E8%B0%B1%E5%8F%91%E7%94%9F%E5%99%A8
 
+查阅Wiki上的“KDP:"页面以了解一些未来规划。
+
 # 理念
 
 奇谱发生器主张尽可能少地使用键盘而只需鼠标操作谱面，期望对移动平台有良好的兼容性。同时，奇谱发生器尽可能不增加播放器作者的负担，故其谱面格式引入的所有新概念、特性都可以“编译”到更低级的格式，如RPEJSON。（编译功能尚未加入）

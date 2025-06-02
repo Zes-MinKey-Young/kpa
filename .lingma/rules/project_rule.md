@@ -28,3 +28,7 @@ NNNode：实现combo和多押提示，但目前暂未实现combo
 EventNodeSequence：
 Bpm node sequence：Bpm列表管理与事件节点序列有相似规律和编辑方式。为了方便，把它继承事件节点序列。
 Operation：实现所有用户操作。为便于撤销和重做，将其封装为了一个类。
+
+
+----
+KDP是KPA Development Proposal的缩写（类似PEP），KDP是KPA的提案。
