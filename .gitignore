@@ -1,3 +1,4 @@
 test
 *.kpa.json
 *.code-workspace
+*.i.wikitext
