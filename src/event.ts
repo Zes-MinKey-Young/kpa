@@ -356,15 +356,6 @@ class EventEndNode extends EventNode {
     }
 }
 
-enum EventType {
-    moveX,
-    moveY,
-    rotate,
-    alpha,
-    speed,
-    easing,
-    bpm
-}
 
 /**
  * 为一个链表结构。会有一个数组进行快跳。
@@ -603,7 +594,7 @@ class EventNodeSequence {
 
         return {
             type: this.type,
-            nodes: nodes,
+            events: nodes,
             id: this.id // 或者使用其他唯一标识符
         };
     }

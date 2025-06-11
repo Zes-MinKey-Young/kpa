@@ -34,7 +34,6 @@ const connect = <T>(foreNode: ListNode<T>, lateNode: ListNode<T>) => {
     foreNode.next = lateNode;
 }
 
-type RGB = [number, number, number]
 
 const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r}, ${g}, ${b}, ${a})`
 const rgb = (r: number, g: number, b: number) => `rgba(${r}, ${g}, ${b})`
