@@ -17,9 +17,10 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-class Z<K extends keyof HTMLElementTagNameMap> {
+class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     element: HTMLElementTagNameMap[K];
     constructor(type: K) {
+        super();
         this.element = document.createElement(type);
     }
     html(str: string) {
@@ -76,6 +77,12 @@ class Z<K extends keyof HTMLElementTagNameMap> {
         this.element.addEventListener("input", callback)
         return this;
     }
+    /**
+     * 用于绑定元素原生事件
+     * @param eventType 
+     * @param callback 
+     * @returns 
+     */
     on(eventType: string, callback: (e: Event) => any) {
         this.element.addEventListener(eventType, callback)
         return this;
@@ -124,6 +131,12 @@ class ZButton extends Z<"div"> {
     }
 }
 
+class ZValueChangeEvent extends Event {
+    constructor() {
+        super("valueChange")
+    } 
+}
+
 class ZInputBox extends Z<"input"> {
     _disabled: boolean;
     get disabled() { return this.element.disabled}
@@ -134,6 +147,9 @@ class ZInputBox extends Z<"input"> {
         super("input")
         this.addClass("input-box")
         this.attr("type", "text")
+        this.element.addEventListener("focusout", () => {
+            this.dispatchEvent(new ZValueChangeEvent())
+        })
     }
     getValue() {
         return this.element.value
@@ -160,7 +176,7 @@ class ZInputBox extends Z<"input"> {
         return this;
     }
     onChange(callback: (content: string, e: Event) => any) {
-        this.element.addEventListener("focusout", (event) => {
+        this.addEventListener("valueChange", (event) => {
             callback(this.getValue(), event);
         })
         return this;
@@ -182,12 +198,14 @@ class ZArrowInputBox extends Z<"div"> {
             .addClass("arrow-up")
             .onClick(() => {
                 this.setValue(this.getValue() + this.scale)
+                this.dispatchEvent(new ZValueChangeEvent())
             });
         this.$down = $("div")
             .addClass("arrow-down")
             .onClick(() => {
                 console.log(this.getValue())
                 this.setValue(this.getValue() - this.scale)
+                this.dispatchEvent(new ZValueChangeEvent())
             })
         this.addClass("arrow-input-box")
         this.append(
@@ -195,6 +213,9 @@ class ZArrowInputBox extends Z<"div"> {
             this.$down,
             this.$input
             )
+        this.$input.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent())
+        })
     }
     getValue() {
         return this.$input.getNum()
@@ -204,12 +225,7 @@ class ZArrowInputBox extends Z<"div"> {
         return this
     }
     onChange(callback: (content: number, e: Event) => any) {
-        const listener = (content: string, event: Event) => {
-            callback(parseInt(content), event);
-        }
-        this.$input.onChange(listener)
-        this.$up.onClick((e) => callback(this.getValue(), e))
-        this.$down.onClick((e) => callback(this.getValue(), e))
+        this.addEventListener("valueChange", (e) => callback(this.getValue(), e))
         return this;
     }
 }
@@ -226,6 +242,19 @@ class ZFractionInput extends Z<"span"> {
         this.$int = new ZInputBox().addClass("integer");
         this.$nume = new ZInputBox().addClass("nume");
         this.$deno = new ZInputBox().addClass("deno");
+        this.$deno.onChange(() => {
+            if (this.$deno.getValue() == "0") {
+                this.$deno.setValue("1");
+            }
+            this.dispatchEvent(new ZValueChangeEvent())
+        });
+        this.$int.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent()) 
+        });
+        this.$nume.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent())
+        })
+
         this.append(
             this.$int,
             this.$nume,
@@ -234,7 +263,7 @@ class ZFractionInput extends Z<"span"> {
         )
     }
     getValue(): TimeT {
-        return [this.$int.getInt() || 0, this.$nume.getInt() || 1, this.$deno.getInt() || 0]
+        return [this.$int.getInt() || 0, this.$nume.getInt() || 0, this.$deno.getInt() || 1]
     }
     setValue(time: TimeT) {
         this.$int.setValue(time[0] + "");
@@ -250,13 +279,9 @@ class ZFractionInput extends Z<"span"> {
         [this.$int, this.$deno, this.$nume].forEach(($e) => $e.disabled = val)
     }
     onChange(callback: (result: TimeT) => void) {
-        const listener = () => {
-            if (!this.$deno.getValue()) {
-                return;
-            }
+        this.addEventListener("valueChange", (e) => {
             callback(this.getValue())
-        }
-        this.$nume.onClick(listener)
+        })
     }
 }
 
