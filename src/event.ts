@@ -189,6 +189,15 @@ abstract class EventNode {
             return [node, node.next]
         }
     }
+    static getStartEnd(node: EventStartNode | EventEndNode): [EventStartNode, EventEndNode] {
+        if (node instanceof EventStartNode) {
+            return [node, <EventEndNode>node.next]
+        } else if (node instanceof EventEndNode) {
+            return [<EventStartNode>node.previous, node]
+        } else {
+            throw new Error("Invalid node type")
+        }
+    }
     get innerEasing(): Easing {
         return this.easing instanceof SegmentedEasing ?
             (this.easing as SegmentedEasing).easing :
