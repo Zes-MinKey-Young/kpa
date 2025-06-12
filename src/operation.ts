@@ -354,7 +354,7 @@ class EventNodeInnerEasingChangeOperation extends Operation {
     constructor(node: EventStartNode | EventEndNode, val: Easing) {
         super();
         let _;
-        [_, this.startNode] = EventNode.getEndStart(node)
+        [this.startNode, _] = EventNode.getStartEnd(node)
         this.value = val;
         this.originalValue = node.easing
     }
