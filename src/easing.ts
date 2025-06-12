@@ -1,3 +1,4 @@
+
 const easeOutElastic = (x: number): number => {
     const c4 = (2 * Math.PI) / 3;
     
@@ -387,6 +388,7 @@ const linearEasing = new NormalEasing(linear, linearLine);
 const fixedEasing = new NormalEasing((x: number): number => (x === 1 ? 1 : 0));
 
 const easingMap = {
+    "fixed": {out: fixedEasing, in: fixedEasing, inout: fixedEasing},
     "linear": {out: linearEasing, in: linearEasing, inout: linearEasing},
     "sine": {in: new NormalEasing(easeInSine), out: new NormalEasing(easeOutSine), inout: new NormalEasing(easeInOutSine)},
     "quad": {in: new NormalEasing(easeInQuad), out: new NormalEasing(easeOutQuad), inout: new NormalEasing(easeInOutQuad)},
@@ -407,6 +409,8 @@ for (let funcType in easingMap) {
         easing.easeType = easeType;
     }
 }
+fixedEasing.funcType = "fixed";
+fixedEasing.easeType = "in"
 
 /**
  * 按照KPA的编号

@@ -496,6 +496,7 @@ namespace EasingOptions {
     export const IO = new BoxOption("inout");
     export const easeTypeOptions = [IN, OUT, IO];
     export const easeTypeOptionsMapping = {in: IN, out: OUT, inout: IO}
+    export const FIXED = new BoxOption("fixed");
     export const LINEAR = new BoxOption("linear");
     export const SINE = new BoxOption("sine");
     export const QUAD = new BoxOption("quad");
@@ -507,8 +508,8 @@ namespace EasingOptions {
     export const BACK = new BoxOption("back");
     export const ELASTIC = new BoxOption("elastic");
     export const BOUNCE = new BoxOption("bounce");
-    export const funcTypeOptions = [LINEAR, SINE, QUAD, CUBIC, QUART, QUINT, EXPO, CIRC, BACK, ELASTIC, BOUNCE];
-    export const funcTypeOptionsMapping = {linear: LINEAR, sine: SINE, quad: QUAD, cubic: CUBIC, quart: QUART, quint: QUINT, expo: EXPO, circ: CIRC, back: BACK, elastic: ELASTIC, bounce: BOUNCE}
+    export const funcTypeOptions = [FIXED, LINEAR, SINE, QUAD, CUBIC, QUART, QUINT, EXPO, CIRC, BACK, ELASTIC, BOUNCE];
+    export const funcTypeOptionsMapping = {fixed: FIXED,linear: LINEAR, sine: SINE, quad: QUAD, cubic: CUBIC, quart: QUART, quint: QUINT, expo: EXPO, circ: CIRC, back: BACK, elastic: ELASTIC, bounce: BOUNCE}
 }
 
 /**
@@ -540,7 +541,7 @@ class ZEasingBox extends Z<"div"> {
             )
     }
     update() {
-        this.value = easingMap[this.$funcType.value.text][this.$easeType.value].id;
+        this.value = easingMap[this.$funcType.value.text][this.$easeType.value.text].id;
         this.$input.setValue(this.value)
         this.callbacks.forEach(f => f(this.value))
     }
