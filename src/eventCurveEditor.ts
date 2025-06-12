@@ -338,6 +338,8 @@ class EventCurveEditor {
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
         // 计算上下界
+        context.save()
+        context.fillStyle = "#EEE";
         const upperEnd = Math.ceil((height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
         const lowerEnd = Math.ceil((-height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
         context.strokeStyle = rgb(...this.valueGridColor)
@@ -366,7 +368,7 @@ class EventCurveEditor {
             }
             context.restore()
         }
-
+        context.restore()
         context.lineWidth = 3;
         drawLine(context, 0, width / 2, 0, -width / 2)
         context.strokeStyle = "#EEE";
