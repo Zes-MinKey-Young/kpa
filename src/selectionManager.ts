@@ -17,6 +17,14 @@ class SelectionManager<T> {
     }
     add(entity: PositionEntity<T>) {
         this.positions.push(entity)
+        return {
+            annotate: (context: CanvasRenderingContext2D, canvasX: number, canvasY: number) => {
+                context.save();
+                context.fillStyle = "pink";
+                context.fillText(`${shortenFloat(entity.x, 1)}, ${shortenFloat(entity.y, 1)}`, canvasX, canvasY - 10);
+                context.restore();
+            },
+        }
     }
     click(x: number, y: number): undefined | PositionEntity<T> {
         const positions = this.positions;

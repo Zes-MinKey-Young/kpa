@@ -166,7 +166,8 @@ class EventCurveEditor {
 
     lastBeats: number;
 
-    selectionManager: SelectionManager<EventNode>
+    selectionManager: SelectionManager<EventNode>;
+    cursorPos: [number, number];
     state: EventCurveEditorState;
     wasEditing: boolean
 
@@ -238,6 +239,7 @@ class EventCurveEditor {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
             const {width, height} = this.canvas
             const [x, y] = [offsetX - width / 2, offsetY - height / 2 - this.valueBasis];
+            this.cursorPos = [x, y];
             const {padding} = this;
             this.pointedValue = -Math.round((y / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan
             const accurateBeats = x / this.timeRatio + this.lastBeats
@@ -275,6 +277,7 @@ class EventCurveEditor {
         const {padding} = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const [x, y] = [offsetX - width / 2, offsetY - height / 2];
+        this.cursorPos = [x, y];
         // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
@@ -389,10 +392,13 @@ class EventCurveEditor {
         this.drawCoordination(beats)
         context.save()
         this.context.fillStyle = "#EEE"
-        this.context.fillText("State: " + EventCurveEditorState[this.state], 0, -30)
-        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 0, -10)
-        this.context.fillText("Sequence: " + this.target.id, 0, -50)
-        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 0, -70);
+        this.context.fillText("State: " + EventCurveEditorState[this.state], 10, -30)
+        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10)
+        this.context.fillText("Sequence: " + this.target.id, 10, -50)
+        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
+        if (this.cursorPos) {
+            this.context.fillText(`Cursor: ${this.cursorPos[0]}, ${this.cursorPos[1]}`, 10, -90)
+        }
         context.restore()
         const startBeats = beats - this.timeRange / 2;
         const endBeats = beats + this.timeRange / 2;
@@ -422,7 +428,7 @@ class EventCurveEditor {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
-            })
+            }).annotate(context, startX, topY)
             selectionManager.add({
                 target: endNode,
                 x: endX - NODE_WIDTH,
@@ -430,7 +436,7 @@ class EventCurveEditor {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
-            })
+            }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20)
 
 
             startNode.easing.drawCurve(context, startX, -startY, endX, -endY)

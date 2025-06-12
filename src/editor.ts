@@ -1,5 +1,5 @@
-const NODE_WIDTH = 10;
-const NODE_HEIGHT = 10;
+const NODE_WIDTH = 20;
+const NODE_HEIGHT = 20;
 
 const NOTE_WIDTH = 54;
 const NOTE_HEIGHT = 6

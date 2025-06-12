@@ -117,7 +117,7 @@ const innerProduct = (v1: Vector, v2: Vector) => {
     return v1[0] * v2[0] + v1[1] * v2[1];
 }
 
-const pointIsInRect = (x: number, y: number, rectPos: Coordinate, width: number, height: number) => rectPos.x - width / 2 <= x && x <= rectPos.x + width / 2 
+const pointIsInRect = (x: number, y: number, rectPos: Coordinate, width: number, height: number) => rectPos.x <= x && x <= rectPos.x + width 
 && rectPos.y <= y && y <= rectPos.y + height
 
 /**
