@@ -38,7 +38,9 @@ class NoteEditor extends SideEditor<Note> {
     $type: ZDropdownOptionBox;
     $position: ZInputBox;
     $dir: ZDropdownOptionBox;
-    $speed: ZInputBox
+    $speed: ZInputBox;
+    $alpha: ZInputBox;
+    $delete: ZButton;
     aboveOption: BoxOption;
     belowOption: BoxOption;
     noteTypeOptions: BoxOption[];
@@ -58,27 +60,39 @@ class NoteEditor extends SideEditor<Note> {
         this.$position = new ZInputBox();
         this.$dir = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
         this.$speed = new ZInputBox();
+        this.$alpha = new ZInputBox();
+        this.$delete = new ZButton("Delete").addClass("destructive");
         this.$body.append(
             $("span").text("speed"), this.$speed,
             $("span").text("time"),
             $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime),
             $("span").text("type"), this.$type,
             $("span").text("pos"), this.$position,
-            $("span").text("dir"), this.$dir
+            $("span").text("dir"), this.$dir,
+            $("span").text("alpha"), this.$alpha,
+            $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
-            this.target.startTime = t
+            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parent.parent.getNodeOf(t)))
             if (this.target.type !== NoteType.hold) {
-                this.target.endTime = t
                 this.$endTime.setValue(t)
             }
         })
+        this.$endTime.onChange((t) => {
+            editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
+        })
         // 这里缺保卫函数
         this.$position.onChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$speed.getNum()))
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()))
         })
         this.$speed.onChange(() => {
             editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parent.parent.parent))
+        })
+        this.$alpha.onChange(() => {
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
+        })
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new NoteDeleteOperation(this.target));
         })
     }
     update() {
@@ -98,10 +112,11 @@ class NoteEditor extends SideEditor<Note> {
         this.$position.setValue(note.positionX + "")
         this.$dir.value = note.above ? this.aboveOption : this.belowOption
         this.$speed.setValue(note.speed + "")
+        this.$alpha.setValue(note.alpha + "")
     }
 }
 
-class EventEditor extends SideEditor<EventNode> {
+class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
 
     $time: ZFractionInput;
     $value: ZInputBox;
@@ -124,8 +139,12 @@ class EventEditor extends SideEditor<EventNode> {
             $("span").text("value"), this.$value,
             this.$radioTabs
         )
-        this.$time.onChange((t) => this.target.time = t)
-        this.$value.onChange(() => this.target.value = this.$value.getNum())
+        this.$time.onChange((t) => {
+            editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t))
+        })
+        this.$value.onChange(() => {
+            editor.chart.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
+        })
         this.$easing.onChange((id) => this.setNormalEasing(id))
         this.$templateEasing.onChange((name) => this.setTemplateEasing(name))
         this.$radioTabs.$radioBox.onChange((id) => {

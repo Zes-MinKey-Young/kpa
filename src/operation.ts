@@ -83,7 +83,7 @@ class ComplexOperation<T extends Operation[]> extends Operation {
     }
 }
 
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime"
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha"
 
 class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
@@ -137,6 +137,15 @@ class NoteRemoveOperation extends Operation {
     }
 }
 
+/**
+ * 删除一个note
+ * 从语义上删除Note要用这个操作
+ * 结果上，这个会更新编辑器
+ */
+class NoteDeleteOperation extends NoteRemoveOperation {
+    updatesEditor = true
+}
+
 class NoteAddOperation extends Operation {
     noteNode: NoteNode
     note: Note;
@@ -184,6 +193,26 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
     }
 }
 
+class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
+    constructor(note: Note, value: TimeT) {
+        super(note, "endTime", value)
+        if (TimeCalculator.lt(value, note.startTime)) {
+            this.ineffective = true
+        }
+    }
+    do() {
+        super.do()
+        const node = this.note.parent;
+        (node.parent as HNList).holdTailJump.updateRange(node.previous, node.next)
+    }
+    undo() {
+        super.undo()
+        const node = this.note.parent;
+        (node.parent as HNList).holdTailJump.updateRange(node.previous, node.next)
+    }
+}
+
+
 class NoteSpeedChangeOperation
 extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor = true
@@ -192,7 +221,7 @@ extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation
     targetTree: NNList
     constructor(note: Note, value: number, line: JudgeLine) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
-        const tree = line.getNoteTree(value, note.type === NoteType.hold, true)
+        const tree = line.getNNList(value, note.type === NoteType.hold, true)
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
         const insert = new NoteAddOperation(note, node)
@@ -208,7 +237,7 @@ extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperatio
         const isHold = note.type === NoteType.hold
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parent.parent.parent.getNoteTree(note.speed, !isHold, true)
+            const tree = note.parent.parent.parent.getNNList(note.speed, !isHold, true)
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
