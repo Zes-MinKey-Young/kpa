@@ -1,10 +1,4 @@
 
-declare enum NoteType {
-    tap=1,
-    drag=4,
-    flick=3,
-    hold=2
-}
 
 /** 尽管JSON中有布尔值字面量，RPEJSON中没有使用它 */
 type Bool = 1 | 0
@@ -290,13 +284,4 @@ interface ChartDataKPA {
     judgeLineGroups: string[];
 }
 
-declare enum EventType {
-    moveX,
-    moveY,
-    rotate,
-    alpha,
-    speed,
-    easing,
-    bpm
-}
 

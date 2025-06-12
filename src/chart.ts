@@ -1,3 +1,18 @@
+enum EventType {
+    moveX,
+    moveY,
+    rotate,
+    alpha,
+    speed,
+    easing,
+    bpm
+}
+enum NoteType {
+    tap=1,
+    drag=4,
+    flick=3,
+    hold=2
+}
 
 interface EventLayer {
     moveX?: EventNodeSequence;
