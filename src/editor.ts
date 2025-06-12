@@ -248,6 +248,7 @@ class Editor extends EventTarget {
             const json = this.chart.dumpKPA()
             if (serverApi.supportsServer) {
                 serverApi.uploadChart(json)
+                return;
             }
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
         })
