@@ -77,7 +77,10 @@ class BPMSequence extends EventNodeSequence {
     initJump(): void {
         console.log(this)
         this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.time)
-        super.initJump();
+        if (this.effectiveBeats !== 0) {
+            super.initJump(); // 为0可以跳过jumpArray，用不到
+            // 只有一个BPM片段就会这样
+        }
         this.updateSecondJump();
     }
     updateSecondJump(): void {
@@ -96,6 +99,9 @@ class BPMSequence extends EventNodeSequence {
             node = endNode.next;
         }
         node.cachedStartIntegral = integral;
+        if (this.effectiveBeats  === 0) {
+            return;
+        }
         const originalListLength = this.listLength;
         this.secondJump = new JumpArray(
             this.head,
@@ -125,6 +131,9 @@ class BPMSequence extends EventNodeSequence {
     }
 
     getNodeBySeconds(seconds: number): BPMStartNode {
+        if (this.effectiveBeats === 0) {
+            return this.tail.previous
+        }
         const node = this.secondJump.getNodeAt(seconds);
         if ("tailing" in node) {
             return node.previous;
