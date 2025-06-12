@@ -53,7 +53,7 @@ class JudgeLine {
                     
             for (let i = 0; i < len; i++) {
                 const note: Note = new Note(notes[i]);
-                const tree = line.getNoteTree(note.speed, note.type === NoteType.hold, false)
+                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false)
                 const cur = tree.currentPoint
                 const lastHoldTime: TimeT = "heading" in cur ? [-1, 0, 1] : cur.startTime
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -335,7 +335,7 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNoteTree(speed: number, isHold: boolean, initsJump: boolean) {
+    getNNList(speed: number, isHold: boolean, initsJump: boolean) {
         const trees = isHold ? this.hnLists : this.nnLists;
         for (let treename in trees) {
             const tree = trees[treename]
@@ -343,17 +343,18 @@ class JudgeLine {
                 return tree
             }
         }
-        const tree = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
-        tree.parent = this;
-        if (initsJump) tree.initJump();
+        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
+        list.parent = this;
+        NoteNode.connect(list.head, list.tail)
+        if (initsJump) list.initJump();
         const id = (isHold ? "$" : "#") + speed;
-        (trees[id] = tree).id = id;
-        return tree;
+        (trees[id] = list).id = id;
+        return list;
     }
     getNode(note: Note, initsJump: boolean) {
         const speed = note.speed;
         const isHold = note.type === NoteType.hold
-        const tree = this.getNoteTree(speed, isHold, initsJump)
+        const tree = this.getNNList(speed, isHold, initsJump)
         return tree.getNodeOf(note.startTime)
     }
     /**
