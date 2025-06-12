@@ -108,6 +108,7 @@ class Chart {
         this.level = "uk";
         this.offset = 0;
         this.sequenceMap = {}
+        this.judgeLineGroups = []
 
         this.operationList = new OperationList()
     }
@@ -177,6 +178,7 @@ class Chart {
         chart.name = data.info.name;
         chart.level = data.info.level;
         chart.offset = data.offset;
+        chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
         chart.updateCalculator()
         chart.nnnList = new NNNList(chart.getEffectiveBeats())
         const sequences = data.eventNodeSequences
