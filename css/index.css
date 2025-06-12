@@ -223,7 +223,19 @@ input:not(:focus) {
 
 .button {
     background-color: #eee;
-    color: #555
+    color: #555;
+    padding: 0.2em 0.5em;
+    margin-block: auto;
+    border-radius: 0.25em;
+    cursor: pointer;
+    user-select: none;
+    text-align: center;
+}
+
+.button.destructive {
+    background-color: #f44;
+    color: white;
+
 }
 
 .button.disabled {
