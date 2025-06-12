@@ -24,6 +24,7 @@ class Player {
     background: HTMLImageElement;
     aspect: number;
     noteSize: number;
+    noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number
     
@@ -38,6 +39,7 @@ class Player {
         this.playing = false;
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
+        this.noteHeight = 10;
         this.initCoordinate();
         window.addEventListener("resize", () => {
             this.initCoordinate();
@@ -437,24 +439,35 @@ class Player {
             return;
         }
         let image: HTMLImageElement = getImageFromType(note.type);
+        const context = this.context;
         
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY
         }
         let length = endpositionY - positionY
+        const size = this.noteSize * note.size;
+        const half = size / 2;
+        const height = this.noteHeight;
         // console.log(NoteType[note.type])
-        if (note.type === NoteType.hold) {
-            this.context.drawImage(HOLD_BODY, note.positionX - this.noteSize / 2,  positionY - 10, this.noteSize, length)
+        const opac = note.alpha < 255
+        if (opac) {
+            context.save()
+            context.globalAlpha = note.alpha / 255;
         }
-        this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10)
+        if (note.type === NoteType.hold) {
+            context.drawImage(HOLD_BODY, note.positionX -  half,  positionY - 10, this.noteSize, length)
+        }
+        context.drawImage(image, note.positionX - half, positionY - 10, size, height)
         if (double) {
-            this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
+            context.drawImage(DOUBLE, note.positionX - half, positionY - 10, size, height);
         }
         if (!note.above) {
-            this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
+            context.drawImage(BELOW, note.positionX - half, positionY - 10, size, height);
         }
-        
+        if (opac) {
+            context.restore()
+        }
     }
     private update() {
         if (!this.playing) {

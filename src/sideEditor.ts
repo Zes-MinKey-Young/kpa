@@ -40,6 +40,7 @@ class NoteEditor extends SideEditor<Note> {
     $dir: ZDropdownOptionBox;
     $speed: ZInputBox;
     $alpha: ZInputBox;
+    $size: ZInputBox;
     $delete: ZButton;
     aboveOption: BoxOption;
     belowOption: BoxOption;
@@ -61,6 +62,7 @@ class NoteEditor extends SideEditor<Note> {
         this.$dir = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
         this.$speed = new ZInputBox();
         this.$alpha = new ZInputBox();
+        this.$size = new ZInputBox();
         this.$delete = new ZButton("Delete").addClass("destructive");
         this.$body.append(
             $("span").text("speed"), this.$speed,
@@ -70,6 +72,7 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("pos"), this.$position,
             $("span").text("dir"), this.$dir,
             $("span").text("alpha"), this.$alpha,
+            $("span").text("size"), this.$size,
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
@@ -90,6 +93,9 @@ class NoteEditor extends SideEditor<Note> {
         })
         this.$alpha.onChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
+        })
+        this.$size.onChange(() => {
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()))
         })
         this.$delete.onClick(() => {
             editor.chart.operationList.do(new NoteDeleteOperation(this.target));
@@ -113,6 +119,7 @@ class NoteEditor extends SideEditor<Note> {
         this.$dir.value = note.above ? this.aboveOption : this.belowOption
         this.$speed.setValue(note.speed + "")
         this.$alpha.setValue(note.alpha + "")
+        this.$size.setValue(note.size + "")
     }
 }
 

@@ -2,6 +2,7 @@
  * @author Zes M Young
  */
 
+
 const node2string = (node: NoteNode | Tailer<NoteNode>) => {
     if (!node) {
         return "" + node
@@ -60,12 +61,12 @@ class Note {
     // posNextSibling: Note;
     constructor(data: NoteDataRPE) {
         this.above = data.above === 1;
-        this.alpha = data.alpha;
+        this.alpha = data.alpha || 255;
         this.endTime = data.endTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
-        this.size = data.size;
-        this.speed = data.speed;
+        this.size = data.size || 1.0;
+        this.speed = data.speed || 1.0;
         this.startTime = data.startTime;
         this.type = data.type;
         this.visibleTime = data.visibleTime;

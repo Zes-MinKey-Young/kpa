@@ -83,7 +83,7 @@ class ComplexOperation<T extends Operation[]> extends Operation {
     }
 }
 
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha"
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size"
 
 class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
