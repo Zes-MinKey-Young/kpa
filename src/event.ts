@@ -518,7 +518,7 @@ class EventNodeSequence {
     initJump() {
         const originalListLength = this.listLength;
         const effectiveBeats: number = this.effectiveBeats;
-        this.jump = new JumpArray<AnyStartNode>(
+        this.jump = new JumpArray<EventStartNode>(
             this.head,
             this.tail,
             originalListLength,
@@ -553,7 +553,7 @@ class EventNodeSequence {
 
     }
     getNodeAt(beats: number, usePrev: boolean = false): EventStartNode {
-        let node = this.jump.getNodeAt(beats);
+        let node = this.jump?.getNodeAt(beats) || this.head.next;
         if ("tailing" in node) {
             // 最后一个事件节点本身具有无限延伸的特性
             return node.previous;
