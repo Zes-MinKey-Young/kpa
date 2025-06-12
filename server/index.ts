@@ -1,9 +1,11 @@
-/// <reference path="../src/chartTypes.d.ts" />
+/// <reference path="../dist/chartTypes.d.ts" />
 // 为此我问了通义灵码半天，不失所望
 
-import type { BunRequest } from 'bun';
+import { sleepSync, type BunRequest } from 'bun';
 import { resolve, relative } from 'path';
-import { parseBlob } from 'music-metadata'
+import { parseBlob } from 'music-metadata';
+import { mkdir, exists } from 'fs/promises';
+import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 
 
 function isSubPath(targetPath: string, parentPath: string): boolean {
@@ -19,8 +21,8 @@ function isAbsolute(p: string): boolean {
 const defaultValues= {
     [EventType.moveX]: 0,
     [EventType.moveY]: 0,
-    [EventType.alpha]: 0,
     [EventType.rotate]: 0,
+    [EventType.alpha]: 0,
     [EventType.speed]: 10
 }
 
@@ -59,11 +61,11 @@ async function createChart(music: File, title: string, baseBPM: number): Promise
     }
     const addJudgeLine = (i: number) => {
         const eventLayer: EventLayerDataKPA = {
-            moveX: addSequence(`#${i}.0.moveX`, EventType.moveX),
-            moveY: addSequence(`#${i}.0.moveY`, EventType.moveY),
-            rotate: addSequence(`#${i}.0.rotate`, EventType.rotate),
-            alpha: addSequence(`#${i}.0.alpha`, EventType.alpha),
-            speed: addSequence(`#${i}.0.speed`, EventType.speed)
+            moveX: addSequence(`#${i}.0.moveX`, 0),
+            moveY: addSequence(`#${i}.0.moveY`, 1),
+            rotate: addSequence(`#${i}.0.rotate`, 2),
+            alpha: addSequence(`#${i}.0.alpha`, 3),
+            speed: addSequence(`#${i}.0.speed`, 4)
         }
         const data: JudgeLineDataKPA = {
             id: i,
@@ -101,14 +103,19 @@ Bun.serve({
     port: 2460,
     routes: {
         "/": Response.redirect("/html"),
-        "/html": new Response(Bun.file("./index.html")),
+        "/status": () => {
+            return new Response("", { status: 204 })
+        },
+        "/html": async () => {
+            return new Response(Bun.file("../html/index.html"), { status: 200 });
+        },
         "/create": async (req: BunRequest) => {
             const formData = await req.formData();
             const music = formData.get("music");
             const illustration = formData.get("illustration");
             const id = formData.get("id");
             const title = formData.get("title");
-            const baseBPM = formData.get("baseBPM");
+            const baseBPM = formData.get("bpm");
             if (!music || !illustration || !id || !title || !baseBPM
                 || typeof music === "string"
                 || typeof illustration === "string"
@@ -120,22 +127,49 @@ Bun.serve({
             }
             const chart = await createChart(music, title, parseFloat(baseBPM));
             const chartJson = JSON.stringify(chart);
-            Bun.write(`./${id}.json`, chartJson);
-            Bun.write(`./${id}.${illustration.name.split(".").at(-1)}`, illustration);
-            Bun.write(`./${id}.${music.name.split(".").at(-1)}`, music);
+            if (!await exists("../Resources")) {
+                await mkdir("../Resources");
+            }
+            if (!await exists(`../Resources/${id}`)) {
+                await mkdir(`../Resources/${id}`);
+            }
+            const illuPath = "illustration." + illustration.name.split(".").at(-1);
+            const musicPath = "music." + music.name.split(".").at(-1);
+            Bun.write(`../Resources/${id}/chart.json`, chartJson);
+            Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+            Bun.write(`../Resources/${id}/${musicPath}`, music);
+
+            Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+                Chart: "chart.json",
+                Picture: illuPath,
+                Song: musicPath
+            }))
             console.log(`Created chart ${id}`);
             return Response.json(chart);
         },
-        "*": async (req) => {
-            const url = new URL(req.url);
-            const filename = decodeURIComponent(url.pathname.slice(1));
-            if (!isSubPath(filename, resolve("./"))) return new Response("403", { status: 403 });
-            const file = Bun.file(resolve("./", filename));
-            if (await file.exists()) {
-                return new Response(file);
-            }
+        "/Resources/:id": async (req) => {
+            const id = req.params.id;
+            return new Response(Bun.file("../html/index.html"))
+        },
+        "/*": {
+            GET: async (req) => {
+                const url = new URL(req.url);
+                const filename = decodeURIComponent(url.pathname.slice(1));
+                if (!isSubPath(filename, resolve("../"))) return new Response("403", { status: 403 });
+                const file = Bun.file(resolve("../", filename));
+                if (await file.exists()) {
+                    return new Response(file);
+                }
 
-            return new Response("404", { status: 404 });
-        }
+                return new Response("404", { status: 404 });
+            },
+            PUT: async (req: BunRequest) => {
+                const url = new URL(req.url);
+                const filename = decodeURIComponent(url.pathname.slice(1));
+                if (!isSubPath(filename, resolve("../Resources/"))) return new Response("403", { status: 403 });
+                await Bun.write(resolve("../Resources/", filename), req.body);
+                return new Response("OK", { status: 200 });
+            }
+    }
     }
 })

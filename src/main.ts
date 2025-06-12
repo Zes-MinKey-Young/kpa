@@ -2,7 +2,16 @@
 if (globalThis.document) {
     
     var settings = new Settings();
-    var editor = new Editor()
+    var editor = new Editor();
+    var serverApi = new ServerApi();
+    const url = new URL(window.location.href);
+    const pathname = url.pathname;
+    const segs = pathname.split("/");
+    if (url.searchParams.get('chart')) {
+        serverApi.getChart(url.searchParams.get('chart'))
+    } else if (url.pathname.startsWith("/Resources/") && segs.length === 3) {
+        serverApi.getChart(segs[2]);
+    }
 } else {
     const tc = new TimeCalculator;
     tc.bpmList = [
@@ -254,7 +263,7 @@ if (globalThis.document) {
            "bpm" : 150.0,
            "startTime" : [ 570, 0, 1 ]
         }
-     ]
+    ]
     tc.duration = 1145;
     console.log(tc)
     tc.update()

@@ -245,7 +245,11 @@ class Editor extends EventTarget {
         this.topbarEle.append(this.$timeDivisor.release())
         this.$saveButton = new ZButton("保存")
         this.$saveButton.onClick(() => {
-            saveTextToFile(JSON.stringify(this.chart.dumpKPA()), this.chart.name + ".kpa.json")
+            const json = this.chart.dumpKPA()
+            if (serverApi.supportsServer) {
+                serverApi.uploadChart(json)
+            }
+            saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
         })
         this.topbarEle.append(this.$saveButton.release())
     }
@@ -270,7 +274,7 @@ class Editor extends EventTarget {
             this.loadChart();
         }
     }
-    readChart(file: File) {
+    readChart(file: Blob) {
         const reader = new FileReader()
         reader.readAsText(file);
         reader.addEventListener("load", () => {
@@ -336,7 +340,7 @@ class Editor extends EventTarget {
         this.shownSideEditor = this.noteEditor
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
-    readAudio(file: File) {
+    readAudio(file: Blob) {
         const url = URL.createObjectURL(file)
         this.player.audio.src = url;
          this.player.audio.addEventListener("canplaythrough", () => {
@@ -344,7 +348,7 @@ class Editor extends EventTarget {
             this.checkAndInit()
         })
     }
-    readImage(file: File) {
+    readImage(file: Blob) {
         const url = URL.createObjectURL(file)
     
         this.player.background = new Image();
