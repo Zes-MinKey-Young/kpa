@@ -35,7 +35,7 @@ async function createChart(music: File, title: string, baseBPM: number): Promise
     const bpmList: BPMSegmentData[] = [
         {
             bpm: baseBPM,
-            startTime: [0, 0, 0]
+            startTime: [0, 0, 1] // 答案是0 0 0，因为鱼没有脑子
         }
     ];
     const judgeLineGroups: string[] = ["Default"];
