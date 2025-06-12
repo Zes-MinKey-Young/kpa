@@ -175,6 +175,11 @@ declare class TemplateEasingLib {
 declare const linearEasing: NormalEasing;
 declare const fixedEasing: NormalEasing;
 declare const easingMap: {
+    fixed: {
+        out: NormalEasing;
+        in: NormalEasing;
+        inout: NormalEasing;
+    };
     linear: {
         out: NormalEasing;
         in: NormalEasing;
@@ -249,7 +254,7 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" |
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-declare class Z<K extends keyof HTMLElementTagNameMap> {
+declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     element: HTMLElementTagNameMap[K];
     constructor(type: K);
     html(str: string): this;
@@ -263,6 +268,12 @@ declare class Z<K extends keyof HTMLElementTagNameMap> {
     append(...$elements: Z<any>[]): this;
     onClick(callback: (e: Event) => any): this;
     onInput(callback: (e: Event) => any): this;
+    /**
+     * 用于绑定元素原生事件
+     * @param eventType
+     * @param callback
+     * @returns
+     */
     on(eventType: string, callback: (e: Event) => any): this;
     show(): void;
     hide(): void;
@@ -275,6 +286,9 @@ declare class ZButton extends Z<"div"> {
     set disabled(val: boolean);
     constructor(text: string);
     onClick(callback: (e: Event) => any): this;
+}
+declare class ZValueChangeEvent extends Event {
+    constructor();
 }
 declare class ZInputBox extends Z<"input"> {
     _disabled: boolean;
@@ -382,6 +396,7 @@ declare namespace EasingOptions {
         out: BoxOption;
         inout: BoxOption;
     };
+    const FIXED: BoxOption;
     const LINEAR: BoxOption;
     const SINE: BoxOption;
     const QUAD: BoxOption;
@@ -395,6 +410,7 @@ declare namespace EasingOptions {
     const BOUNCE: BoxOption;
     const funcTypeOptions: BoxOption[];
     const funcTypeOptionsMapping: {
+        fixed: BoxOption;
         linear: BoxOption;
         sine: BoxOption;
         quad: BoxOption;
@@ -558,7 +574,7 @@ declare class ComplexOperation<T extends Operation[]> extends Operation {
     do(): void;
     undo(): void;
 }
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime";
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size";
 declare class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
     note: Note;
@@ -577,6 +593,14 @@ declare class NoteRemoveOperation extends Operation {
     do(): void;
     undo(): void;
 }
+/**
+ * 删除一个note
+ * 从语义上删除Note要用这个操作
+ * 结果上，这个会更新编辑器
+ */
+declare class NoteDeleteOperation extends NoteRemoveOperation {
+    updatesEditor: boolean;
+}
 declare class NoteAddOperation extends Operation {
     noteNode: NoteNode;
     note: Note;
@@ -590,6 +614,11 @@ declare class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeO
     updatesEditor: boolean;
     constructor(note: Note, noteNode: NoteNode);
     rewrite(operation: NoteTimeChangeOperation): boolean;
+}
+declare class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
+    constructor(note: Note, value: TimeT);
+    do(): void;
+    undo(): void;
 }
 declare class NoteSpeedChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor: boolean;
@@ -737,13 +766,16 @@ declare class NoteEditor extends SideEditor<Note> {
     $position: ZInputBox;
     $dir: ZDropdownOptionBox;
     $speed: ZInputBox;
+    $alpha: ZInputBox;
+    $size: ZInputBox;
+    $delete: ZButton;
     aboveOption: BoxOption;
     belowOption: BoxOption;
     noteTypeOptions: BoxOption[];
     constructor();
     update(): void;
 }
-declare class EventEditor extends SideEditor<EventNode> {
+declare class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     $time: ZFractionInput;
     $value: ZInputBox;
     $easing: ZEasingBox;
@@ -766,7 +798,9 @@ declare class SelectionManager<T> {
     positions: PositionEntity<T>[];
     constructor();
     refresh(): void;
-    add(entity: PositionEntity<T>): void;
+    add(entity: PositionEntity<T>): {
+        annotate: (context: CanvasRenderingContext2D, canvasX: number, canvasY: number) => void;
+    };
     click(x: number, y: number): undefined | PositionEntity<T>;
 }
 declare const eventTypeMap: {
@@ -834,6 +868,7 @@ declare class EventCurveEditor {
     padding: number;
     lastBeats: number;
     selectionManager: SelectionManager<EventNode>;
+    cursorPos: [number, number];
     state: EventCurveEditorState;
     wasEditing: boolean;
     _selectedNode: WeakRef<EventStartNode | EventEndNode>;
@@ -924,8 +959,8 @@ declare class NotesEditor {
     drawTree(tree: NNList, beats: number): void;
     drawNote(beats: number, note: Note, isTruck: boolean): void;
 }
-declare const NODE_WIDTH = 10;
-declare const NODE_HEIGHT = 10;
+declare const NODE_WIDTH = 20;
+declare const NODE_HEIGHT = 20;
 declare const NOTE_WIDTH = 54;
 declare const NOTE_HEIGHT = 6;
 declare const round: (n: number, r: number) => string;
@@ -1269,7 +1304,7 @@ declare class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNoteTree(speed: number, isHold: boolean, initsJump: boolean): NNList;
+    getNNList(speed: number, isHold: boolean, initsJump: boolean): NNList;
     getNode(note: Note, initsJump: boolean): NoteNode;
     /**
      *
@@ -1451,6 +1486,7 @@ declare abstract class EventNode {
      * @returns
      */
     static getEndStart(node: EventStartNode | EventEndNode): [EventEndNode, EventStartNode];
+    static getStartEnd(node: EventStartNode | EventEndNode): [EventStartNode, EventEndNode];
     get innerEasing(): Easing;
     /**
      * 设置easing，如果easing是分段缓动，则将分段缓动中的easing设置为innerEasing
@@ -1614,6 +1650,7 @@ declare class Player {
     background: HTMLImageElement;
     aspect: number;
     noteSize: number;
+    noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number;
     constructor(canvas: HTMLCanvasElement, editor: Editor);

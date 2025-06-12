@@ -324,6 +324,7 @@ class TemplateEasingLib {
 const linearEasing = new NormalEasing(linear, linearLine);
 const fixedEasing = new NormalEasing((x) => (x === 1 ? 1 : 0));
 const easingMap = {
+    "fixed": { out: fixedEasing, in: fixedEasing, inout: fixedEasing },
     "linear": { out: linearEasing, in: linearEasing, inout: linearEasing },
     "sine": { in: new NormalEasing(easeInSine), out: new NormalEasing(easeOutSine), inout: new NormalEasing(easeInOutSine) },
     "quad": { in: new NormalEasing(easeInQuad), out: new NormalEasing(easeOutQuad), inout: new NormalEasing(easeInOutQuad) },
@@ -343,6 +344,8 @@ for (let funcType in easingMap) {
         easing.easeType = easeType;
     }
 }
+fixedEasing.funcType = "fixed";
+fixedEasing.easeType = "in";
 /**
  * 按照KPA的编号
  */
@@ -435,8 +438,9 @@ rpeEasingArray.forEach((easing, index) => {
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-class Z {
+class Z extends EventTarget {
     constructor(type) {
+        super();
         this.element = document.createElement(type);
     }
     html(str) {
@@ -493,6 +497,12 @@ class Z {
         this.element.addEventListener("input", callback);
         return this;
     }
+    /**
+     * 用于绑定元素原生事件
+     * @param eventType
+     * @param callback
+     * @returns
+     */
     on(eventType, callback) {
         this.element.addEventListener(eventType, callback);
         return this;
@@ -537,6 +547,11 @@ class ZButton extends Z {
         return this;
     }
 }
+class ZValueChangeEvent extends Event {
+    constructor() {
+        super("valueChange");
+    }
+}
 class ZInputBox extends Z {
     get disabled() { return this.element.disabled; }
     set disabled(val) {
@@ -546,6 +561,9 @@ class ZInputBox extends Z {
         super("input");
         this.addClass("input-box");
         this.attr("type", "text");
+        this.element.addEventListener("focusout", () => {
+            this.dispatchEvent(new ZValueChangeEvent());
+        });
     }
     getValue() {
         return this.element.value;
@@ -569,7 +587,7 @@ class ZInputBox extends Z {
         return this;
     }
     onChange(callback) {
-        this.element.addEventListener("focusout", (event) => {
+        this.addEventListener("valueChange", (event) => {
             callback(this.getValue(), event);
         });
         return this;
@@ -587,15 +605,20 @@ class ZArrowInputBox extends Z {
             .addClass("arrow-up")
             .onClick(() => {
             this.setValue(this.getValue() + this.scale);
+            this.dispatchEvent(new ZValueChangeEvent());
         });
         this.$down = $("div")
             .addClass("arrow-down")
             .onClick(() => {
             console.log(this.getValue());
             this.setValue(this.getValue() - this.scale);
+            this.dispatchEvent(new ZValueChangeEvent());
         });
         this.addClass("arrow-input-box");
         this.append(this.$up, this.$down, this.$input);
+        this.$input.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent());
+        });
     }
     getValue() {
         return this.$input.getNum();
@@ -605,12 +628,7 @@ class ZArrowInputBox extends Z {
         return this;
     }
     onChange(callback) {
-        const listener = (content, event) => {
-            callback(parseInt(content), event);
-        };
-        this.$input.onChange(listener);
-        this.$up.onClick((e) => callback(this.getValue(), e));
-        this.$down.onClick((e) => callback(this.getValue(), e));
+        this.addEventListener("valueChange", (e) => callback(this.getValue(), e));
         return this;
     }
 }
@@ -624,10 +642,22 @@ class ZFractionInput extends Z {
         this.$int = new ZInputBox().addClass("integer");
         this.$nume = new ZInputBox().addClass("nume");
         this.$deno = new ZInputBox().addClass("deno");
+        this.$deno.onChange(() => {
+            if (this.$deno.getValue() == "0") {
+                this.$deno.setValue("1");
+            }
+            this.dispatchEvent(new ZValueChangeEvent());
+        });
+        this.$int.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent());
+        });
+        this.$nume.onChange(() => {
+            this.dispatchEvent(new ZValueChangeEvent());
+        });
         this.append(this.$int, this.$nume, $("div").addClass("line"), this.$deno);
     }
     getValue() {
-        return [this.$int.getInt() || 0, this.$nume.getInt() || 1, this.$deno.getInt() || 0];
+        return [this.$int.getInt() || 0, this.$nume.getInt() || 0, this.$deno.getInt() || 1];
     }
     setValue(time) {
         this.$int.setValue(time[0] + "");
@@ -642,13 +672,9 @@ class ZFractionInput extends Z {
         [this.$int, this.$deno, this.$nume].forEach(($e) => $e.disabled = val);
     }
     onChange(callback) {
-        const listener = () => {
-            if (!this.$deno.getValue()) {
-                return;
-            }
+        this.addEventListener("valueChange", (e) => {
             callback(this.getValue());
-        };
-        this.$nume.onClick(listener);
+        });
     }
 }
 class BoxOption {
@@ -864,6 +890,7 @@ var EasingOptions;
     EasingOptions.IO = new BoxOption("inout");
     EasingOptions.easeTypeOptions = [EasingOptions.IN, EasingOptions.OUT, EasingOptions.IO];
     EasingOptions.easeTypeOptionsMapping = { in: EasingOptions.IN, out: EasingOptions.OUT, inout: EasingOptions.IO };
+    EasingOptions.FIXED = new BoxOption("fixed");
     EasingOptions.LINEAR = new BoxOption("linear");
     EasingOptions.SINE = new BoxOption("sine");
     EasingOptions.QUAD = new BoxOption("quad");
@@ -875,8 +902,8 @@ var EasingOptions;
     EasingOptions.BACK = new BoxOption("back");
     EasingOptions.ELASTIC = new BoxOption("elastic");
     EasingOptions.BOUNCE = new BoxOption("bounce");
-    EasingOptions.funcTypeOptions = [EasingOptions.LINEAR, EasingOptions.SINE, EasingOptions.QUAD, EasingOptions.CUBIC, EasingOptions.QUART, EasingOptions.QUINT, EasingOptions.EXPO, EasingOptions.CIRC, EasingOptions.BACK, EasingOptions.ELASTIC, EasingOptions.BOUNCE];
-    EasingOptions.funcTypeOptionsMapping = { linear: EasingOptions.LINEAR, sine: EasingOptions.SINE, quad: EasingOptions.QUAD, cubic: EasingOptions.CUBIC, quart: EasingOptions.QUART, quint: EasingOptions.QUINT, expo: EasingOptions.EXPO, circ: EasingOptions.CIRC, back: EasingOptions.BACK, elastic: EasingOptions.ELASTIC, bounce: EasingOptions.BOUNCE };
+    EasingOptions.funcTypeOptions = [EasingOptions.FIXED, EasingOptions.LINEAR, EasingOptions.SINE, EasingOptions.QUAD, EasingOptions.CUBIC, EasingOptions.QUART, EasingOptions.QUINT, EasingOptions.EXPO, EasingOptions.CIRC, EasingOptions.BACK, EasingOptions.ELASTIC, EasingOptions.BOUNCE];
+    EasingOptions.funcTypeOptionsMapping = { fixed: EasingOptions.FIXED, linear: EasingOptions.LINEAR, sine: EasingOptions.SINE, quad: EasingOptions.QUAD, cubic: EasingOptions.CUBIC, quart: EasingOptions.QUART, quint: EasingOptions.QUINT, expo: EasingOptions.EXPO, circ: EasingOptions.CIRC, back: EasingOptions.BACK, elastic: EasingOptions.ELASTIC, bounce: EasingOptions.BOUNCE };
 })(EasingOptions || (EasingOptions = {}));
 /**
  * Easing box
@@ -898,7 +925,7 @@ class ZEasingBox extends Z {
             .append(this.$input, $("span").text("Ease"), this.$easeType, this.$funcType);
     }
     update() {
-        this.value = easingMap[this.$funcType.value.text][this.$easeType.value].id;
+        this.value = easingMap[this.$funcType.value.text][this.$easeType.value.text].id;
         this.$input.setValue(this.value);
         this.callbacks.forEach(f => f(this.value));
     }
@@ -1078,7 +1105,7 @@ const absVector = (v) => {
 const innerProduct = (v1, v2) => {
     return v1[0] * v2[0] + v1[1] * v2[1];
 };
-const pointIsInRect = (x, y, rectPos, width, height) => rectPos.x - width / 2 <= x && x <= rectPos.x + width / 2
+const pointIsInRect = (x, y, rectPos, width, height) => rectPos.x <= x && x <= rectPos.x + width
     && rectPos.y <= y && y <= rectPos.y + height;
 /**
  * To get offset coordinates from mouse or touch
@@ -1229,6 +1256,17 @@ class NoteRemoveOperation extends Operation {
         this.noteNode.add(this.note);
     }
 }
+/**
+ * 删除一个note
+ * 从语义上删除Note要用这个操作
+ * 结果上，这个会更新编辑器
+ */
+class NoteDeleteOperation extends NoteRemoveOperation {
+    constructor() {
+        super(...arguments);
+        this.updatesEditor = true;
+    }
+}
 class NoteAddOperation extends Operation {
     constructor(note, node) {
         super();
@@ -1267,10 +1305,28 @@ class NoteTimeChangeOperation extends ComplexOperation {
         return false;
     }
 }
+class HoldEndTimeChangeOperation extends NoteValueChangeOperation {
+    constructor(note, value) {
+        super(note, "endTime", value);
+        if (TimeCalculator.lt(value, note.startTime)) {
+            this.ineffective = true;
+        }
+    }
+    do() {
+        super.do();
+        const node = this.note.parent;
+        node.parent.holdTailJump.updateRange(node.previous, node.next);
+    }
+    undo() {
+        super.undo();
+        const node = this.note.parent;
+        node.parent.holdTailJump.updateRange(node.previous, node.next);
+    }
+}
 class NoteSpeedChangeOperation extends ComplexOperation {
     constructor(note, value, line) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
-        const tree = line.getNoteTree(value, note.type === NoteType.hold, true);
+        const tree = line.getNNList(value, note.type === NoteType.hold, true);
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
         const insert = new NoteAddOperation(note, node);
@@ -1284,7 +1340,7 @@ class NoteTypeChangeOperation extends ComplexOperation {
         const isHold = note.type === NoteType.hold;
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parent.parent.parent.getNoteTree(note.speed, !isHold, true);
+            const tree = note.parent.parent.parent.getNNList(note.speed, !isHold, true);
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
@@ -1400,7 +1456,7 @@ class EventNodeInnerEasingChangeOperation extends Operation {
         super();
         this.updatesEditor = true;
         let _;
-        [_, this.startNode] = EventNode.getEndStart(node);
+        [this.startNode, _] = EventNode.getStartEnd(node);
         this.value = val;
         this.originalValue = node.easing;
     }
@@ -1678,20 +1734,34 @@ class NoteEditor extends SideEditor {
         this.$position = new ZInputBox();
         this.$dir = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
         this.$speed = new ZInputBox();
-        this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir);
+        this.$alpha = new ZInputBox();
+        this.$size = new ZInputBox();
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
-            this.target.startTime = t;
+            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parent.parent.getNodeOf(t)));
             if (this.target.type !== NoteType.hold) {
-                this.target.endTime = t;
                 this.$endTime.setValue(t);
             }
         });
+        this.$endTime.onChange((t) => {
+            editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
+        });
         // 这里缺保卫函数
         this.$position.onChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$speed.getNum()));
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()));
         });
         this.$speed.onChange(() => {
             editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parent.parent.parent));
+        });
+        this.$alpha.onChange(() => {
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()));
+        });
+        this.$size.onChange(() => {
+            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()));
+        });
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new NoteDeleteOperation(this.target));
         });
     }
     update() {
@@ -1712,6 +1782,8 @@ class NoteEditor extends SideEditor {
         this.$position.setValue(note.positionX + "");
         this.$dir.value = note.above ? this.aboveOption : this.belowOption;
         this.$speed.setValue(note.speed + "");
+        this.$alpha.setValue(note.alpha + "");
+        this.$size.setValue(note.size + "");
     }
 }
 class EventEditor extends SideEditor {
@@ -1727,8 +1799,12 @@ class EventEditor extends SideEditor {
             "Template": this.$templateEasing
         });
         this.$body.append($("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs);
-        this.$time.onChange((t) => this.target.time = t);
-        this.$value.onChange(() => this.target.value = this.$value.getNum());
+        this.$time.onChange((t) => {
+            editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
+        });
+        this.$value.onChange(() => {
+            editor.chart.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()));
+        });
         this.$easing.onChange((id) => this.setNormalEasing(id));
         this.$templateEasing.onChange((name) => this.setTemplateEasing(name));
         this.$radioTabs.$radioBox.onChange((id) => {
@@ -1776,6 +1852,14 @@ class SelectionManager {
     }
     add(entity) {
         this.positions.push(entity);
+        return {
+            annotate: (context, canvasX, canvasY) => {
+                context.save();
+                context.fillStyle = "pink";
+                context.fillText(`${shortenFloat(entity.x, 1)}, ${shortenFloat(entity.y, 1)}`, canvasX, canvasY - 10);
+                context.restore();
+            },
+        };
     }
     click(x, y) {
         const positions = this.positions;
@@ -1958,6 +2042,7 @@ class EventCurveEditor {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
             const { width, height } = this.canvas;
             const [x, y] = [offsetX - width / 2, offsetY - height / 2 - this.valueBasis];
+            this.cursorPos = [x, y];
             const { padding } = this;
             this.pointedValue = -Math.round((y / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan;
             const accurateBeats = x / this.timeRatio + this.lastBeats;
@@ -1991,6 +2076,7 @@ class EventCurveEditor {
         const { padding } = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const [x, y] = [offsetX - width / 2, offsetY - height / 2];
+        this.cursorPos = [x, y];
         // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
@@ -2052,6 +2138,8 @@ class EventCurveEditor {
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
         // 计算上下界
+        context.save();
+        context.fillStyle = "#EEE";
         const upperEnd = Math.ceil((height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan;
         const lowerEnd = Math.ceil((-height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan;
         context.strokeStyle = rgb(...this.valueGridColor);
@@ -2076,6 +2164,7 @@ class EventCurveEditor {
             }
             context.restore();
         }
+        context.restore();
         context.lineWidth = 3;
         drawLine(context, 0, width / 2, 0, -width / 2);
         context.strokeStyle = "#EEE";
@@ -2091,10 +2180,13 @@ class EventCurveEditor {
         this.drawCoordination(beats);
         context.save();
         this.context.fillStyle = "#EEE";
-        this.context.fillText("State: " + EventCurveEditorState[this.state], 0, -30);
-        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 0, -10);
-        this.context.fillText("Sequence: " + this.target.id, 0, -50);
-        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 0, -70);
+        this.context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
+        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
+        this.context.fillText("Sequence: " + this.target.id, 10, -50);
+        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
+        if (this.cursorPos) {
+            this.context.fillText(`Cursor: ${this.cursorPos[0]}, ${this.cursorPos[1]}`, 10, -90);
+        }
         context.restore();
         const startBeats = beats - this.timeRange / 2;
         const endBeats = beats + this.timeRange / 2;
@@ -2123,7 +2215,7 @@ class EventCurveEditor {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
-            });
+            }).annotate(context, startX, topY);
             selectionManager.add({
                 target: endNode,
                 x: endX - NODE_WIDTH,
@@ -2131,7 +2223,7 @@ class EventCurveEditor {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
-            });
+            }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20);
             startNode.easing.drawCurve(context, startX, -startY, endX, -endY);
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT);
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT);
@@ -2541,8 +2633,8 @@ class NotesEditor {
         }
     }
 }
-const NODE_WIDTH = 10;
-const NODE_HEIGHT = 10;
+const NODE_WIDTH = 20;
+const NODE_HEIGHT = 20;
 const NOTE_WIDTH = 54;
 const NOTE_HEIGHT = 6;
 const round = (n, r) => Math.round(n * Math.pow(10, r)) / Math.pow(10, r) + "";
@@ -2700,7 +2792,12 @@ class Editor extends EventTarget {
         this.topbarEle.append(this.$timeDivisor.release());
         this.$saveButton = new ZButton("保存");
         this.$saveButton.onClick(() => {
-            saveTextToFile(JSON.stringify(this.chart.dumpKPA()), this.chart.name + ".kpa.json");
+            const json = this.chart.dumpKPA();
+            if (serverApi.supportsServer) {
+                serverApi.uploadChart(json);
+                return;
+            }
+            saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json");
         });
         this.topbarEle.append(this.$saveButton.release());
     }
@@ -2879,12 +2976,12 @@ class Note {
     // posNextSibling: Note;
     constructor(data) {
         this.above = data.above === 1;
-        this.alpha = data.alpha;
+        this.alpha = data.alpha || 255;
         this.endTime = data.endTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
-        this.size = data.size;
-        this.speed = data.speed;
+        this.size = data.size || 1.0;
+        this.speed = data.speed || 1.0;
         this.startTime = data.startTime;
         this.type = data.type;
         this.visibleTime = data.visibleTime;
@@ -3485,7 +3582,7 @@ class JudgeLine {
             // let comboInfoEntity: ComboInfoEntity;
             for (let i = 0; i < len; i++) {
                 const note = new Note(notes[i]);
-                const tree = line.getNoteTree(note.speed, note.type === NoteType.hold, false);
+                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false);
                 const cur = tree.currentPoint;
                 const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -3759,7 +3856,7 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNoteTree(speed, isHold, initsJump) {
+    getNNList(speed, isHold, initsJump) {
         const trees = isHold ? this.hnLists : this.nnLists;
         for (let treename in trees) {
             const tree = trees[treename];
@@ -3767,18 +3864,19 @@ class JudgeLine {
                 return tree;
             }
         }
-        const tree = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
-        tree.parent = this;
+        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
+        list.parent = this;
+        NoteNode.connect(list.head, list.tail);
         if (initsJump)
-            tree.initJump();
+            list.initJump();
         const id = (isHold ? "$" : "#") + speed;
-        (trees[id] = tree).id = id;
-        return tree;
+        (trees[id] = list).id = id;
+        return list;
     }
     getNode(note, initsJump) {
         const speed = note.speed;
         const isHold = note.type === NoteType.hold;
-        const tree = this.getNoteTree(speed, isHold, initsJump);
+        const tree = this.getNNList(speed, isHold, initsJump);
         return tree.getNodeOf(note.startTime);
     }
     /**
@@ -3841,6 +3939,16 @@ class JudgeLine {
         }
     }
 }
+var EventType;
+(function (EventType) {
+    EventType[EventType["moveX"] = 0] = "moveX";
+    EventType[EventType["moveY"] = 1] = "moveY";
+    EventType[EventType["rotate"] = 2] = "rotate";
+    EventType[EventType["alpha"] = 3] = "alpha";
+    EventType[EventType["speed"] = 4] = "speed";
+    EventType[EventType["easing"] = 5] = "easing";
+    EventType[EventType["bpm"] = 6] = "bpm";
+})(EventType || (EventType = {}));
 var NoteType;
 (function (NoteType) {
     NoteType[NoteType["tap"] = 1] = "tap";
@@ -3904,6 +4012,7 @@ class Chart {
         this.level = "uk";
         this.offset = 0;
         this.sequenceMap = {};
+        this.judgeLineGroups = [];
         this.operationList = new OperationList();
     }
     getEffectiveBeats() {
@@ -3970,13 +4079,14 @@ class Chart {
         chart.name = data.info.name;
         chart.level = data.info.level;
         chart.offset = data.offset;
+        chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
         chart.updateCalculator();
         chart.nnnList = new NNNList(chart.getEffectiveBeats());
         const sequences = data.eventNodeSequences;
         const length = data.eventNodeSequences.length;
         for (let i = 0; i < length; i++) {
             const sequence = sequences[i];
-            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.nodes, chart)).id = sequence.id;
+            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart)).id = sequence.id;
         }
         chart.templateEasingLib.add(data.envEasings);
         chart.templateEasingLib.check();
@@ -4349,6 +4459,17 @@ class EventNode {
             return [node, node.next];
         }
     }
+    static getStartEnd(node) {
+        if (node instanceof EventStartNode) {
+            return [node, node.next];
+        }
+        else if (node instanceof EventEndNode) {
+            return [node.previous, node];
+        }
+        else {
+            throw new Error("Invalid node type");
+        }
+    }
     get innerEasing() {
         return this.easing instanceof SegmentedEasing ?
             this.easing.easing :
@@ -4506,16 +4627,6 @@ class EventEndNode extends EventNode {
         return super.clone();
     }
 }
-var EventType;
-(function (EventType) {
-    EventType[EventType["moveX"] = 0] = "moveX";
-    EventType[EventType["moveY"] = 1] = "moveY";
-    EventType[EventType["rotate"] = 2] = "rotate";
-    EventType[EventType["alpha"] = 3] = "alpha";
-    EventType[EventType["speed"] = 4] = "speed";
-    EventType[EventType["easing"] = 5] = "easing";
-    EventType[EventType["bpm"] = 6] = "bpm";
-})(EventType || (EventType = {}));
 /**
  * 为一个链表结构。会有一个数组进行快跳。
  * is the list of event nodes, but not purely start nodes.
@@ -4682,7 +4793,8 @@ class EventNodeSequence {
     insert() {
     }
     getNodeAt(beats, usePrev = false) {
-        let node = this.jump.getNodeAt(beats);
+        var _a;
+        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
         if ("tailing" in node) {
             // 最后一个事件节点本身具有无限延伸的特性
             return node.previous;
@@ -4727,7 +4839,7 @@ class EventNodeSequence {
         }
         return {
             type: this.type,
-            nodes: nodes,
+            events: nodes,
             id: this.id // 或者使用其他唯一标识符
         };
     }
@@ -4887,6 +4999,7 @@ class Player {
         this.playing = false;
         this.aspect = DEFAULT_ASPECT_RATIO;
         this.noteSize = 135;
+        this.noteHeight = 10;
         this.initCoordinate();
         window.addEventListener("resize", () => {
             this.initCoordinate();
@@ -5255,21 +5368,33 @@ class Player {
             return;
         }
         let image = getImageFromType(note.type);
+        const context = this.context;
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY;
         }
         let length = endpositionY - positionY;
+        const size = this.noteSize * note.size;
+        const half = size / 2;
+        const height = this.noteHeight;
         // console.log(NoteType[note.type])
-        if (note.type === NoteType.hold) {
-            this.context.drawImage(HOLD_BODY, note.positionX - this.noteSize / 2, positionY - 10, this.noteSize, length);
+        const opac = note.alpha < 255;
+        if (opac) {
+            context.save();
+            context.globalAlpha = note.alpha / 255;
         }
-        this.context.drawImage(image, note.positionX - this.noteSize / 2, positionY - 10);
+        if (note.type === NoteType.hold) {
+            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, this.noteSize, length);
+        }
+        context.drawImage(image, note.positionX - half, positionY - 10, size, height);
         if (double) {
-            this.context.drawImage(DOUBLE, note.positionX - this.noteSize / 2, positionY - 10);
+            context.drawImage(DOUBLE, note.positionX - half, positionY - 10, size, height);
         }
         if (!note.above) {
-            this.context.drawImage(BELOW, note.positionX - this.noteSize / 2, positionY - 10);
+            context.drawImage(BELOW, note.positionX - half, positionY - 10, size, height);
+        }
+        if (opac) {
+            context.restore();
         }
     }
     update() {
@@ -5434,7 +5559,10 @@ class BPMSequence extends EventNodeSequence {
     initJump() {
         console.log(this);
         this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.time);
-        super.initJump();
+        if (this.effectiveBeats !== 0) {
+            super.initJump(); // 为0可以跳过jumpArray，用不到
+            // 只有一个BPM片段就会这样
+        }
         this.updateSecondJump();
     }
     updateSecondJump() {
@@ -5452,6 +5580,9 @@ class BPMSequence extends EventNodeSequence {
             node = endNode.next;
         }
         node.cachedStartIntegral = integral;
+        if (this.effectiveBeats === 0) {
+            return;
+        }
         const originalListLength = this.listLength;
         this.secondJump = new JumpArray(this.head, this.tail, originalListLength, this.duration, (node) => {
             if ("tailing" in node) {
@@ -5474,6 +5605,9 @@ class BPMSequence extends EventNodeSequence {
         });
     }
     getNodeBySeconds(seconds) {
+        if (this.effectiveBeats === 0) {
+            return this.tail.previous;
+        }
         const node = this.secondJump.getNodeAt(seconds);
         if ("tailing" in node) {
             return node.previous;
@@ -5597,9 +5731,85 @@ class TimeCalculator {
     }
 }
 const TC = TimeCalculator;
+class ChartMetadata {
+    constructor(name, song, picture, chart) {
+        this.name = name;
+        this.song = song;
+        this.picture = picture;
+        this.chart = chart;
+    }
+    static fromJson(json) {
+        return new ChartMetadata(json.Name, json.Song, json.Picture, json.Chart);
+    }
+    toJson() {
+        return JSON.stringify({
+            Name: this.name,
+            Song: this.song,
+            Picture: this.picture,
+            Chart: this.chart
+        });
+    }
+}
+class ServerApi {
+    constructor() {
+        this.statusPromise = fetch("../status")
+            .then(res => {
+            if (res.status == 204) {
+                this.supportsServer = true;
+                document.title += "Connected";
+                return true;
+            }
+            else {
+                this.supportsServer = false;
+                return false;
+            }
+        });
+    }
+    getChart(id) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.chartId = id;
+            const res0 = yield fetch(`../Resources/${id}/metadata.json`);
+            if (res0.status === 404) {
+                alert("Chart not found");
+            }
+            const metadata = ChartMetadata.fromJson(yield res0.json());
+            const chartPath = metadata.chart;
+            const picturePath = metadata.picture;
+            const songPath = metadata.song;
+            const res1 = yield fetch(`../Resources/${id}/${chartPath}`);
+            const res2 = yield fetch(`../Resources/${id}/${picturePath}`);
+            const res3 = yield fetch(`../Resources/${id}/${songPath}`);
+            const chart = yield res1.blob();
+            editor.readChart(chart);
+            const picture = yield res2.blob();
+            editor.readImage(picture);
+            editor.readAudio(yield res3.blob());
+        });
+    }
+    uploadChart(chart) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const id = this.chartId;
+            const chartBlob = new Blob([JSON.stringify(chart)], { type: "application/json" });
+            yield fetch(`../Resources/${id}/chart.json`, {
+                method: "PUT",
+                body: chartBlob
+            });
+        });
+    }
+}
 if (globalThis.document) {
     var settings = new Settings();
     var editor = new Editor();
+    var serverApi = new ServerApi();
+    const url = new URL(window.location.href);
+    const pathname = url.pathname;
+    const segs = pathname.split("/");
+    if (url.searchParams.get('chart')) {
+        serverApi.getChart(url.searchParams.get('chart'));
+    }
+    else if (url.pathname.startsWith("/Resources/") && segs.length === 3) {
+        serverApi.getChart(segs[2]);
+    }
 }
 else {
     const tc = new TimeCalculator;
