@@ -300,7 +300,7 @@ class Player {
                 // 打击特效
                 if (beats > 0) {
                     if (tree instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                        this.renderHoldHitEffects(judgeLine, tree, beats, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     } else {
                         this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     }
@@ -378,14 +378,13 @@ class Player {
             noteNode = <NoteNode>noteNode.next
         } 
     }
-    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
+    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
         }
         while (noteNode !== end) {
-            const beats = TimeCalculator.toBeats(noteNode.startTime);
             const base = judgeLine.getBaseCoordinate(beats);
             const thisCoord = judgeLine.getThisCoordinate(beats);
             const bx = base[0] + thisCoord[0]
