@@ -238,6 +238,10 @@ input:not(:focus) {
 
 }
 
+.switch.checked {
+    background-color: aquamarine;
+}
+
 .button.disabled {
     background-color: #aaa;
 }

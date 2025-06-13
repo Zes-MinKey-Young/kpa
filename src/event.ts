@@ -137,6 +137,7 @@ abstract class EventNode {
             throw new Error("Cannot insert a head node before any node");
         }
         this.connect(tarPrev, node.previous);
+        node.parent = node.previous.parent;
         this.connect(node, tarNext);
         return [this.previousStartOfStart(tarPrev), this.nextStartOfEnd(tarNext)]
     }
@@ -352,7 +353,7 @@ type AnyStartNode = EventStartNode<EventNodeType.first>
 class EventEndNode extends EventNode {
     next: EventStartNode;
     previous: EventStartNode;
-    get parent() {return this.previous.parent}
+    get parent() {return this.previous?.parent}
     set parent(_parent: EventNodeSequence) {}
     constructor(time: TimeT, value: number) {
         super(time, value);

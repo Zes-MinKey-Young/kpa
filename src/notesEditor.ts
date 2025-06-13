@@ -63,7 +63,7 @@ class NotesEditor {
     $optionBox: ZEditableDropdownOptionBox;
     $typeOption: ZDropdownOptionBox;
     $noteAboveOption: ZDropdownOptionBox;
-    $editButton: ZButton
+    $editButton: ZSwitch;
     allOption: EditableBoxOption
     
     get target() {
@@ -136,10 +136,10 @@ class NotesEditor {
             ).onChange(() => this.noteType = NoteType[this.$typeOption.value.text])
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
             .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above")
-        this.$editButton = new ZButton("e/s")
-            .onClick(() => {
-                this.state = this.state === NotesEditorState.edit ? NotesEditorState.select : NotesEditorState.edit
-            })
+        this.$editButton = new ZSwitch("Edit")
+            .onClickChange((checked) => {
+                this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
+            });
         this.$statusBar.append(
             this.$optionBox,
             this.$typeOption,
@@ -241,6 +241,7 @@ class NotesEditor {
                 this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
                 this.state = NotesEditorState.selecting;
+                this.$editButton.checked = false;
                 this.wasEditing = true;
                 break;
         }
@@ -248,6 +249,9 @@ class NotesEditor {
     upHandler(event) {
         if (this.state === NotesEditorState.selecting) {
             this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select
+            if (this.wasEditing) {
+                this.$editButton.checked = true;
+            }
         }
     }
     _selectedNote: WeakRef<Note>;

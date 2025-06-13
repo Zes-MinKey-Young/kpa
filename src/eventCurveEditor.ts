@@ -38,6 +38,7 @@ class EventCurveEditors {
     $bar: Z<"div">;
     $typeSelect: ZDropdownOptionBox;
     $layerSelect: ZDropdownOptionBox;
+    $editSwitch: ZSwitch;
 
 
     moveX: EventCurveEditor;
@@ -68,12 +69,17 @@ class EventCurveEditors {
         this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
         this.$layerSelect.onChange((val) => {
             this.selectedLayer = val;
-        })
+        });
+        this.$editSwitch = new ZSwitch("Edit");
 
 
 
 
-        this.$bar.append(this.$typeSelect, this.$layerSelect)
+        this.$bar.append(
+            this.$typeSelect,
+            this.$layerSelect,
+            this.$editSwitch
+        )
         this.$element.append(this.$bar)
 
         this.element = this.$element.element;
@@ -235,6 +241,10 @@ class EventCurveEditor {
         this.valueGridColor = [255, 170, 120];
         this.initContext()
 
+        parent.$editSwitch.onClickChange((checked) => {
+            this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
+        })
+
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
             const {width, height} = this.canvas
@@ -306,6 +316,7 @@ class EventCurveEditor {
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
+                this.parent.$editSwitch.checked = false;
                 this.wasEditing = true;
                 break;
         }
@@ -314,9 +325,10 @@ class EventCurveEditor {
         switch (this.state) {
             case EventCurveEditorState.selecting:
                 if (!this.wasEditing) {
-                    this.state = EventCurveEditorState.select
+                    this.state = EventCurveEditorState.select;
                 } else {
-                    this.state = EventCurveEditorState.edit
+                    this.state = EventCurveEditorState.edit;
+                    this.parent.$editSwitch.checked = true;
                 }
                 break;
             default:

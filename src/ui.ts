@@ -131,6 +131,33 @@ class ZButton extends Z<"div"> {
     }
 }
 
+class ZSwitch extends ZButton {
+    get checked() {
+        return this.element.classList.contains("checked")
+    }
+    set checked(val) {
+        if (val !== this.checked) {
+            this.element.classList.toggle("checked", val)
+            console.log("switch checked:", val, this.checked)
+            this.dispatchEvent(new ZValueChangeEvent())
+        }
+    }
+    constructor(text: string) {
+        super(text)
+        this.addClass("switch")
+        this.onClick(() => {
+            this.checked = !this.checked;
+            this.dispatchEvent(new Event("clickChange"))
+        })
+    }
+    onClickChange(callback: (checked: boolean, e: Event) => any) {
+        this.addEventListener("clickChange", (event) => {
+            callback(this.checked, event);
+        })
+        return this;
+    }
+}
+
 class ZValueChangeEvent extends Event {
     constructor() {
         super("valueChange")

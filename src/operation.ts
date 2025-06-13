@@ -257,7 +257,7 @@ class EventNodePairRemoveOperation extends Operation {
     endNode: EventEndNode;
     startNode: EventStartNode;
     sequence: EventNodeSequence;
-    originalPrev: EventStartNode
+    originalPrev: EventStartNode;
     constructor(node: EventStartNode) {
         super();
         if (node.isFirstStart()) {
@@ -280,16 +280,19 @@ class EventNodePairInsertOperation extends Operation {
     updatesEditor = true
     node: EventStartNode;
     tarPrev: EventStartNode;
+    originalSequence: EventNodeSequence;
     constructor(node: EventStartNode, targetPrevious: EventStartNode) {
         super()
         this.node = node;
         this.tarPrev = targetPrevious
+        this.originalSequence = targetPrevious.parent
     }
     do() {
-        this.node.parent.jump.updateRange(...EventNode.insert(this.node, this.tarPrev))
+        const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
+        this.node.parent.jump.updateRange(endNode, startNode)
     }
     undo() {
-        this.node.parent.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
+        this.originalSequence?.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
     }
 }
 
