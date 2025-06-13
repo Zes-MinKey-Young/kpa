@@ -145,7 +145,7 @@ Bun.serve({
                 Song: musicPath
             }))
             console.log(`Created chart ${id}`);
-            return Response.json(chart);
+            return Response.redirect(`/Resources/${id}`);
         },
         "/import": async (req: BunRequest) => {
             const formData = await req.formData();
@@ -179,7 +179,7 @@ Bun.serve({
                 Song: musicPath
             }))
             console.log(`Imported chart ${id}`);
-            return new Response("OK")
+            return Response.redirect(`/Resources/${id}`);
         },
         "/Resources/:id": async (req) => {
             const id = req.params.id;
