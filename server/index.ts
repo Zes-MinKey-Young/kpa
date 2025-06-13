@@ -111,10 +111,10 @@ Bun.serve({
         },
         "/create": async (req: BunRequest) => {
             const formData = await req.formData();
+            const title = formData.get("title");
             const music = formData.get("music");
             const illustration = formData.get("illustration");
             const id = formData.get("id");
-            const title = formData.get("title");
             const baseBPM = formData.get("bpm");
             if (!music || !illustration || !id || !title || !baseBPM
                 || typeof music === "string"
@@ -146,6 +146,40 @@ Bun.serve({
             }))
             console.log(`Created chart ${id}`);
             return Response.json(chart);
+        },
+        "/import": async (req: BunRequest) => {
+            const formData = await req.formData();
+            const music = formData.get("music");
+            const illustration = formData.get("illustration");
+            const id = formData.get("id");
+            const chart = formData.get("chart");
+            if (!id || !music || !illustration || !chart
+                || typeof music === "string"
+                || typeof illustration === "string"
+                || typeof id !== "string"
+                || typeof chart == "string"
+            ) {
+                return new Response("Invalid form data", { status: 400 });
+            }
+            
+            if (!await exists("../Resources")) {
+                await mkdir("../Resources");
+            }
+            if (!await exists(`../Resources/${id}`)) {
+                await mkdir(`../Resources/${id}`);
+            }
+            const illuPath = "illustration." + illustration.name.split(".").at(-1);
+            const musicPath = "music." + music.name.split(".").at(-1);
+            Bun.write(`../Resources/${id}/chart.json`, chart);
+            Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+            Bun.write(`../Resources/${id}/${musicPath}`, music);
+            Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+                Chart: "chart.json",
+                Picture: illuPath,
+                Song: musicPath
+            }))
+            console.log(`Imported chart ${id}`);
+            return new Response("OK")
         },
         "/Resources/:id": async (req) => {
             const id = req.params.id;
