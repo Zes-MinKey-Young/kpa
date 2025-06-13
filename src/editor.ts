@@ -253,6 +253,10 @@ class Editor extends EventTarget {
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
         })
         this.topbarEle.append(this.$saveButton.release())
+
+        this.addEventListener("chartloaded", (e) => { 
+            this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
+        })
     }
     shownSideEditor: SideEditor<any>;
     switchSide(editor: SideEditor<any>) {

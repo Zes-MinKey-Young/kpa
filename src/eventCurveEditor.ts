@@ -1,34 +1,39 @@
 
 const eventTypeMap = [
-    {
+    { // moveX
         basis: 0,
         valueGridSpan: 270,
         valueRange: 1350
     },
-    {
+    { // moveY
         basis: 0,
         valueGridSpan: 180,
         valueRange: 900
     },
-    {
+    { // rotate
         basis: 0,
         valueGridSpan: 90,
         valueRange: 720
     },
-    {
+    { // alpha
         basis: -0.5,
         valueGridSpan: 17,
         valueRange: 255
     },
-    {
+    { // speed
         basis: -0.25,
         valueGridSpan: 2,
         valueRange: 20
     },
-    {
+    { // easing
         basis: 0,
         valueGridSpan: 270,
         valueRange: 1350
+    },
+    { // bpm
+        basis: -0.5,
+        valueGridSpan: 40,
+        valueRange: 300
     }
 ]
 
@@ -47,6 +52,7 @@ class EventCurveEditors {
     rotate: EventCurveEditor;
     speed: EventCurveEditor;
     easing: EventCurveEditor;
+    bpm: EventCurveEditor;
 
     lastBeats: number
     constructor(width: number, height: number) {
@@ -60,7 +66,8 @@ class EventCurveEditors {
             "alpha",
             "rotate",
             "speed",
-            "easing"
+            "easing",
+            "bpm"
         ].map((s) => new BoxOption(s)), true);
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
@@ -83,8 +90,8 @@ class EventCurveEditors {
         this.$element.append(this.$bar)
 
         this.element = this.$element.element;
-        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing"]) {
-            this[type] = new EventCurveEditor(EventType[type], height - 24, width, this)
+        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+            this[type] = new EventCurveEditor(EventType[type], height - 24, width, this);
             this[type].displayed = false;
             this.element.append(this[type].element)
         }
