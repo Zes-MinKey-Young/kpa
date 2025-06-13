@@ -379,7 +379,7 @@ class ZDropdownOptionBox extends Z<"div"> {
             if (target instanceof HTMLDivElement) {
                 if (target !== this.value.$element.release()) {
                     let option: BoxOption;
-                    for (let i =0; i < options.length; i++) {
+                    for (let i = 0; i < options.length; i++) {
                         option = options[i]
                         if (option.$element.release() === target) {
                             break;

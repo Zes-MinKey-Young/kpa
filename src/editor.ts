@@ -146,6 +146,7 @@ class Editor extends EventTarget {
     $timeDivisor: ZArrowInputBox;
     timeDivisor: number
     $saveButton: ZButton;
+    $playbackRate: ZDropdownOptionBox;
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -234,7 +235,7 @@ class Editor extends EventTarget {
             this.player.render()
             // event.preventDefault()
         })
-
+        // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox()
         this.$timeDivisor.onChange((n) => {
             this.timeDivisor = n;
@@ -243,10 +244,17 @@ class Editor extends EventTarget {
         this.$timeDivisor.setValue(4)
         this.timeDivisor = 4
         this.topbarEle.append(this.$timeDivisor.release())
+        // PlaybackRate
+        this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
+            .onChange((rateStr: string) => {
+                this.player.audio.playbackRate = parseFloat(rateStr)
+            })
+        this.topbarEle.append(this.$playbackRate.release())
+        // Save Button
         this.$saveButton = new ZButton("保存")
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA()
-            if (serverApi.supportsServer) {
+            if (serverApi.supportsServer && serverApi.chartId) {
                 serverApi.uploadChart(json)
                 return;
             }
