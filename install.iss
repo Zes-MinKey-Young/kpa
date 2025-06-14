@@ -23,6 +23,7 @@ Source: "server\index.exe"; DestDir: "{app}\server"; Flags: ignoreversion
 Source: "sound\*"; DestDir: "{app}\sound"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "img\*"; DestDir: "{app}\img"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "css\*"; DestDir: "{app}\css"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "server\default.jsonc"; DestName: "config.jsonc"; DestDir: "{app}\server"; Flags: ignoreversion
 ; 可选：许可证文件
 Source: "LICENSE"; DestDir: "{app}"
 Source: "start.bat"; DestDir: "{app}"

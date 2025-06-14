@@ -116,7 +116,30 @@ class JudgeLineEditor {
 
 
 
-
+class SaveDialog extends ZDialog {
+    $message: ZInputBox
+    chartData: ChartDataKPA
+    constructor() {
+        super()
+        this.append($("span").text("Message"));
+        this.$message = new ZInputBox();
+        this.$message.attr("placeholder", "Enter Commit Message")
+        this.append(this.$message);
+        this.append(new ZButton("Save")
+            .addClass("progressive")
+            .onClick(() => {
+            this.close();
+            this.dispatchEvent(new CustomEvent("save", { detail: this.$message.getValue()}));
+        }));
+        this.append(new ZButton("Cancel")
+            .addClass("destructive")
+            .onClick(() => this.close()));
+        this.addEventListener("save", (customEvent: CustomEvent) => {
+            console.log("save", customEvent.detail)
+            serverApi.uploadChart(this.chartData, customEvent.detail)
+        });
+    }
+}
 
 class Editor extends EventTarget {
     initialized: boolean;
@@ -154,6 +177,7 @@ class Editor extends EventTarget {
 
     renderingTime: number;
     lastRenderingTime: number;
+    $saveDialog: SaveDialog;
 
     constructor() {
         super()
@@ -255,12 +279,14 @@ class Editor extends EventTarget {
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA()
             if (serverApi.supportsServer && serverApi.chartId) {
-                serverApi.uploadChart(json)
+                this.$saveDialog.show();
+                this.$saveDialog.chartData = json;
                 return;
             }
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
-        })
-        this.topbarEle.append(this.$saveButton.release())
+        });
+        this.$saveDialog = new SaveDialog();
+        this.topbarEle.append(this.$saveButton.release(), this.$saveDialog.release())
 
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
@@ -410,5 +436,8 @@ class Editor extends EventTarget {
         this.player.pause()
         this.update()
         this.playButton.innerHTML = "继续"
+    }
+    static notify(message: string) {
+        $(document.body).append(new ZNotification(message))
     }
 }

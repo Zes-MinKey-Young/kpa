@@ -19,9 +19,9 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
  */
 class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     element: HTMLElementTagNameMap[K];
-    constructor(type: K) {
+    constructor(type: K, newElement: boolean = true) {
         super();
-        this.element = document.createElement(type);
+        if (newElement) this.element = document.createElement(type);
     }
     html(str: string) {
         this.element.innerHTML = str
@@ -96,9 +96,15 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     remove() {
         this.element.remove()
     }
+    static from<K extends keyof HTMLElementTagNameMap>(element: HTMLElementTagNameMap[K]) {
+        const $ele = new Z(element.localName as K);
+        $ele.element = element;
+        return $ele;
+    }
 }
 
-const $ = <K extends keyof HTMLElementTagNameMap>(...args: [K]) => new Z(...args);
+const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>
+ = <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from<K>(strOrEle);
 
 /*
  * The classes below encapsulate some common UI Gadgets in KPA.
@@ -701,5 +707,49 @@ class ZRadioTabs extends Z<"div"> {
         this.$pages[index].show()
         this.selectedIndex = index;
         return this;
+    }
+}
+
+class ZDialog extends Z<"dialog"> {
+    constructor() {
+        super("dialog");
+    }
+    show() {
+        this.element.show()
+        return this;
+    }
+    bindDonePromise(promise: Promise<any>) {
+        promise.then(() => {
+            this.element.close()
+        })
+        return this;
+    }
+    whenClosed(callback: () => void) {
+        this.element.addEventListener("close", callback)
+        return this;
+    }
+    close() {
+        this.element.close()
+    }
+}
+
+class ZNotification extends Z<"div"> {
+    $text: Z<"span">
+    $close: Z<"span">
+    constructor(text: string, timeout: number = 8000) {
+        super("div")
+        this.addClass("notification");
+        setTimeout(() => this.addClass("fade-in"), 50);
+        this.onClick(() => {
+            this.removeClass("fade-in");
+        });
+        setTimeout(() => {
+            this.removeClass("fade-in");
+            setTimeout(() => {
+                this.remove();
+            }, 1000)
+        }, timeout)
+        this.$text = $("span").text(text)
+        this.append(this.$text)
     }
 }

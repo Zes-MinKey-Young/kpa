@@ -17,6 +17,10 @@ class ChartMetadata {
     }
 }
 
+
+/**
+ * 运行时位置是kpa/dist
+ */
 class ServerApi {
     supportsServer: boolean;
     statusPromise: Promise<boolean>;
@@ -54,12 +58,13 @@ class ServerApi {
         editor.readImage(picture);
         editor.readAudio(await res3.blob());
     }
-    async uploadChart(chart: ChartDataKPA) {
+    async uploadChart(chart: ChartDataKPA, message: string) {
         const id = this.chartId;
         const chartBlob = new Blob([JSON.stringify(chart)], { type: "application/json" })
-        await fetch(`../Resources/${id}/chart.json`, {
-            method: "PUT",
-            body: chartBlob
+        const res = await fetch(`../commit/${id}?message=${message}`, {
+            method: "POST",
+            body: chartBlob,
         })
+        Editor.notify((await res.json()).message)
     }
 }

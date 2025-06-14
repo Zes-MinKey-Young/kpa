@@ -238,6 +238,11 @@ input:not(:focus) {
 
 }
 
+.button.progressive {
+    background-color: #4af;
+    color: white;
+}
+
 .switch.checked {
     background-color: aquamarine;
 }
@@ -275,4 +280,37 @@ input:not(:focus) {
     display: flex;
     flex-direction: row;
     gap: 2px;
+}
+
+dialog[open] {
+    display: flex;
+    top: 20%;
+}
+
+.notification {
+    background-color: #CCC;
+    color: #222;
+    padding: 1em;
+    border-radius: 0.25em;
+    position: fixed;
+    font-size: large;
+    left: 100%;
+    width: 30%;
+    height: 10%;
+    transition: 0.7s ease-out left, 0.7s ease-out top;
+    border: 2px solid #444;
+}
+.notification:last-child {
+    top: 10%
+}
+.notification:nth-last-child(2) {
+    top: 25%
+}
+.notification:nth-last-child(3) {
+    top: 40%
+}
+
+
+.notification.fade-in {
+    left: 50%
 }

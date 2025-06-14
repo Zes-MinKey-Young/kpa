@@ -1,10 +1,11 @@
 /// <reference path="../dist/chartTypes.d.ts" />
 // 为此我问了通义灵码半天，不失所望
 
-import { sleepSync, type BunRequest } from 'bun';
+import { type BunRequest } from 'bun';
 import { resolve, relative } from 'path';
 import { parseBlob } from 'music-metadata';
 import { mkdir, exists } from 'fs/promises';
+import { parse, type ParseError } from 'jsonc-parser';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 
 
@@ -98,7 +99,54 @@ async function createChart(music: File, title: string, baseBPM: number): Promise
     }
 }
 
+const config = Bun.file("config.jsonc")
 
+interface Config {
+    pathquery: string[];
+    create: string[][];
+    commit: string[][];
+    autosave: string[][];
+    versionControlEnabled: boolean;
+}
+
+const errors: ParseError[] = [];
+const configData: Config = parse(await config.text(), errors);
+if (errors.length) {
+    throw new Error(errors.map(e => e.error).join("\n"));
+}
+const pathqueryCmd = configData.pathquery;
+const createCmds = configData.create;
+const commitCmds = configData.commit;
+const autosaveCmds = configData.autosave;
+const versionControlEnabled = configData.versionControlEnabled || false;
+
+const generateCommand = (cmdTemplate: string[], time: Date, message: string) => {
+    return cmdTemplate.map(
+        (token) => token
+            .replaceAll("$time", time.toISOString())
+            .replaceAll("$message", message)
+    )
+}
+
+const requiresMessage = (cmd: string[]) => cmd.some((token) => token.includes("$message"));
+const commandsRequiresMessage = (cmds: string[][]) => cmds.some((cmd) => requiresMessage(cmd));
+
+function checkRepo(cwd: string) {
+    const proc = Bun.spawnSync(pathqueryCmd, {cwd});
+    const out = proc.stdout.toString();
+    if (proc.exitCode === 0 && (out === "" || out === ".")) {
+        return true;
+    } else if (proc.exitCode === 0) {
+        console.log("There is a parent repo. Will create a sub repo.")
+    }
+    return false;
+}
+
+function checkOrCreateRepo(cwd: string) {
+    if (!checkRepo(cwd)) {
+        createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Init"), {cwd}))
+    }
+}
 Bun.serve({
     port: 2460,
     routes: {
@@ -135,15 +183,21 @@ Bun.serve({
             }
             const illuPath = "illustration." + illustration.name.split(".").at(-1);
             const musicPath = "music." + music.name.split(".").at(-1);
-            Bun.write(`../Resources/${id}/chart.json`, chartJson);
-            Bun.write(`../Resources/${id}/${illuPath}`, illustration);
-            Bun.write(`../Resources/${id}/${musicPath}`, music);
+            await Bun.write(`../Resources/${id}/chart.json`, chartJson);
+            await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+            await Bun.write(`../Resources/${id}/${musicPath}`, music);
 
-            Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+            await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
                 Chart: "chart.json",
                 Picture: illuPath,
                 Song: musicPath
             }))
+            if (versionControlEnabled) {
+                createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Create " + id), {
+                    cwd: `../Resources/${id}`
+                }))
+            }
+
             console.log(`Created chart ${id}`);
             return Response.redirect(`/Resources/${id}`);
         },
@@ -165,25 +219,79 @@ Bun.serve({
             if (!await exists("../Resources")) {
                 await mkdir("../Resources");
             }
-            if (!await exists(`../Resources/${id}`)) {
-                await mkdir(`../Resources/${id}`);
+            if (await exists(`../Resources/${id}`)) {
+                return new Response("ID already exists", { status: 409 });
             }
+            await mkdir(`../Resources/${id}`);
             const illuPath = "illustration." + illustration.name.split(".").at(-1);
             const musicPath = "music." + music.name.split(".").at(-1);
-            Bun.write(`../Resources/${id}/chart.json`, chart);
-            Bun.write(`../Resources/${id}/${illuPath}`, illustration);
-            Bun.write(`../Resources/${id}/${musicPath}`, music);
-            Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+            await Bun.write(`../Resources/${id}/chart.json`, chart);
+            await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+            await Bun.write(`../Resources/${id}/${musicPath}`, music);
+            await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
                 Chart: "chart.json",
                 Picture: illuPath,
                 Song: musicPath
             }))
+            if (versionControlEnabled) {
+                createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Imported " + id), {
+                    cwd: `../Resources/${id}`
+                }))
+            }
+
             console.log(`Imported chart ${id}`);
             return Response.redirect(`/Resources/${id}`);
         },
-        "/Resources/:id": async (req) => {
-            const id = req.params.id;
+        "/Resources/:id": async (req: BunRequest) => {
             return new Response(Bun.file("../html/index.html"))
+        },
+        "/autosave/:id": async (req: BunRequest) => {
+            if (req.method !== "POST") {
+                return new Response("Method not allowed", { status: 405 });
+            }
+            const id = req.params.id;
+            const blob: Blob = await req.blob();
+            const cwd = `../Resources/${id}`;
+            if (versionControlEnabled) {
+                checkOrCreateRepo(cwd);
+                Bun.write(`../Resources/${id}/chart.json`, blob)
+                autosaveCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Autosave"), {
+                    cwd: `../Resources/${id}`
+                }))
+            } else {
+                Bun.write(`../Resources/${id}/AutoSave ${new Date().toISOString}.json`, blob)
+            }
+                
+
+            return new Response("OK");
+        },
+        "/commit/:id":  async (req: BunRequest) => {
+            if (req.method !== "POST") {
+                return new Response("Method not allowed", { status: 405 });
+            }
+            const id = req.params.id;
+            const url = new URL(req.url);
+            const message = url.searchParams.get("message");
+            const blob: Blob = await req.blob();
+            Bun.write(`../Resources/${id}/chart.json`, blob)
+            const cwd = `../Resources/${id}`;
+            if (versionControlEnabled) {
+                if (commandsRequiresMessage(commitCmds) && !message) {
+                    return Response.json({message: "Message is required."}, { status: 400 });
+                }
+                checkOrCreateRepo(cwd);
+                for (const cmd of commitCmds) {
+                    const proc = Bun.spawnSync(generateCommand(cmd, new Date(), message as string), {cwd});
+                    console.log(proc.pid, proc.stdout.toString())
+                    if (proc.exitCode !== 0) {
+                        return Response.json({message: "Error while committing.\n" + proc.stdout.toString()}, { status: 500 });
+                    }
+                }
+                return Response.json({message: "Commit successful."});
+            } else {
+                return Response.json({message: "Upload successful (version control disabled)."});
+            }
+
         },
         "/*": {
             GET: async (req) => {
@@ -207,3 +315,4 @@ Bun.serve({
     }
     }
 })
+console.log("Server started, port: 2460. Press Ctrl+C to exit.")
