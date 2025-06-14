@@ -136,6 +136,7 @@ class NotesEditor extends Z<"div"> {
             ).onChange(() => this.noteType = NoteType[this.$typeOption.value.text])
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
             .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above")
+        this.noteAbove = true;
         this.$editButton = new ZSwitch("Edit")
             .onClickChange((checked) => {
                 this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
