@@ -37,8 +37,8 @@ const eventTypeMap = [
     }
 ]
 
-class EventCurveEditors {
-    $element: Z<"div">;
+type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
+class EventCurveEditors extends Z<"div"> {
     element: HTMLDivElement;
     $bar: Z<"div">;
     $typeSelect: ZDropdownOptionBox;
@@ -56,8 +56,8 @@ class EventCurveEditors {
 
     lastBeats: number
     constructor(width: number, height: number) {
-        this.$element = $("div")
-        this.$element.addClass("event-curve-editors")
+        super("div")
+        this.addClass("event-curve-editors")
 
         this.$bar = $("div").addClass("flex-row")
         this.$typeSelect = new ZDropdownOptionBox([
@@ -87,19 +87,15 @@ class EventCurveEditors {
             this.$layerSelect,
             this.$editSwitch
         )
-        this.$element.append(this.$bar)
+        this.append(this.$bar)
 
-        this.element = this.$element.element;
-        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as EventTypeName[]) {
             this[type] = new EventCurveEditor(EventType[type], height - 24, width, this);
             this[type].displayed = false;
-            this.element.append(this[type].element)
+            this.append(this[type].element)
         }
         this.selectedEditor = this.moveX;
 
-    }
-    appendTo(element: HTMLElement) {
-        element.append(this.element)
     }
     _selectedEditor: EventCurveEditor;
     get selectedEditor() {

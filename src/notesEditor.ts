@@ -25,10 +25,8 @@ enum NotesEditorState {
     flowing
 }
 
-class NotesEditor {
+class NotesEditor extends Z<"div"> {
     editor: Editor
-
-    $element: Z<"div">;
     $statusBar: Z<"div">;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
@@ -121,13 +119,15 @@ class NotesEditor {
     }
 
     constructor(editor: Editor, width: number, height: number) {
+        super("div");
+        this.addClass("notes-editor")
         this.selectionManager = new SelectionManager()
 
         this.allOption = new EditableBoxOption("*", (_s, t) => {}, () => this.targetTree = null, () => undefined, false)
 
-        this.$element = $("div").addClass("notes-editor");
+        
         this.$statusBar = $("div").addClass("notes-editor-status-bar");
-        this.$element.append(this.$statusBar)
+        this.append(this.$statusBar)
         this.$optionBox = new ZEditableDropdownOptionBox([this.allOption])
         this.$typeOption = new ZDropdownOptionBox(
             arrayForIn([
@@ -165,7 +165,7 @@ class NotesEditor {
         this.canvas.height = height;
         console.log("Initialized:", width, height)
         this.context = this.canvas.getContext("2d");
-        this.$element.release().append(this.canvas)
+        this.append(this.canvas)
         on(["mousedown", "touchstart"], this.canvas, (event) => {this.downHandler(event)})
         on(["mouseup", "touchend"], this.canvas, (event) => this.upHandler(event))
         on(["mousemove", "touchmove"], this.canvas, (event) => {
@@ -264,9 +264,6 @@ class NotesEditor {
     set selectedNote(val: Note) {
         this._selectedNote = new WeakRef(val);
         this.editor.noteEditor.target = val;
-    }
-    appendTo(element: HTMLElement) {
-        element.append(this.$element.release())
     }
     init() {
         this.context.translate(this.canvas.width / 2, this.canvas.height - this.padding)

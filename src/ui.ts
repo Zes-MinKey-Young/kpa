@@ -23,6 +23,12 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
         super();
         if (newElement) this.element = document.createElement(type);
     }
+    get clientWidth() {
+        return this.element.clientWidth;
+    }
+    get clientHeight() {
+        return this.element.clientHeight;
+    }
     html(str: string) {
         this.element.innerHTML = str
         return this;
@@ -61,12 +67,17 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
             this.element.style[name] = value
         }
     }
-    append(...$elements: Z<any>[]) {
+    append(...$elements: (Z<any> | HTMLElement)[]) {
         const elements = new Array($elements.length);
         for (let index = 0; index < $elements.length; index++) {
-            elements[index] = $elements[index].release();
+            const $element = $elements[index];
+            elements[index] = $element instanceof Z ? $element.release() : $element;
         }
         this.element.append(...elements)
+        return this;
+    }
+    appendTo(element: HTMLElement | Z<keyof HTMLElementTagNameMap>) {
+        element.append(this.element)
         return this;
     }
     onClick(callback: (e: Event) => any) {
@@ -83,6 +94,9 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
      * @param callback 
      * @returns 
      */
+    
+    on<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLButtonElement, ev: HTMLElementEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+    on(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
     on(eventType: string, callback: (e: Event) => any) {
         this.element.addEventListener(eventType, callback)
         return this;

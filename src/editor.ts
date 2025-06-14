@@ -153,17 +153,17 @@ class Editor extends EventTarget {
     chart: Chart;
     chartType: "rpejson" | "kpajson";
     chartData: ChartDataRPE | ChartDataKPA;
-    progressBar: ProgressBar;
+    progressBar: ZProgressBar;
     fileInput: HTMLInputElement
     musicInput: HTMLInputElement
     backgroundInput: HTMLInputElement
     eventCurveEditors: EventCurveEditors
 
     
-    topbarEle: HTMLDivElement;
-    previewEle: HTMLDivElement;
-    noteInfoEle: HTMLDivElement;
-    eventSequenceEle: HTMLDivElement;
+    $topbar: Z<"div">;
+    $preview: Z<"div">;
+    $noteInfo: Z<"div">;
+    $eventSequence: Z<"div">;
     lineInfoEle: HTMLDivElement;
     playButton: HTMLButtonElement;
     $timeDivisor: ZArrowInputBox;
@@ -187,32 +187,32 @@ class Editor extends EventTarget {
         this.chartInitialized = false
 
         // load areas
-        this.topbarEle = <HTMLDivElement>document.getElementById("topbar")
-        this.previewEle = <HTMLDivElement>document.getElementById("preview")
-        this.eventSequenceEle = <HTMLDivElement>document.getElementById("eventSequence")
-        this.noteInfoEle = <HTMLDivElement>document.getElementById("noteInfo")
+        this.$topbar = $<"div">(<HTMLDivElement>document.getElementById("topbar"))
+        this.$preview = $<"div">(<HTMLDivElement>document.getElementById("preview"))
+        this.$eventSequence = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"))
+        this.$noteInfo = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"))
         this.lineInfoEle = <HTMLDivElement>document.getElementById("lineInfo")
 
         // load player
         this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this);
-        this.notesEditor = new NotesEditor(this, this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height)
-        this.notesEditor.appendTo(this.previewEle)
-        this.progressBar = new ProgressBar(
+        this.notesEditor = new NotesEditor(this, this.$preview.clientWidth - this.player.canvas.width, this.player.canvas.height)
+        this.notesEditor.appendTo(this.$preview)
+        this.progressBar = new ZProgressBar(
             this.player.audio,
             () => this.pause(),
             () => {
             this.update();
             this.player.render();
         });
-        this.progressBar.appendTo(this.topbarEle)
+        this.progressBar.appendTo(this.$topbar)
         // load file inputs
         this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
         this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
         this.backgroundInput = <HTMLInputElement>document.getElementById("backgroundInput")
 
         
-        this.eventCurveEditors = new EventCurveEditors(this.eventSequenceEle.clientWidth, this.eventSequenceEle.clientHeight);
-        this.eventCurveEditors.appendTo(this.eventSequenceEle)
+        this.eventCurveEditors = new EventCurveEditors(this.$eventSequence.clientWidth, this.$eventSequence.clientHeight);
+        this.eventCurveEditors.appendTo(this.$eventSequence)
 
         
         this.playButton = <HTMLButtonElement>document.getElementById("playButton")
@@ -236,7 +236,7 @@ class Editor extends EventTarget {
         this.backgroundInput.addEventListener("change", () => {
             this.readImage(this.backgroundInput.files[0])
         })
-        this.previewEle.addEventListener("wheel", (event) => {
+        this.$preview.on("wheel", (event: WheelEvent) => {
             if (!this.initialized) {
                 return;
             }
@@ -267,13 +267,11 @@ class Editor extends EventTarget {
         })
         this.$timeDivisor.setValue(4)
         this.timeDivisor = 4
-        this.topbarEle.append(this.$timeDivisor.release())
         // PlaybackRate
         this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
             .onChange((rateStr: string) => {
                 this.player.audio.playbackRate = parseFloat(rateStr)
             })
-        this.topbarEle.append(this.$playbackRate.release())
         // Save Button
         this.$saveButton = new ZButton("保存")
         this.$saveButton.onClick(() => {
@@ -286,7 +284,12 @@ class Editor extends EventTarget {
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
         });
         this.$saveDialog = new SaveDialog();
-        this.topbarEle.append(this.$saveButton.release(), this.$saveDialog.release())
+        this.$topbar.append(
+            this.$timeDivisor,
+            this.$playbackRate,
+            this.$saveButton,
+            this.$saveDialog
+        )
 
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
@@ -345,6 +348,7 @@ class Editor extends EventTarget {
         if (this.chartType === "rpejson") {
             // 若为1.6.0版本以后，元数据中有时长信息，直接使用以建立谱面
             // 否则等待<audio>加载完
+            // @ts-expect-error
             if (this.chartData.META.duration) {
                 assignChart(Chart.fromRPEJSON(this.chartData as ChartDataRPE, this.chartData.META.duration))
             } else {
@@ -364,14 +368,14 @@ class Editor extends EventTarget {
         this.player.render()
         this.notesEditor.draw(this.player.beats)
         const eventLayer = chart.judgeLines[0].eventLayers[0]
-        const height = this.eventSequenceEle.clientHeight;
-        const width = this.eventSequenceEle.clientWidth
+        const height = this.$eventSequence.clientHeight;
+        const width = this.$eventSequence.clientWidth
 
         this.eventEditor = new EventEditor();
         this.noteEditor = new NoteEditor();
-        this.noteInfoEle.append(
-            this.eventEditor.element,
-            this.noteEditor.element
+        this.$noteInfo.append(
+            this.eventEditor,
+            this.noteEditor
             );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.eventEditor.update()

@@ -491,27 +491,26 @@ class Player {
     }
 }
 
-class ProgressBar {
+class ZProgressBar extends Z<"progress"> {
     target: HTMLAudioElement;
-    element: HTMLProgressElement;
     constructor(target: HTMLAudioElement, pauseFn: () => void, updateFn: () => void) {
+        super("progress");
         this.target = target;
-        this.element = document.createElement("progress")
         const element = this.element;
         if (target.duration) {
-            this.element.max = target.duration
+            this.element.max = target.duration;
         }
         target.addEventListener("loadeddata", () => {
             this.element.max = target.duration;
-        })
+        });
         target.addEventListener("play", () => {
-            this.update()
-        })
+            this.update();
+        });
         let controlling = false;
         on(["mousedown", "touchstart"], element, (event: MouseEvent | TouchEvent) => {
             controlling = true;
             pauseFn();
-        })
+        });
         on(["mousemove", "touchmove"], element, (event: MouseEvent | TouchEvent) => {
             let posX: number;
             if (!controlling) {
@@ -546,10 +545,6 @@ class ProgressBar {
         on(["mouseleave", "touchend"], element, () => {
             controlling = false;
         })
-    }
-    appendTo(element: HTMLElement) {
-        element.appendChild(this.element)
-        return this;
     }
     update() {
         if (this.target.paused) {

@@ -1,10 +1,9 @@
 
 
-abstract class SideEditor<T extends object> {
+abstract class SideEditor<T extends object> extends Z<"div"> {
     
     element: HTMLDivElement;
     $title: Z<"div">
-    $element: Z<"div">;
     $body: Z<"div">
     _target: WeakRef<T>;
     get target() {
@@ -16,18 +15,11 @@ abstract class SideEditor<T extends object> {
     }
     abstract update(): void
     constructor() {
-
-        this.$element = $("div").addClass("side-editor");
-        this.element = this.$element.release()
+        super("div");
+        this.addClass("side-editor");
         this.$title = $("div").addClass("side-editor-title").text("Event")
         this.$body = $("div").addClass("side-editor-body");
-        this.$element.append(this.$title, this.$body)
-    }
-    hide() {
-        this.$element.hide()
-    }
-    show() {
-        this.$element.show()
+        this.append(this.$title, this.$body)
     }
 }
 
@@ -132,7 +124,7 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     $templateEasing: ZInputBox;
     constructor() {
         super()
-        this.$element.addClass("event-editor")
+        this.addClass("event-editor")
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
         this.$easing = new ZEasingBox()
