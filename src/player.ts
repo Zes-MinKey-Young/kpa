@@ -288,9 +288,10 @@ class Player {
                         && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end
                     ) {
                         // 判断是否为多押
-                        const isDuplicate = noteNode.notes.length > 1
+                        const isChord = noteNode.notes.length > 1
                             || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length)
-                        this.renderSameTimeNotes(noteNode, isDuplicate, judgeLine, timeCalculator);
+                            || noteNode.totalNode.holdNodes.some(node => node !== noteNode && node.notes.length)
+                        this.renderSameTimeNotes(noteNode, isChord, judgeLine, timeCalculator);
                         noteNode = noteNode.next;
                     }
                     
@@ -405,7 +406,7 @@ class Player {
             noteNode = <NoteNode>noteNode.next
         }
     }
-    renderSameTimeNotes(noteNode: NoteNode, duplicated: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
+    renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
         if (noteNode.isHold) {
             const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parent.speed;
             const notes = noteNode.notes
@@ -414,7 +415,7 @@ class Player {
                 const note = notes[i]
                 this.renderNote(
                     note,
-                    duplicated,
+                    chord,
                     startY < 0 ? 0 : startY,
                     judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed
                     )
@@ -426,14 +427,14 @@ class Player {
                 const note = notes[i];
                 this.renderNote(
                     note,
-                    duplicated,
+                    chord,
                     judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed
                 )
 
             }
         }
     }
-    renderNote(note: Note, double: boolean, positionY: number, endpositionY?: number) {
+    renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number) {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
@@ -458,7 +459,7 @@ class Player {
             context.drawImage(HOLD_BODY, note.positionX -  half,  positionY - 10, this.noteSize, length)
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height)
-        if (double) {
+        if (chord) {
             context.drawImage(DOUBLE, note.positionX - half, positionY - 10, size, height);
         }
         if (!note.above) {

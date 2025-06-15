@@ -702,12 +702,12 @@ class NNNList {
         return this.jump.getNodeAt(beats);
     }
     getNode(time: TimeT) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false);
-        if ("tailing" in node || TimeCalculator.ne(node.startTime, time)) {
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
+        if ("heading" in node || TimeCalculator.ne(node.startTime, time)) {
             const newNode = new NNNode(time);
-            const previous = node.previous
-            NoteNode.insert(previous, newNode, node);
-            this.jump.updateRange(previous, node)
+            const next = node.next
+            NoteNode.insert(node, newNode, next);
+            this.jump.updateRange(node, next)
             return newNode
         } else {
             return node;
