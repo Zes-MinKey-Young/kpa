@@ -192,8 +192,8 @@ class NormalEasing extends Easing {
 }
 
 interface Coordinate {
-    x:number;
-    y: number;
+    readonly x: number;
+    readonly y: number;
 }
 /**
  * 贝塞尔曲线缓动

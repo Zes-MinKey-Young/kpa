@@ -365,7 +365,7 @@ class EventNodeTimeChangeOperation extends Operation {
             this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
             EventNode.insert(this.startNode, this.newPrevious)
         }
-        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode))
+        this.sequence.jump.updateRange(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode))
     }
     undo() {
         this.endNode.time = this.startNode.time = this.originalValue;

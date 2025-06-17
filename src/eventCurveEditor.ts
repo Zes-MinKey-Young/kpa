@@ -176,7 +176,7 @@ class EventCurveEditor {
     lastBeats: number;
 
     selectionManager: SelectionManager<EventNode>;
-    cursorPos: [number, number];
+    cursorPos: Coordinate;
     state: EventCurveEditorState;
     wasEditing: boolean
 
@@ -250,12 +250,14 @@ class EventCurveEditor {
 
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-            const {width, height} = this.canvas
-            const [x, y] = [offsetX - width / 2, offsetY - height / 2 - this.valueBasis];
-            this.cursorPos = [x, y];
+            const {width, height} = this.canvas;
+            const coord = this.cursorPos = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            
+            const {x, y} = coord;
             const {padding} = this;
-            this.pointedValue = -Math.round((y / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan
-            const accurateBeats = x / this.timeRatio + this.lastBeats
+            const {x: beats, y: value} = coord.mul(this.invertedMatrix);
+            this.pointedValue = Math.round(value / this.valueGridSpan) * this.valueGridSpan
+            const accurateBeats = beats + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor)
             if (this.beatFraction === editor.timeDivisor) {
@@ -281,6 +283,25 @@ class EventCurveEditor {
         })
 
     }
+    matrix: Matrix;
+    invertedMatrix: Matrix;
+    canvasMatrix: Matrix;
+    invertedCanvasMatrix: Matrix;
+    updateMatrix() {
+        this.valueRatio = this.canvas.height / this.valueRange;
+        this.timeRatio = this.canvas.width / this.timeRange;
+        const {
+            timeRange,
+            valueRange,
+            timeRatio,
+            valueRatio,
+            valueBasis
+        } = this;
+        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
+        this.invertedMatrix = this.matrix.invert();
+        this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
+        this.invertedCanvasMatrix = this.canvasMatrix.invert();
+    }
     appendTo(parent: HTMLElement) {
         parent.append(this.element);
     }
@@ -289,13 +310,13 @@ class EventCurveEditor {
         const {width, height} = this.canvas;
         const {padding} = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-        const [x, y] = [offsetX - width / 2, offsetY - height / 2];
-        this.cursorPos = [x, y];
+        const coord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        this.cursorPos = coord;
         // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
             case EventCurveEditorState.selecting:
-                const snode = this.selectionManager.click(x, y)
+                const snode = this.selectionManager.click(coord)
                 this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
                 if (snode) {
                     this.selectedNode = snode.target
@@ -396,12 +417,14 @@ class EventCurveEditor {
             return
         }
         beats = beats || this.lastBeats || 0;
+        this.updateMatrix()
         const {height, width} = this.canvas;
         const {
             timeRatio, valueRatio,
             valueBasis: basis,
             context,
-            selectionManager
+            selectionManager,
+            matrix
         }= this
         selectionManager.refresh()
         this.drawCoordination(beats)
@@ -412,7 +435,7 @@ class EventCurveEditor {
         this.context.fillText("Sequence: " + this.target.id, 10, -50)
         this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
         if (this.cursorPos) {
-            this.context.fillText(`Cursor: ${this.cursorPos[0]}, ${this.cursorPos[1]}`, 10, -90)
+            this.context.fillText(`Cursor: ${this.cursorPos.x}, ${this.cursorPos.y}`, 10, -90)
         }
         context.restore()
         const startBeats = beats - this.timeRange / 2;
@@ -429,32 +452,30 @@ class EventCurveEditor {
             const endTime = TimeCalculator.toBeats(endNode.time);
             const startValue = startNode.value;
             const endValue   = endNode.value;
-            const startX = (startTime - beats) * timeRatio;
-            const endX   = (endTime   - beats) * timeRatio;
-            const startY = startValue * valueRatio + basis;
-            const topY = -startY - NODE_HEIGHT / 2
-            const endY   = endValue   * valueRatio + basis;
-            const topEndY = -endY - NODE_HEIGHT / 2
+            const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
+            const {x: endX, y: endY} = new Coordinate(endTime - beats, endValue).mul(matrix);
+            const topY = startY - NODE_HEIGHT / 2
+            const topEndY = endY - NODE_HEIGHT / 2
 
             selectionManager.add({
                 target: startNode,
-                x: startX,
-                y: topY,
+                left: startX,
+                top: topY,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
             }).annotate(context, startX, topY)
             selectionManager.add({
                 target: endNode,
-                x: endX - NODE_WIDTH,
-                y: topEndY,
+                left: endX - NODE_WIDTH,
+                top: topEndY,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
             }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20)
 
 
-            startNode.easing.drawCurve(context, startX, -startY, endX, -endY)
+            startNode.easing.drawCurve(context, startX, startY, endX, endY)
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT)
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT)
             // console.log(this.type, EventType.speed)
@@ -472,10 +493,19 @@ class EventCurveEditor {
             const lastStart = previousEndNode.next;
             const startTime = TimeCalculator.toBeats(lastStart.time);
             const startValue = lastStart.value;
-            const startX = (startTime - beats) * timeRatio;
-            const startY = startValue * valueRatio + basis;
+            const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
+            const topY = startY - NODE_HEIGHT / 2;
             drawLine(context, startX, startY, width / 2, startY);
-            context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
+            context.drawImage(NODE_START, startX, startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
+            selectionManager.add({
+                target: lastStart,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+
         }
         this.lastBeats = beats;
     }
