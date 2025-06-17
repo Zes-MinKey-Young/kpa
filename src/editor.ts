@@ -293,7 +293,7 @@ class Editor extends EventTarget {
 
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
-        })
+        });
     }
     shownSideEditor: SideEditor<any>;
     switchSide(editor: SideEditor<any>) {

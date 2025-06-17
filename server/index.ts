@@ -4,7 +4,7 @@
 import { type BunRequest } from 'bun';
 import { resolve, relative } from 'path';
 import { parseBlob } from 'music-metadata';
-import { mkdir, exists } from 'fs/promises';
+import { mkdir, exists, readdir } from 'fs/promises';
 import { parse, type ParseError } from 'jsonc-parser';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 
@@ -19,17 +19,20 @@ function isAbsolute(p: string): boolean {
     return resolve(p) === p;
 }
 
-const defaultValues= {
+const defaultValues = {
     [EventType.moveX]: 0,
     [EventType.moveY]: 0,
     [EventType.rotate]: 0,
     [EventType.alpha]: 0,
     [EventType.speed]: 10
-}
+} as const;
 
 async function createChart(music: File, title: string, baseBPM: number): Promise<ChartDataKPA> {
     const metadata = await parseBlob(music);
     const duration = metadata.format.duration;
+    if (!duration) {
+        throw new Error("No duration found");
+    }
 
     const eventNodeSequenceData: EventNodeSequenceDataKPA[] = [];
     const orphanLines: JudgeLineDataKPA[] = [];
@@ -73,7 +76,7 @@ async function createChart(music: File, title: string, baseBPM: number): Promise
             group: 0,
             hnLists: {},
             nnLists: {},
-            Name: "unknown",
+            Name: "untitled",
             Texture: "line.png",
             eventLayers: [eventLayer],
             children: []
@@ -142,6 +145,10 @@ function checkRepo(cwd: string) {
     return false;
 }
 
+async function isChart(dir: string) {
+    return await exists(`../Resources/${dir}/metadata.json`);
+}
+
 function checkOrCreateRepo(cwd: string) {
     if (!checkRepo(cwd)) {
         createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Init"), {cwd}))
@@ -150,97 +157,123 @@ function checkOrCreateRepo(cwd: string) {
 Bun.serve({
     port: 2460,
     routes: {
-        "/": Response.redirect("/html"),
+        "/": Response.redirect("/html/chartIndex.html"),
         "/status": () => {
             return new Response("", { status: 204 })
         },
         "/html": async () => {
             return new Response(Bun.file("../html/index.html"), { status: 200 });
         },
-        "/create": async (req: BunRequest) => {
-            const formData = await req.formData();
-            const title = formData.get("title");
-            const music = formData.get("music");
-            const illustration = formData.get("illustration");
-            const id = formData.get("id");
-            const baseBPM = formData.get("bpm");
-            if (!music || !illustration || !id || !title || !baseBPM
-                || typeof music === "string"
-                || typeof illustration === "string"
-                || typeof id !== "string"
-                || typeof title !== "string"
-                || typeof baseBPM !== "string"
-            ) {
-                return new Response("Invalid form data", { status: 400 });
-            }
-            const chart = await createChart(music, title, parseFloat(baseBPM));
-            const chartJson = JSON.stringify(chart);
-            if (!await exists("../Resources")) {
-                await mkdir("../Resources");
-            }
-            if (!await exists(`../Resources/${id}`)) {
-                await mkdir(`../Resources/${id}`);
-            }
-            const illuPath = "illustration." + illustration.name.split(".").at(-1);
-            const musicPath = "music." + music.name.split(".").at(-1);
-            await Bun.write(`../Resources/${id}/chart.json`, chartJson);
-            await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
-            await Bun.write(`../Resources/${id}/${musicPath}`, music);
+        "/create": {
+            GET: async () => {
+                return Response.redirect("../html/create.html");
+            },
+            POST: async (req: BunRequest) => {
+                const formData = await req.formData();
+                const title = formData.get("title");
+                const music = formData.get("music");
+                const illustration = formData.get("illustration");
+                const id = formData.get("id");
+                const baseBPM = formData.get("bpm");
+                if (!music || !illustration || !id || !title || !baseBPM
+                    || typeof music === "string"
+                    || typeof illustration === "string"
+                    || typeof id !== "string"
+                    || typeof title !== "string"
+                    || typeof baseBPM !== "string"
+                ) {
+                    return new Response("Invalid form data", { status: 400 });
+                }
+                const chart = await createChart(music, title, parseFloat(baseBPM));
+                const chartJson = JSON.stringify(chart);
+                if (!await exists("../Resources")) {
+                    await mkdir("../Resources");
+                }
+                if (!await exists(`../Resources/${id}`)) {
+                    await mkdir(`../Resources/${id}`);
+                }
+                const illuPath = "illustration." + illustration.name.split(".").at(-1);
+                const musicPath = "music." + music.name.split(".").at(-1);
+                await Bun.write(`../Resources/${id}/chart.json`, chartJson);
+                await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+                await Bun.write(`../Resources/${id}/${musicPath}`, music);
 
-            await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
-                Chart: "chart.json",
-                Picture: illuPath,
-                Song: musicPath
-            }))
-            if (versionControlEnabled) {
-                createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Create " + id), {
-                    cwd: `../Resources/${id}`
+                await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+                    Chart: "chart.json",
+                    Picture: illuPath,
+                    Song: musicPath,
+                    Title: title
                 }))
-            }
+                if (versionControlEnabled) {
+                    createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Create " + id), {
+                        cwd: `../Resources/${id}`
+                    }))
+                }
 
-            console.log(`Created chart ${id}`);
-            return Response.redirect(`/Resources/${id}`);
+                console.log(`Created chart ${id}`);
+                return Response.redirect(`/Resources/${id}`);
+            }
         },
-        "/import": async (req: BunRequest) => {
-            const formData = await req.formData();
-            const music = formData.get("music");
-            const illustration = formData.get("illustration");
-            const id = formData.get("id");
-            const chart = formData.get("chart");
-            if (!id || !music || !illustration || !chart
-                || typeof music === "string"
-                || typeof illustration === "string"
-                || typeof id !== "string"
-                || typeof chart == "string"
-            ) {
-                return new Response("Invalid form data", { status: 400 });
-            }
-            
-            if (!await exists("../Resources")) {
-                await mkdir("../Resources");
-            }
-            if (await exists(`../Resources/${id}`)) {
-                return new Response("ID already exists", { status: 409 });
-            }
-            await mkdir(`../Resources/${id}`);
-            const illuPath = "illustration." + illustration.name.split(".").at(-1);
-            const musicPath = "music." + music.name.split(".").at(-1);
-            await Bun.write(`../Resources/${id}/chart.json`, chart);
-            await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
-            await Bun.write(`../Resources/${id}/${musicPath}`, music);
-            await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
-                Chart: "chart.json",
-                Picture: illuPath,
-                Song: musicPath
-            }))
-            if (versionControlEnabled) {
-                createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Imported " + id), {
-                    cwd: `../Resources/${id}`
+        "/import": {
+            GET: async (req: BunRequest) => {
+                return Response.redirect("/html/import.html");
+            },
+            POST: async (req: BunRequest) => {
+                const formData = await req.formData();
+                const music = formData.get("music");
+                const illustration = formData.get("illustration");
+                const id = formData.get("id");
+                const chart = formData.get("chart");
+                if (!id || !music || !illustration || !chart
+                    || typeof music === "string"
+                    || typeof illustration === "string"
+                    || typeof id !== "string"
+                    || typeof chart == "string"
+                ) {
+                    return new Response("Invalid form data", { status: 400 });
+                }
+                
+                if (!await exists("../Resources")) {
+                    await mkdir("../Resources");
+                }
+                if (await exists(`../Resources/${id}`)) {
+                    return new Response("ID already exists", { status: 409 });
+                }
+                await mkdir(`../Resources/${id}`);
+                const illuPath = "illustration." + illustration.name.split(".").at(-1);
+                const musicPath = "music." + music.name.split(".").at(-1);
+                await Bun.write(`../Resources/${id}/chart.json`, chart);
+                await Bun.write(`../Resources/${id}/${illuPath}`, illustration);
+                await Bun.write(`../Resources/${id}/${musicPath}`, music);
+                await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+                    Chart: "chart.json",
+                    Picture: illuPath,
+                    Song: musicPath
                 }))
-            }
+                if (versionControlEnabled) {
+                    createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Imported " + id), {
+                        cwd: `../Resources/${id}`
+                    }))
+                }
 
-            console.log(`Imported chart ${id}`);
-            return Response.redirect(`/Resources/${id}`);
+                console.log(`Imported chart ${id}`);
+                return Response.redirect(`/Resources/${id}`);
+            }
+        },
+        "/Resources": async (req: BunRequest) => {
+            const entries = await readdir("../Resources", {withFileTypes: true});
+            const subDirs = entries
+                .filter(entry => entry.isDirectory())
+                .map(entry => entry.name)
+            const charts = [];
+            for (const subDir of subDirs) {
+                if (await isChart(subDir)) {
+                    charts.push(subDir);
+                }
+            }
+            return Response.json({
+                charts
+            });
         },
         "/Resources/:id": async (req: BunRequest) => {
             return new Response(Bun.file("../html/index.html"))

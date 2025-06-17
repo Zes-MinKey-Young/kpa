@@ -266,6 +266,9 @@ class NotesEditor extends Z<"div"> {
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
+                if (note.type === NoteType.hold) {
+                    this.selectingTail = true;
+                }
                 this.state = NotesEditorState.selecting;
                 this.$editButton.checked = false;
                 this.wasEditing = true;

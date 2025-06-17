@@ -9,6 +9,8 @@ body, html {
     margin: 0;
     height: 100%;
     overflow: hidden;
+    box-sizing: border-box;
+    user-select: none;
 }
 
 canvas {
@@ -54,6 +56,11 @@ input:not(:focus) {
 #itemInfo {
     grid-row: 2 / 3;
     grid-column: 2 / 3;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    isolation: isolate;
 }
 
 #eventSequence {
@@ -102,6 +109,9 @@ input:not(:focus) {
 }
 
 .side-editor {
+    overflow: auto;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }
