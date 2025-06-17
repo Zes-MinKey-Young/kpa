@@ -29,6 +29,10 @@ class HoldTail {
     constructor(public note: Note) {}
 }
 
+const timeToString = (time: TimeT) => {
+    return `${time[0]}:${time[1]}/${time[2]}`
+}
+
 class NotesEditor extends Z<"div"> {
     editor: Editor
     $statusBar: Z<"div">;
@@ -202,8 +206,10 @@ class NotesEditor extends Z<"div"> {
                     editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
                     if (this.selectingTail) {
                         editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT))
+                    } else {
+                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf(timeT)))
                     }
-                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf(timeT)))
+                    
 
             }
         })
@@ -417,21 +423,27 @@ class NotesEditor extends Z<"div"> {
             const start = Math.floor(beats / averageBeats)
             const end = Math.ceil((beats + timeRange) / averageBeats)
             const array = jump.array;
+            const array2 = this.targetTree instanceof HNList ? this.targetTree.holdTailJump.array : null;
             let lastNode = null;
             let color = COLOR_1;
             const minorAverageBeats = jump.averageBeats / MINOR_PARTS;
             const x = width / 2 - 10;
+            const x2 = -width / 2 + 10;
             const switchColor = () => (context.strokeStyle = color = color === COLOR_1 ? COLOR_2 : COLOR_1)
             for (let i = start; i < end; i++) {
                 const scale: TypeOrTailer<NoteNode> | TypeOrTailer<NoteNode>[] = array[i]
+                if (!scale) {
+                    continue;
+                }
                 const y = -(i * averageBeats - beats) * timeRatio;
-                console.log(i, y)
+                // console.log(i, y)
                 if (Array.isArray(scale)) {
                     for (let j = 0; j < MINOR_PARTS; j++) {
                         const node = scale[j];
                         if (node !== lastNode) {
                             switchColor()
                             lastNode = node
+                            context.fillText("tailing" in node ? "Tail" : node.id.toString(), x - 30, y - j * minorAverageBeats * timeRatio)
                         }
                         drawLine(context, x - 4, y - j * minorAverageBeats * timeRatio, x, y - (j + 1) * minorAverageBeats * timeRatio + 5)
                     }
@@ -440,7 +452,34 @@ class NotesEditor extends Z<"div"> {
                         switchColor()
                         lastNode = scale
                     }
+                    context.fillText("tailing" in scale ? "Tail" : scale.id.toString(), x - 30, y)
                     drawLine(context, x - 10, y, x + 10, y - averageBeats * timeRatio + 5)
+                }
+            }
+            if (array2) for (let i = start; i < end; i++) {
+                const scale: TypeOrTailer<NoteNode> | TypeOrTailer<NoteNode>[] = array2[i]
+                if (!scale) {
+                    continue;
+                }
+                const y = -(i * averageBeats - beats) * timeRatio;
+                // console.log(i, y)
+                if (Array.isArray(scale)) {
+                    for (let j = 0; j < MINOR_PARTS; j++) {
+                        const node = scale[j];
+                        if (node !== lastNode) {
+                            switchColor()
+                            lastNode = node
+                            context.fillText("tailing" in node ? "Tail" : `${node.id} (${timeToString(node.startTime)}-${timeToString(node.endTime)})`, x2 + 10, y - j * minorAverageBeats * timeRatio)
+                        }
+                        drawLine(context, x2 - 4, y - j * minorAverageBeats * timeRatio, x2, y - (j + 1) * minorAverageBeats * timeRatio + 5)
+                    }
+                } else {
+                    if (scale !== lastNode) {
+                        switchColor()
+                        lastNode = scale
+                    }
+                    context.fillText("tailing" in scale ? "Tail" : `${scale.id} (${timeToString(scale.startTime)}-${timeToString(scale.endTime)})`, x2 + 10, y)
+                    drawLine(context, x2 - 10, y, x2 + 10, y - averageBeats * timeRatio + 5)
                 }
             }
             context.restore()

@@ -118,9 +118,14 @@ abstract class TwoDirectionTreeNode {
 
 type Connectee = NoteNode | NNNode
 
+
 class NoteNode implements TwoDirectionNode {
     totalNode: NNNode;
     readonly startTime: TimeT
+    /**
+     * The notes it contains.
+     * If they are holds, they are ordered by their endTime, from late to early.
+     */
     readonly notes: Note[];
     next: TypeOrTailer<NoteNode>;
     _previous: WeakRef<TypeOrHeader<NoteNode>> | null;
@@ -137,9 +142,12 @@ class NoteNode implements TwoDirectionNode {
     }
     parent: NNList
     chart: Chart;
+    static count = 0;
+    id: number;
     constructor(time: TimeT) {
         this.startTime = [...time];
         this.notes = [];
+        this.id = NoteNode.count++;
     }
     static fromKPAJSON(data: NoteNodeDataKPA) {
         const node = new NoteNode(data.startTime);
@@ -152,15 +160,58 @@ class NoteNode implements TwoDirectionNode {
     get isHold() {
         return this.parent instanceof HNList
     }
-    get endTime() {
+    get endTime(): TimeT {
+        if (this.notes.length === 0) {
+            return [0, 0, 1] as const;
+        }
         return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime
     }
     add(note: Note) {
         if (!TimeCalculator.eq(note.startTime, this.startTime)) {
             console.warn("Wrong addition!")
         }
-        this.notes.push(note)
+        this.notes.push(note);
         note.parent = this
+        this.sort(this.notes.length - 1);
+    }
+    sort(note: Note)
+    /**
+     * 其他部分均已有序，通过冒泡排序把发生变更的NoteNode移动到正确的位置 
+     * @param index 待排序的Note的索引
+     */
+    sort(index: number)
+    sort(index: number | Note) {
+        if (typeof index !== "number") {
+            index = this.notes.indexOf(index);
+            if (index === -1) {
+                return;
+            }
+        }
+        if (!this.isHold) {
+            return;
+        }
+        const {notes} = this;
+        const note = notes[index];
+        for (let i = index; i > 0; i--) {
+            const prev = notes[i - 1];
+            if (TimeCalculator.lt(prev.endTime, note.endTime)) {
+                // swap
+                notes[i] = prev;
+                notes[i - 1] = note;
+            } else {
+                break;
+            }
+        }
+        for (let i = index; i < notes.length - 1; i++) {
+            const next = notes[i + 1];
+            if (TimeCalculator.gt(next.endTime, note.endTime)) {
+                // swap
+                notes[i] = next;
+                notes[i + 1] = note;
+            } else {
+                break;
+            }
+        }
     }
     remove(note: Note) {
         this.notes.splice(this.notes.indexOf(note), 1)
@@ -338,7 +389,7 @@ class NNList {
             const newNode = new NoteNode(time);
             const next = node.next
             NoteNode.insert(node, newNode, next);
-            console.log("created:", node2string(newNode))
+            // console.log("created:", node2string(newNode))
             this.jump.updateRange(node, next);
 
             if (this.parent?.chart) {
@@ -529,26 +580,15 @@ class HNList extends NNList {
     }
     //*/
     
-    getNodeAt(beats: number, beforeEnd=false, pointer?: Pointer<NoteNode>): TypeOrTailer<NoteNode> {
-        /*
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats)
-                } else {
-                    this.movePointerBeforeStart(pointer, beats)
-                }
-            }
-            return pointer.node
-        }
-        */
+    getNodeAt(beats: number, beforeEnd=false): TypeOrTailer<NoteNode> {
         return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
     }
+    // unused
     insertNoteJumpUpdater(note: NoteNode): () => void {
         const {previous, next} = note
         return () => {
             this.jump.updateRange(previous, next)
-            this.holdTailJump.updateRange(previous,next)
+            this.holdTailJump.updateRange(previous, next)
         }
     }
 }

@@ -102,6 +102,9 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
         }
     }
     do() {
+        if (this.field === "endTime") {
+            console.log("endTime")
+        }
         this.note[this.field] = this.value
     }
     undo() {
@@ -120,9 +123,11 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
 class NoteRemoveOperation extends Operation {
     noteNode: NoteNode;
     note: Note;
+    isHold: boolean;
     constructor(note: Note) {
         super()
         this.note = note // In memory of forgettting to add this(
+        this.isHold = note.type === NoteType.hold;
         if (!note.parent) {
             this.ineffective = true
         } else {
@@ -130,10 +135,30 @@ class NoteRemoveOperation extends Operation {
         }
     }
     do() {
-        this.noteNode.remove(this.note)
+        const {note, noteNode} = this;
+        noteNode.remove(note);
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime)
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const updateFrom = tailJump.header
+            const updateTo = tailJump.tailer;
+            // tailJump.getPreviousOf(noteNode, endBeats);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
     }
     undo() {
-        this.noteNode.add(this.note)
+        const {note, noteNode} = this;
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const updateFrom = tailJump.getNodeAt(endBeats).previous;
+            noteNode.add(note)
+            tailJump.updateRange(updateFrom, noteNode.next);
+        } else {
+            noteNode.add(note);
+        }
     }
 }
 
@@ -149,29 +174,53 @@ class NoteDeleteOperation extends NoteRemoveOperation {
 class NoteAddOperation extends Operation {
     noteNode: NoteNode
     note: Note;
+    isHold: boolean;
     updatesEditor = true
     constructor(note: Note, node: NoteNode) {
         super()
         this.note = note;
+        this.isHold = note.type === NoteType.hold;
         this.noteNode = node
     }
     do() {
-        this.noteNode.add(this.note)
+        const {note, noteNode} = this;
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const updateFrom = tailJump.header 
+            // tailJump.getNodeAt(endBeats).previous;
+            noteNode.add(note)
+            tailJump.updateRange(updateFrom, noteNode.next);
+        } else {
+            noteNode.add(note);
+        }
     }
     undo() {
-        this.noteNode.remove(this.note)
+        const {note, noteNode} = this;
+        noteNode.remove(note);
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime)
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const updateFrom = tailJump.getPreviousOf(noteNode, endBeats);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
     }
 }
 
-class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"startTime">, NoteRemoveOperation, NoteAddOperation]> {
+class NoteTimeChangeOperation extends ComplexOperation<[NoteRemoveOperation, NoteValueChangeOperation<"startTime">, NoteAddOperation]> {
     note: Note
     updatesEditor = true
     constructor(note: Note, noteNode: NoteNode) {
         super(
-            new NoteValueChangeOperation(note, "startTime", noteNode.startTime),
             new NoteRemoveOperation(note),
+            new NoteValueChangeOperation(note, "startTime", noteNode.startTime),
             new NoteAddOperation(note, noteNode)
         )
+        if (note.type === NoteType.hold && !TimeCalculator.gt(note.endTime, noteNode.startTime)) {
+            this.ineffective = true
+        }
         this.note = note
         if (note.parent === noteNode) {
             this.ineffective = true
@@ -179,12 +228,12 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
     }
     rewrite(operation: NoteTimeChangeOperation): boolean {
         if (operation.note === this.note) {
-            this.subOperations[0].value = operation.subOperations[0].value
-            this.subOperations[0].do()
-            this.subOperations[1] = new NoteRemoveOperation(this.note)
-            if (!this.subOperations[1].ineffective) {
-                this.subOperations[1].do()
+            this.subOperations[0] = new NoteRemoveOperation(this.note)
+            if (!this.subOperations[0].ineffective) {
+                this.subOperations[0].do()
             }
+            this.subOperations[1].value = operation.subOperations[1].value
+            this.subOperations[1].do()
             this.subOperations[2].noteNode = operation.subOperations[2].noteNode
             this.subOperations[2].do()
             return true;
@@ -196,19 +245,36 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteValueChangeOperation
 class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
     constructor(note: Note, value: TimeT) {
         super(note, "endTime", value)
-        if (TimeCalculator.lt(value, note.startTime)) {
+        if (!TimeCalculator.gt(value, note.startTime)) {
             this.ineffective = true
         }
     }
     do() {
         super.do()
         const node = this.note.parent;
-        (node.parent as HNList).holdTailJump.updateRange(node.previous, node.next)
+        node.sort(this.note);
+        const tailJump = (node.parent as HNList).holdTailJump;
+        tailJump.updateRange(tailJump.header, tailJump.tailer);
     }
     undo() {
         super.undo()
         const node = this.note.parent;
-        (node.parent as HNList).holdTailJump.updateRange(node.previous, node.next)
+        node.sort(this.note);
+        const tailJump = (node.parent as HNList).holdTailJump;
+        tailJump.updateRange(tailJump.header, tailJump.tailer);
+    }
+    rewrite(operation: HoldEndTimeChangeOperation): boolean { // 看懂了，不重写的话会出问题
+        if (operation.note === this.note && this.field === operation.field) {
+            if (operation.value === this.value) {
+                return true;
+            }
+            this.value = operation.value;
+            this.note[this.field] = operation.value;
+            const tailJump = (this.note.parent.parent as HNList).holdTailJump;
+            tailJump.updateRange(tailJump.header, tailJump.tailer);
+            return true;
+        }
+        return false;
     }
 }
 

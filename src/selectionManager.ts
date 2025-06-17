@@ -45,7 +45,7 @@ class SelectionManager<T> {
             return this.click(x.x, x.y);
         }
         const positions = this.positions;
-        console.log(positions, x, y)
+        // console.log(positions, x, y)
         const len = positions.length;
         let i = 0;
         let selected: PositionEntity<T>, priority = -1;

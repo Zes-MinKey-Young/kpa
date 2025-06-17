@@ -379,9 +379,22 @@ class Player {
             noteNode = <NoteNode>noteNode.next
         } 
     }
+    /**
+     * 
+     * @param judgeLine 
+     * @param tree 
+     * @param beats 当前拍数
+     * @param startBeats 
+     * @param endBeats 截止拍数
+     * @param hitContext 
+     * @param timeCalculator 
+     * @returns 
+     */
     renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
-        let noteNode = tree.getNodeAt(startBeats, true);
-        const end = tree.getNodeAt(endBeats);
+        const start = tree.getNodeAt(startBeats, true);
+        // console.log("start", start)
+        let noteNode = start;
+        const end = tree.getNodeAt(endBeats, true);
         if ("tailing" in noteNode) {
             return;
         }

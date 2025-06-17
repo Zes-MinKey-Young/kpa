@@ -6,7 +6,7 @@ const MINOR_PARTS = 16;
 type EndNextFn<T extends TwoDirectionNode> = (node: TypeOrTailer<T> | Header<T>) => [endBeats: number, next: TypeOrTailer<T>];
 
 
-
+const breakpoint = () => {debugger}
 class JumpArray<T extends TwoDirectionNode> {
     header: Header<T>;
     tailer: Tailer<T>;
@@ -164,6 +164,25 @@ class JumpArray<T extends TwoDirectionNode> {
             }
         }
     }
+    getPreviousOf(node: T, beats: number) {
+        const jumpAverageBeats = this.averageBeats;
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        const nextFn = this.nextFn;
+        for (let i = jumpPos; i >= 0; i--) {
+            let canBeNodeOrArray: TypeOrTailer<T> | TypeOrTailer<T>[] = this.array[i];
+            if (Array.isArray(canBeNodeOrArray)) {
+                const minorIndex = Math.floor(rest / (jumpAverageBeats / MINOR_PARTS)) - 1;
+                for (let j = minorIndex; j >= 0; j--) {
+                    const minorNode = canBeNodeOrArray[j];
+                    if (minorNode !== node) {
+                        return minorNode as T;
+                    }
+                }
+            }
+        }
+        return this.header
+    }
     /**
      * 
      * @param beats 拍数
@@ -172,10 +191,10 @@ class JumpArray<T extends TwoDirectionNode> {
      */
     getNodeAt(beats: number): T | Tailer<T> {
         if (beats < 0) {
-            return this.header.next;
+            return this.header.next ?? breakpoint();
         }
         if (beats >= this.effectiveBeats) {
-            return this.tailer;
+            return this.tailer ?? breakpoint();
         }
         const jumpAverageBeats = this.averageBeats;
         const jumpPos = Math.floor(beats / jumpAverageBeats);
@@ -186,7 +205,7 @@ class JumpArray<T extends TwoDirectionNode> {
             ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
             : canBeNodeOrArray;
         if ("tailing" in node) {
-            return node;
+            return node ?? breakpoint();
         }
         // console.log(this, node, jumpPos, beats)
         if (!node) {
@@ -201,7 +220,7 @@ class JumpArray<T extends TwoDirectionNode> {
                 break;
             }
         }
-        return node
+        return node ?? breakpoint()
     }
 }
 
