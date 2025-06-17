@@ -64,7 +64,8 @@ class ServerApi {
         const res = await fetch(`../commit/${id}?message=${message}`, {
             method: "POST",
             body: chartBlob,
-        })
+        });
         Editor.notify((await res.json()).message)
+        return res.status === 200;
     }
 }

@@ -98,6 +98,9 @@ class Chart {
     /**  */
     judgeLineGroups: JudgeLineGroup[];
     duration: number;
+
+    
+    modified: boolean = false;
     constructor() {
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
@@ -110,7 +113,7 @@ class Chart {
         this.sequenceMap = {}
         this.judgeLineGroups = []
 
-        this.operationList = new OperationList()
+        this.operationList = new OperationList(this);
     }
     getEffectiveBeats() {
         console.log(editor.player.audio.src)

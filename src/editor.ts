@@ -137,6 +137,9 @@ class SaveDialog extends ZDialog {
         this.addEventListener("save", (customEvent: CustomEvent) => {
             console.log("save", customEvent.detail)
             serverApi.uploadChart(this.chartData, customEvent.detail)
+                .then((successful) => {
+                    this.dispatchEvent(new Event("saved"))
+                })
         });
     }
 }
@@ -178,6 +181,7 @@ class Editor extends EventTarget {
     renderingTime: number;
     lastRenderingTime: number;
     $saveDialog: SaveDialog;
+
 
     constructor() {
         super()
@@ -279,9 +283,13 @@ class Editor extends EventTarget {
             if (serverApi.supportsServer && serverApi.chartId) {
                 this.$saveDialog.show();
                 this.$saveDialog.chartData = json;
+                this.$saveDialog.addEventListener("saved", () => {
+                    this.chart.modified = false;
+                }, {once: true});
                 return;
             }
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json")
+            this.chart.modified = false;
         });
         this.$saveDialog = new SaveDialog();
         this.$topbar.append(
@@ -294,6 +302,12 @@ class Editor extends EventTarget {
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
         });
+        window.addEventListener("beforeunload", (e) => {
+            if (this.chart.modified) {
+                e.preventDefault();
+                e.returnValue = "Unsaved Changes";
+            }
+        })
     }
     shownSideEditor: SideEditor<any>;
     switchSide(editor: SideEditor<any>) {
