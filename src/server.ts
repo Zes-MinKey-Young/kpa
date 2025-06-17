@@ -31,6 +31,7 @@ class ServerApi {
                 if (res.status == 204) {
                     this.supportsServer = true;
                     document.title += "Connected"
+                    this.startAutosave();
                     return true
                 } else {
                     this.supportsServer = false;
@@ -67,5 +68,33 @@ class ServerApi {
         });
         Editor.notify((await res.json()).message)
         return res.status === 200;
+    }
+    async autosave(chart: ChartDataKPA) {
+        const id = this.chartId;
+        const chartBlob = new Blob([JSON.stringify(chart)], { type: "application/json" })
+        const res = await fetch(`../autosave/${id}`, {
+            method: "POST",
+            body: chartBlob,
+        });
+        if (res.status !== 200) {
+            return false;
+        }
+        return res.status === 200;
+    }
+    startAutosave() {
+        setInterval(() => {
+            const chart = editor.chart;
+            if (chart.modified) {
+                this.autosave(chart.dumpKPA())
+                    .then(success => {
+                        if (success) {
+                            chart.modified = false;
+                        } else {
+                            
+                            Editor.notify("Autosave failed");
+                        }
+                    });
+            }
+        }, 60_000)
     }
 }
