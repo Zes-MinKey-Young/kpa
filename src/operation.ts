@@ -131,10 +131,10 @@ class NoteRemoveOperation extends Operation {
         super()
         this.note = note // In memory of forgettting to add this(
         this.isHold = note.type === NoteType.hold;
-        if (!note.parent) {
+        if (!note.parentNode) {
             this.ineffective = true
         } else {
-            this.noteNode = note.parent
+            this.noteNode = note.parentNode
         }
     }
     do() {
@@ -143,7 +143,7 @@ class NoteRemoveOperation extends Operation {
         const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime)
         if (needsUpdate) {
             const endBeats = TimeCalculator.toBeats(note.endTime);
-            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const tailJump = (noteNode.parentSeq as HNList).holdTailJump;
             const updateFrom = tailJump.header
             const updateTo = tailJump.tailer;
             // tailJump.getPreviousOf(noteNode, endBeats);
@@ -155,7 +155,7 @@ class NoteRemoveOperation extends Operation {
         const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
         if (needsUpdate) {
             const endBeats = TimeCalculator.toBeats(note.endTime);
-            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const tailJump = (noteNode.parentSeq as HNList).holdTailJump;
             const updateFrom = tailJump.getNodeAt(endBeats).previous;
             noteNode.add(note)
             tailJump.updateRange(updateFrom, noteNode.next);
@@ -190,7 +190,7 @@ class NoteAddOperation extends Operation {
         const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
         if (needsUpdate) {
             const endBeats = TimeCalculator.toBeats(note.endTime);
-            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const tailJump = (noteNode.parentSeq as HNList).holdTailJump;
             const updateFrom = tailJump.header 
             // tailJump.getNodeAt(endBeats).previous;
             noteNode.add(note)
@@ -205,7 +205,7 @@ class NoteAddOperation extends Operation {
         const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime)
         if (needsUpdate) {
             const endBeats = TimeCalculator.toBeats(note.endTime);
-            const tailJump = (noteNode.parent as HNList).holdTailJump;
+            const tailJump = (noteNode.parentSeq as HNList).holdTailJump;
             const updateFrom = tailJump.getPreviousOf(noteNode, endBeats);
             tailJump.updateRange(updateFrom, noteNode.next);
         }
@@ -225,7 +225,7 @@ class NoteTimeChangeOperation extends ComplexOperation<[NoteRemoveOperation, Not
             this.ineffective = true
         }
         this.note = note
-        if (note.parent === noteNode) {
+        if (note.parentNode === noteNode) {
             this.ineffective = true
         }
     }
@@ -254,16 +254,16 @@ class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
     }
     do() {
         super.do()
-        const node = this.note.parent;
+        const node = this.note.parentNode;
         node.sort(this.note);
-        const tailJump = (node.parent as HNList).holdTailJump;
+        const tailJump = (node.parentSeq as HNList).holdTailJump;
         tailJump.updateRange(tailJump.header, tailJump.tailer);
     }
     undo() {
         super.undo()
-        const node = this.note.parent;
+        const node = this.note.parentNode;
         node.sort(this.note);
-        const tailJump = (node.parent as HNList).holdTailJump;
+        const tailJump = (node.parentSeq as HNList).holdTailJump;
         tailJump.updateRange(tailJump.header, tailJump.tailer);
     }
     rewrite(operation: HoldEndTimeChangeOperation): boolean { // 看懂了，不重写的话会出问题
@@ -273,7 +273,7 @@ class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
             }
             this.value = operation.value;
             this.note[this.field] = operation.value;
-            const tailJump = (this.note.parent.parent as HNList).holdTailJump;
+            const tailJump = (this.note.parentNode.parentSeq as HNList).holdTailJump;
             tailJump.updateRange(tailJump.header, tailJump.tailer);
             return true;
         }
@@ -306,7 +306,7 @@ extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperatio
         const isHold = note.type === NoteType.hold
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parent.parent.parent.getNNList(note.speed, !isHold, true)
+            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, !isHold, true)
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
@@ -334,7 +334,7 @@ class EventNodePairRemoveOperation extends Operation {
             return;
         }
         [this.endNode, this.startNode] = EventNode.getEndStart(node)
-        this.sequence = this.startNode.parent
+        this.sequence = this.startNode.parentSeq
         this.originalPrev = (<EventEndNode>node.previous).previous
     }
     do() {
@@ -354,11 +354,11 @@ class EventNodePairInsertOperation extends Operation {
         super()
         this.node = node;
         this.tarPrev = targetPrevious
-        this.originalSequence = targetPrevious.parent
+        this.originalSequence = targetPrevious.parentSeq
     }
     do() {
         const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
-        this.node.parent.jump.updateRange(endNode, startNode)
+        this.node.parentSeq.jump.updateRange(endNode, startNode)
     }
     undo() {
         this.originalSequence?.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
@@ -416,7 +416,7 @@ class EventNodeTimeChangeOperation extends Operation {
             return;
         }
         [this.endNode, this.startNode] = EventNode.getEndStart(node)
-        const seq = this.sequence = node.parent
+        const seq = this.sequence = node.parentSeq
         const mayBeThere = seq.getNodeAt(TimeCalculator.toBeats(val))
         if (mayBeThere && TC.eq(mayBeThere.time, val)) { // 不是arrayEq，这里踩坑
             this.ineffective = true;

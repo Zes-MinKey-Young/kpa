@@ -115,7 +115,8 @@ class JudgeLine {
             const lists: Plain<NNListDataKPA> = data[key];
             for (let name in lists) {
                 const listData = lists[name];
-                const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList)
+                const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
+                list.parentLine = line;
                 list.id = name
                 line[key][name] = list;
             }
@@ -344,7 +345,7 @@ class JudgeLine {
             }
         }
         const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
-        list.parent = this;
+        list.parentLine = this;
         NoteNode.connect(list.head, list.tail)
         if (initsJump) list.initJump();
         const id = (isHold ? "$" : "#") + speed;

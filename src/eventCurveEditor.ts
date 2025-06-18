@@ -149,7 +149,7 @@ enum EventCurveEditorState {
 class EventCurveEditor {
     type: EventType
     target: EventNodeSequence;
-    parent: EventCurveEditors
+    parentEditorSet: EventCurveEditors
 
     $element: Z<"div">;
     element: HTMLDivElement
@@ -213,7 +213,7 @@ class EventCurveEditor {
     constructor(type: EventType, height: number, width: number, parent: EventCurveEditors) {
         const config = eventTypeMap[type]
         this.type = type
-        this.parent = parent
+        this.parentEditorSet = parent
         this._displayed = true;
         this.$element = $("div")
         this.element = this.$element.element;
@@ -340,7 +340,7 @@ class EventCurveEditor {
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
-                this.parent.$editSwitch.checked = false;
+                this.parentEditorSet.$editSwitch.checked = false;
                 this.wasEditing = true;
                 break;
         }
@@ -352,7 +352,7 @@ class EventCurveEditor {
                     this.state = EventCurveEditorState.select;
                 } else {
                     this.state = EventCurveEditorState.edit;
-                    this.parent.$editSwitch.checked = true;
+                    this.parentEditorSet.$editSwitch.checked = true;
                 }
                 break;
             default:

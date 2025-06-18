@@ -207,7 +207,7 @@ class NotesEditor extends Z<"div"> {
                     if (this.selectingTail) {
                         editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT))
                     } else {
-                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf(timeT)))
+                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)))
                     }
                     
 

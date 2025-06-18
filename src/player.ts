@@ -421,7 +421,7 @@ class Player {
     }
     renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator) {
         if (noteNode.isHold) {
-            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parent.speed;
+            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parentSeq.speed;
             const notes = noteNode.notes
                 , len = notes.length
             for (let i = 0; i < len; i++) {

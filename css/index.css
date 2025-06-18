@@ -109,7 +109,6 @@ input:not(:focus) {
 }
 
 .side-editor {
-    overflow: auto;
     flex: 1 1 auto;
     min-height: 0;
     display: flex;

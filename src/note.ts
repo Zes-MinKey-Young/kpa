@@ -51,7 +51,7 @@ class Note {
     nextSibling: Note;
     */
 
-    parent: NoteNode;
+    parentNode: NoteNode;
 
     // readonly chart: Chart;
     // readonly judgeLine: JudgeLine
@@ -140,7 +140,7 @@ class NoteNode implements TwoDirectionNode {
         }
         this._previous = new WeakRef(val)
     }
-    parent: NNList
+    parentSeq: NNList
     chart: Chart;
     static count = 0;
     id: number;
@@ -158,7 +158,7 @@ class NoteNode implements TwoDirectionNode {
         return node
     }
     get isHold() {
-        return this.parent instanceof HNList
+        return this.parentSeq instanceof HNList
     }
     get endTime(): TimeT {
         if (this.notes.length === 0) {
@@ -171,7 +171,7 @@ class NoteNode implements TwoDirectionNode {
             console.warn("Wrong addition!")
         }
         this.notes.push(note);
-        note.parent = this
+        note.parentNode = this
         this.sort(this.notes.length - 1);
     }
     sort(note: Note)
@@ -215,7 +215,7 @@ class NoteNode implements TwoDirectionNode {
     }
     remove(note: Note) {
         this.notes.splice(this.notes.indexOf(note), 1)
-        note.parent = null
+        note.parentNode = null
     }
     static disconnect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>) {
         if (note1) {
@@ -236,7 +236,7 @@ class NoteNode implements TwoDirectionNode {
             note2.previous = note1;
         }
         if (note1 && note2) {
-            note2.parent = note1.parent
+            note2.parentSeq = note1.parentSeq
         }
     }
     static insert<T extends Connectee>(note1: TypeOrHeader<T>, inserted: T, note2: TypeOrTailer<T>) {
@@ -271,20 +271,20 @@ class NNList {
     timeRanges: [number, number][];
     effectiveBeats: number;
 
-    parent: JudgeLine;
+    parentLine: JudgeLine;
     constructor(speed: number, effectiveBeats?: number) {
         this.speed = speed
         this.head = {
             heading: true,
             next: null,
-            parent: this
+            parentSeq: this
         };
         this.currentPoint = this.head;
         // this.currentBranchPoint = <NoteNode>{startTime: [-1, 0, 1]}
         this.tail = {
             tailing: true,
             previous: null,
-            parent: this
+            parentSeq: this
         };
         this.timesWithNotes = 0;
         /*
@@ -391,9 +391,10 @@ class NNList {
             NoteNode.insert(node, newNode, next);
             // console.log("created:", node2string(newNode))
             this.jump.updateRange(node, next);
+            console.log("pl", this.parentLine)
 
-            if (this.parent?.chart) {
-                this.parent.chart.nnnList.getNode(time).add(newNode)
+            if (this.parentLine?.chart) {
+                this.parentLine.chart.nnnList.getNode(time).add(newNode)
             }
 
             return newNode
@@ -636,7 +637,7 @@ class NNNode implements TwoDirectionNode {
  */
 class NNNList {
     jump: JumpArray<NNNode>
-    parent: Chart;
+    parentChart: Chart;
     head: Header<NNNode>;
     tail: Tailer<NNNode>;
     
@@ -649,12 +650,12 @@ class NNNList {
         this.head = {
             "heading": true,
             "next": null,
-            "parent": this
+            "parentSeq": this
         }
         this.tail = {
             "tailing": true,
             "previous": null,
-            "parent": this
+            "parentSeq": this
         }
         this.editorPointer = new Pointer()
         this.editorPointer.pointTo(this.tail, 0)

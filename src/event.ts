@@ -44,7 +44,7 @@ abstract class EventNode {
     previous: EventNode | Header<EventNode>;
     /** 模板缓动如果钩定时采用的倍率，默认为1，不使用模板缓动则不起作用 */
     ratio: number;
-    abstract parent: EventNodeSequence;
+    abstract parentSeq: EventNodeSequence;
     constructor(time: TimeT, value: number) {
         this.time = time;
         this.value = value;
@@ -112,7 +112,7 @@ abstract class EventNode {
         node1.next = node2;
         node2.previous = node1;
         if (node1 && node2) {
-            node2.parent = node1.parent
+            node2.parentSeq = node1.parentSeq
         }
     }
     /*
@@ -137,7 +137,7 @@ abstract class EventNode {
             throw new Error("Cannot insert a head node before any node");
         }
         this.connect(tarPrev, node.previous);
-        node.parent = node.previous.parent;
+        node.parentSeq = node.previous.parentSeq;
         this.connect(node, tarNext);
         return [this.previousStartOfStart(tarPrev), this.nextStartOfEnd(tarNext)]
     }
@@ -250,7 +250,7 @@ class EventStartNode extends EventNode {
     get easingIsSegmented() {
         return this.easing instanceof SegmentedEasing;
     }
-    parent: EventNodeSequence;
+    parentSeq: EventNodeSequence;
     /**
      * 因为是RPE和KPA共用的方法所以easingType可以为字符串
      * @returns 
@@ -353,8 +353,8 @@ type AnyStartNode = EventStartNode<EventNodeType.first>
 class EventEndNode extends EventNode {
     next: EventStartNode;
     previous: EventStartNode;
-    get parent() {return this.previous?.parent}
-    set parent(_parent: EventNodeSequence) {}
+    get parentSeq() {return this.previous?.parentSeq}
+    set parentSeq(_parent: EventNodeSequence) {}
     constructor(time: TimeT, value: number) {
         super(time, value);
     }
@@ -406,12 +406,12 @@ class EventNodeSequence {
         this.head = {
             heading: true,
             next: null,
-            parent: this
+            parentSeq: this
         };
         this.tail = {
             tailing: true,
             previous: null,
-            parent: this
+            parentSeq: this
         }
         this.listLength = 1;
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)

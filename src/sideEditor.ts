@@ -68,7 +68,7 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parent.parent.getNodeOf(t)))
+            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)))
             if (this.target.type !== NoteType.hold) {
                 this.$endTime.setValue(t)
             }
@@ -81,7 +81,7 @@ class NoteEditor extends SideEditor<Note> {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()))
         })
         this.$speed.onChange(() => {
-            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parent.parent.parent))
+            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine))
         })
         this.$alpha.onChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
