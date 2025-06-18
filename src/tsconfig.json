@@ -2,11 +2,11 @@
     "exclude": ["*.js", "ty.ts"],
     "compilerOptions": {
         "target": "ES6",
-        "lib": ["ES2016", "dom", "ES2021.WeakRef"],
+        "lib": ["ES2016", "dom", "ES2021.WeakRef", "ESNext.Collection"],
         "strictFunctionTypes": true,
         "outFile": "../dist/index.js",
         "sourceMap": true,
         "declaration": true
     },
-    "include": ["chartTypes.d.ts", "easing.ts","ui.ts","util.ts","operation.ts","jumparray.ts","settings.ts","sideEditor.ts","selectionManager.ts","eventCurveEditor.ts","notesEditor.ts","editor.ts","note.ts","judgeline.ts","chart.ts", "rpeChartCompiler.ts","matrix.ts","event.ts","audio.ts","images.ts","player.ts","time.ts","server.ts", "main.ts"]
+    "include": ["set.ts", "chartTypes.d.ts", "easing.ts","ui.ts","util.ts","operation.ts","jumparray.ts","settings.ts","sideEditor.ts","selectionManager.ts","eventCurveEditor.ts","notesEditor.ts","editor.ts","note.ts","judgeline.ts","chart.ts", "rpeChartCompiler.ts","matrix.ts","event.ts","audio.ts","images.ts","player.ts","time.ts","server.ts", "main.ts"]
 }

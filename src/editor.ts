@@ -177,6 +177,7 @@ class Editor extends EventTarget {
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
+    multiNoteEditor: MultiNoteEditor;
 
     renderingTime: number;
     lastRenderingTime: number;
@@ -387,13 +388,16 @@ class Editor extends EventTarget {
 
         this.eventEditor = new EventEditor();
         this.noteEditor = new NoteEditor();
+        this.multiNoteEditor = new MultiNoteEditor();
         this.$noteInfo.append(
             this.eventEditor,
-            this.noteEditor
+            this.noteEditor,
+            this.multiNoteEditor
             );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.eventEditor.update()
         this.eventEditor.hide()
+        this.multiNoteEditor.hide()
         this.shownSideEditor = this.noteEditor
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }

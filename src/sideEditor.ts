@@ -17,7 +17,7 @@ abstract class SideEditor<T extends object> extends Z<"div"> {
     constructor() {
         super("div");
         this.addClass("side-editor");
-        this.$title = $("div").addClass("side-editor-title").text("Event")
+        this.$title = $("div").addClass("side-editor-title");
         this.$body = $("div").addClass("side-editor-body");
         this.append(this.$title, this.$body)
     }
@@ -115,6 +115,24 @@ class NoteEditor extends SideEditor<Note> {
     }
 }
 
+class MultiNoteEditor extends SideEditor<Set<Note>> {
+    $delete: ZButton;
+    constructor() {
+        super()
+        this.$title.text("Multi Notes")
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$body.append(
+            this.$delete
+        )
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new MultiNoteDeleteOperation(this.target))
+        })
+    }
+    update(): void {
+
+    }
+}
+
 class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
 
     $time: ZFractionInput;
@@ -124,6 +142,7 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     $templateEasing: ZInputBox;
     constructor() {
         super()
+        this.$title.text("Event")
         this.addClass("event-editor")
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();

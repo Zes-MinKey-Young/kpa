@@ -22,6 +22,8 @@ enum NotesEditorState {
     select,
     selecting,
     edit,
+    selectScope,
+    selectingScope,
     flowing
 }
 
@@ -31,6 +33,13 @@ class HoldTail {
 
 const timeToString = (time: TimeT) => {
     return `${time[0]}:${time[1]}/${time[2]}`
+}
+
+enum SelectState {
+    none,
+    extend,
+    replace,
+    exclude
 }
 
 class NotesEditor extends Z<"div"> {
@@ -53,8 +62,13 @@ class NotesEditor extends Z<"div"> {
     positionGridColor: RGB;
 
     selectionManager: SelectionManager<Note | HoldTail>;
+    startingPoint: Coordinate;
+    startingCanvasPoint: Coordinate;
+    canvasPoint: Coordinate;
+    notesSelection: Set<Note>;
     selectingTail: boolean;
     state: NotesEditorState;
+    selectState: SelectState;
     wasEditing: boolean;
     pointedPositionX: number;
     pointedBeats: number;
@@ -70,6 +84,7 @@ class NotesEditor extends Z<"div"> {
     $optionBox: ZEditableDropdownOptionBox;
     $typeOption: ZDropdownOptionBox;
     $noteAboveOption: ZDropdownOptionBox;
+    $selectOption: ZDropdownOptionBox;
     $editButton: ZSwitch;
     allOption: EditableBoxOption
     
@@ -144,7 +159,17 @@ class NotesEditor extends Z<"div"> {
             ], (v) => new BoxOption(v))
             ).onChange(() => this.noteType = NoteType[this.$typeOption.value.text])
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
-            .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above")
+            .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above");
+        this.notesSelection = new Set();
+        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)))
+                                .onChange((v: string) => {
+                                    this.selectState = SelectState[v];
+                                    if (this.selectState === SelectState.none) {
+                                        this.state = NotesEditorState.select;
+                                    } else {
+                                        this.state = NotesEditorState.selectScope;
+                                    }
+                                });
         this.noteAbove = true;
         this.$editButton = new ZSwitch("Edit")
             .onClickChange((checked) => {
@@ -154,7 +179,8 @@ class NotesEditor extends Z<"div"> {
             this.$optionBox,
             this.$typeOption,
             this.$noteAboveOption,
-            this.$editButton
+            this.$editButton,
+            this.$selectOption
             )
         this.$statusBar.css("width", width + "px")
 
@@ -181,7 +207,7 @@ class NotesEditor extends Z<"div"> {
         on(["mouseup", "touchend"], this.canvas, (event) => this.upHandler(event))
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-            const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
             const {x, y} = canvasCoord.mul(this.invertedMatrix);
             // const {width, height} = this.canvas
             // const {padding} = this;
@@ -217,7 +243,7 @@ class NotesEditor extends Z<"div"> {
             if (this.drawn) {
                 return
             }
-            this.drawn = true;
+            this.draw();
         })
         
         this.timeGridColor = [120, 255, 170];
@@ -228,8 +254,9 @@ class NotesEditor extends Z<"div"> {
         const {width, height} = this.canvas;
         console.log(width, height)
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
-        const {x, y} = canvasCoord.mul(this.invertedMatrix);
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const coord = canvasCoord.mul(this.invertedMatrix);
+        const {x, y} = coord;
         console.log("offset:", offsetX, offsetY)
         console.log("Coord:", x, y);
         switch (this.state) {
@@ -270,17 +297,54 @@ class NotesEditor extends Z<"div"> {
                     this.selectingTail = true;
                 }
                 this.state = NotesEditorState.selecting;
+                this.editor.switchSide(this.editor.noteEditor)
                 this.$editButton.checked = false;
                 this.wasEditing = true;
+                break;
+            case NotesEditorState.selectScope:
+                this.startingPoint = coord;
+                this.startingCanvasPoint = canvasCoord;
+                this.state = NotesEditorState.selectingScope;
                 break;
         }
     }
     upHandler(event) {
-        if (this.state === NotesEditorState.selecting) {
-            this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select
-            if (this.wasEditing) {
-                this.$editButton.checked = true;
-            }
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const {x, y} = canvasCoord.mul(this.invertedMatrix);
+        switch (this.state) {
+            case NotesEditorState.selecting:
+                this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select
+                if (this.wasEditing) {
+                    this.$editButton.checked = true;
+                }
+                break;
+            case NotesEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                console.log("Arr", array);
+                console.log(sx, sy, ex, ey)
+                const notes = array.map(x => x.target).filter(x => x instanceof Note);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.notesSelection = this.notesSelection.union(new Set(notes));
+                        break;
+                    case SelectState.replace:
+                        this.notesSelection = new Set(notes);
+                        break;
+                    case SelectState.exclude:
+                        this.notesSelection = this.notesSelection.difference(new Set(notes));
+                        break;
+                }
+                this.notesSelection = new Set([...this.notesSelection].filter((note: Note) => !!note.parentNode))
+                console.log("bp")
+                if (this.notesSelection.size !== 0) {
+                    this.editor.multiNoteEditor.target = this.notesSelection;
+                    this.editor.switchSide(editor.multiNoteEditor);
+                }
+                this.state = NotesEditorState.selectScope;
+                break;
         }
     }
     _selectedNote: WeakRef<Note>;
@@ -487,6 +551,13 @@ class NotesEditor extends Z<"div"> {
             }
             context.restore()
         }
+        if (this.state === NotesEditorState.selectingScope) {
+            const {startingCanvasPoint, canvasPoint} = this;
+            context.save()
+            context.strokeStyle = "#84F";
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore()
+        }
         
         this.drawn = false;
         this.lastBeats = beats
@@ -538,7 +609,13 @@ class NotesEditor extends Z<"div"> {
             context.translate(posX, posY);
             context.rotate(rad);
             context.drawImage(getImageFromType(note.type), -NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT)
-            if (this.selectedNote === note) {
+            if (this.notesSelection.has(note)) {
+                context.save()
+                context.fillStyle = "#DFD9";
+                context.fillRect(-NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT)
+                context.restore()
+            }
+            else if (this.selectedNote === note) {
                 context.drawImage(SELECT_NOTE, -NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT)
             }
             context.restore();
@@ -554,13 +631,19 @@ class NotesEditor extends Z<"div"> {
         } else {
             const posTop = posY - NOTE_HEIGHT / 2
             context.drawImage(getImageFromType(note.type), posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT)
-            if (this.selectedNote === note && !this.selectingTail) {
+            if (this.notesSelection.has(note)) {
+                context.save();
+                context.fillStyle = "#DFD9";
+                context.fillRect(posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT);
+                context.restore();
+            }
+            else if (this.selectedNote === note && !this.selectingTail) {
                 context.drawImage(SELECT_NOTE, posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT)
             }
             this.selectionManager.add({
                 target: note,
-                left: posLeft,
-                top: posTop,
+                centerX: posX,
+                centerY: posY,
                 height: NOTE_HEIGHT,
                 width: NOTE_WIDTH,
                 priority: isHold ? 1 : 2

@@ -6,6 +6,9 @@ class Coordinate {
         const {x, y} = this;
         return new Coordinate(x * matrix.a + y * matrix.c + matrix.e, x * matrix.b + y * matrix.d + matrix.f);
     }
+    static from([x, y]: [number, number]) {
+        return new Coordinate(x, y);
+    }
 }
 
 

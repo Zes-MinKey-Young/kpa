@@ -72,7 +72,7 @@ class ComplexOperation<T extends Operation[]> extends Operation {
         const length = this.length
         for (let i = 0; i < length; i++) {
             const op = this.subOperations[i]
-            if (op.ineffective) { break; }
+            if (op.ineffective) { continue; }
             op.do()
         }
     }
@@ -80,7 +80,7 @@ class ComplexOperation<T extends Operation[]> extends Operation {
         const length = this.length
         for (let i = length - 1; i >= 0; i--) {
             const op = this.subOperations[i]
-            if (op.ineffective) { break; }
+            if (op.ineffective) { continue; }
             op.undo()
         }
     }
@@ -172,6 +172,20 @@ class NoteRemoveOperation extends Operation {
  */
 class NoteDeleteOperation extends NoteRemoveOperation {
     updatesEditor = true
+}
+
+class MultiNoteDeleteOperation extends ComplexOperation<NoteDeleteOperation[]> {
+    updatesEditor = true
+    constructor(notes: Set<Note> | Note[]) {
+        if (notes instanceof Set) {
+            notes = [...notes];
+        }
+        super(...notes.map(note => new NoteDeleteOperation(note)))
+        if (notes.length === 0) {
+            this.ineffective = true
+        }
+    }
+
 }
 
 class NoteAddOperation extends Operation {

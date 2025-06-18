@@ -73,4 +73,27 @@ class SelectionManager<T> {
         }
         return selected;
     }
-}
+    /**
+     * For PositionEntities whose centerXY is given, this method only examine whether the center is in the rect.
+     * For PositionEntities whose left, top is given, this method also examine whether the pos rect is in the rect.
+     * @param top 
+     * @param left 
+     * @param right 
+     * @param bottom 
+     * @returns 
+     */
+    selectScope(top: number, left: number, bottom: number, right: number) {
+        return this.positions.filter(pos => {
+            if ("centerX" in pos) {
+                console.log(left, pos.centerX, right);
+                console.log(top, pos.centerY, bottom);
+                return pos.centerX >= left && pos.centerX <= right && pos.centerY >= top && pos.centerY <= bottom;
+            } else {
+                return pos.left >= left && pos.left + pos.width <= right
+                    && pos.top >= top && pos.top + pos.height <= bottom;
+            }
+        })
+    }
+    }
+
+// ** TODO: Charting time stats
