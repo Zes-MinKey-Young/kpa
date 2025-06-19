@@ -143,10 +143,13 @@ class ZButton extends Z<"div"> {
         this.text(text)
     }
     onClick(callback: (e: Event) => any): this {
-        if (this.disabled) {
-            return;
-        }
-        this.element.addEventListener("click", callback)
+        this.element.addEventListener("click", (e) => {
+            if (this.disabled) {
+                return;
+            }
+
+            callback(e)
+        })
         return this;
     }
 }

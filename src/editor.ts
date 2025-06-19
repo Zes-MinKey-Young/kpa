@@ -280,6 +280,7 @@ class Editor extends EventTarget {
             })
         // Save Button
         this.$saveButton = new ZButton("保存")
+        this.$saveButton.disabled = true;
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA()
             if (serverApi.supportsServer && serverApi.chartId) {
@@ -287,6 +288,7 @@ class Editor extends EventTarget {
                 this.$saveDialog.chartData = json;
                 this.$saveDialog.addEventListener("saved", () => {
                     this.chart.modified = false;
+                    this.$saveButton.disabled = true;
                 }, {once: true});
                 return;
             }
@@ -309,6 +311,9 @@ class Editor extends EventTarget {
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
             this.$offsetInput.setValue(this.chart.offset.toString());
+            this.chart.operationList.addEventListener("firstmodified", () => {
+                this.$saveButton.disabled = false;
+            })
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {

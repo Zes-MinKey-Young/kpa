@@ -89,6 +89,7 @@ class ServerApi {
                     .then(success => {
                         if (success) {
                             chart.modified = false;
+                            editor.$saveButton.disabled = true;
                         } else {
                             
                             Editor.notify("Autosave failed");

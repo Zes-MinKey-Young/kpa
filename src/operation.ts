@@ -1,15 +1,19 @@
 
-class OperationList {
+class OperationList extends EventTarget {
     operations: Operation[];
     undoneOperations: Operation[];
     constructor(public parentChart: Chart) {
+        super()
         this.operations = [];
         this.undoneOperations = [];
     }
     undo() {
         const op = this.operations.pop()
         if (op) {
-            this.parentChart.modified = true;
+            if (!this.parentChart.modified){
+                this.parentChart.modified = true;
+                this.dispatchEvent(new Event("firstmodified"))
+            }
             this.undoneOperations.push(op)
             op.undo()
         }
@@ -17,7 +21,10 @@ class OperationList {
     redo() {
         const op = this.undoneOperations.pop()
         if (op) {
-            this.parentChart.modified = true;
+            if (!this.parentChart.modified){
+                this.parentChart.modified = true;
+                this.dispatchEvent(new Event("firstmodified"))
+            }
             this.operations.push(op)
             op.do()
         }
@@ -26,7 +33,10 @@ class OperationList {
         if (operation.ineffective) {
             return
         }
-        this.parentChart.modified = true;
+        if (!this.parentChart.modified){
+            this.parentChart.modified = true;
+            this.dispatchEvent(new Event("firstmodified"))
+        }
         if (this.operations.length !== 0) {
                 
             const lastOp = this.operations[this.operations.length - 1]
