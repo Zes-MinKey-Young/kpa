@@ -592,19 +592,19 @@ namespace EasingOptions {
  * A box to input normal easings (See ./easing.ts)
  */
 class ZEasingBox extends Z<"div"> {
-    callbacks: ((value: number) => void)[]
     $input: ZArrowInputBox;
     $easeType: ZDropdownOptionBox;
     $funcType: ZDropdownOptionBox;
     value: number;
     constructor() {
         super("div")
-        this.callbacks = []
         this.$input = new ZArrowInputBox()
             .onChange((num) => {
                 const easing = easingArray[num]
                 this.$easeType.value = EasingOptions.easeTypeOptionsMapping[easing.easeType];
                 this.$funcType.value = EasingOptions.funcTypeOptionsMapping[easing.funcType];
+                this.value = num;
+                this.dispatchEvent(new ZValueChangeEvent())
             });
         this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions).onChange(() => this.update())
         this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions).onChange(() => this.update())
@@ -617,8 +617,8 @@ class ZEasingBox extends Z<"div"> {
     }
     update() {
         this.value = easingMap[this.$funcType.value.text][this.$easeType.value.text].id;
-        this.$input.setValue(this.value)
-        this.callbacks.forEach(f => f(this.value))
+        this.$input.setValue(this.value);
+        this.dispatchEvent(new ZValueChangeEvent())
     }
     /**
      * Set a new KPA easing id and change the $funcType and $easeType, but does not call the callback
@@ -632,7 +632,10 @@ class ZEasingBox extends Z<"div"> {
     }
 
     onChange(callback: (value: number) => void) {
-        this.callbacks.push(callback)
+        this.addEventListener("valueChange", () => {
+            callback(this.value);
+        })
+        return this;
     }
 }
 

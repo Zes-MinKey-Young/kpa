@@ -44,6 +44,7 @@ class EventCurveEditors extends Z<"div"> {
     $typeSelect: ZDropdownOptionBox;
     $layerSelect: ZDropdownOptionBox;
     $editSwitch: ZSwitch;
+    $easingBox: ZEasingBox;
 
 
     moveX: EventCurveEditor;
@@ -78,6 +79,13 @@ class EventCurveEditors extends Z<"div"> {
             this.selectedLayer = val;
         });
         this.$editSwitch = new ZSwitch("Edit");
+        this.$easingBox = new ZEasingBox()
+            .onChange(id => {
+                for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
+                    this[type].easing = rpeEasingArray[id];
+                }
+            });
+        this.$easingBox.setValue(easingMap.linear.in);
 
 
 
@@ -85,12 +93,13 @@ class EventCurveEditors extends Z<"div"> {
         this.$bar.append(
             this.$typeSelect,
             this.$layerSelect,
-            this.$editSwitch
+            this.$editSwitch,
+            this.$easingBox
         )
         this.append(this.$bar)
 
-        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as EventTypeName[]) {
-            this[type] = new EventCurveEditor(EventType[type], height - 24, width, this);
+        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
+            this[type] = new EventCurveEditor(EventType[type], height - 32, width, this);
             this[type].displayed = false;
             this.append(this[type].element)
         }
@@ -186,6 +195,9 @@ class EventCurveEditor {
     pointedValue: number;
     pointedBeats: number;
     beatFraction: number;
+
+    easing: NormalEasing;
+
     get selectedNode() {
         if (!this._selectedNode) {
             return undefined;
@@ -339,7 +351,8 @@ class EventCurveEditor {
                     break;
                 }
                 const endNode = new EventEndNode(time, this.pointedValue)
-                const node = new EventStartNode(time, this.pointedValue)
+                const node = new EventStartNode(time, this.pointedValue);
+                node.easing = this.easing;
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
