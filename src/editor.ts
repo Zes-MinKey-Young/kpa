@@ -173,6 +173,7 @@ class Editor extends EventTarget {
     timeDivisor: number
     $saveButton: ZButton;
     $playbackRate: ZDropdownOptionBox;
+    $offsetInput: ZInputBox;
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -293,15 +294,21 @@ class Editor extends EventTarget {
             this.chart.modified = false;
         });
         this.$saveDialog = new SaveDialog();
+        this.$offsetInput = new ZInputBox()
+            .onChange(() => {
+                this.chart.offset = this.$offsetInput.getInt();
+            });
         this.$topbar.append(
             this.$timeDivisor,
             this.$playbackRate,
             this.$saveButton,
-            this.$saveDialog
+            this.$saveDialog,
+            this.$offsetInput
         )
 
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
+            this.$offsetInput.setValue(this.chart.offset.toString());
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {
