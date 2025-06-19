@@ -2,7 +2,7 @@
 const eventTypeMap = [
     { // moveX
         basis: 0,
-        valueGridSpan: 270,
+        valueGridSpan: 135,
         valueRange: 1350
     },
     { // moveY
@@ -149,7 +149,10 @@ enum EventCurveEditorState {
 class EventCurveEditor {
     type: EventType
     target: EventNodeSequence;
-    parentEditorSet: EventCurveEditors
+    parentEditorSet: EventCurveEditors;
+
+    innerHeight: number;
+    innerWidth: number;
 
     $element: Z<"div">;
     element: HTMLDivElement
@@ -160,8 +163,7 @@ class EventCurveEditor {
     timeRatio: number;
     valueRange: number;
     /**
-     * the y position(pxs) of the time axis in the canvas' coordinate system
-     * The canvas's O point itself is centered at the origin
+     * (distance from the horizontal axis to the middle axis) / height
      */
     valueBasis: number;
     timeRange: number;
@@ -229,15 +231,17 @@ class EventCurveEditor {
         this.canvas.width = width//this.canvas.parentElement.clientWidth;
         this.canvas.height = height;
         this.padding = 10;
+        this.innerHeight = this.canvas.height - this.padding * 2;
+        this.innerWidth = this.canvas.width - this.padding * 2;
         this.context = this.canvas.getContext("2d");
 
 
         this.timeRange = 4
         // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
-        this.valueBasis = this.canvas.height * config.basis;
-        this.valueRatio = this.canvas.height / this.valueRange;
-        this.timeRatio = this.canvas.width / this.timeRange;
+        this.valueBasis = config.basis;
+        this.valueRatio = this.innerHeight / this.valueRange;
+        this.timeRatio = this.innerWidth / this.timeRange;
         this.timeGridSpan = 1;
         this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
@@ -250,7 +254,6 @@ class EventCurveEditor {
 
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-            const {width, height} = this.canvas;
             const coord = this.cursorPos = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
             
             const {x, y} = coord;
@@ -288,8 +291,8 @@ class EventCurveEditor {
     canvasMatrix: Matrix;
     invertedCanvasMatrix: Matrix;
     updateMatrix() {
-        this.valueRatio = this.canvas.height / this.valueRange;
-        this.timeRatio = this.canvas.width / this.timeRange;
+        this.valueRatio = this.innerHeight / this.valueRange;
+        this.timeRatio = this.innerWidth / this.timeRange;
         const {
             timeRange,
             valueRange,
@@ -299,6 +302,8 @@ class EventCurveEditor {
         } = this;
         this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
         this.invertedMatrix = this.matrix.invert();
+        console.log(this.matrix);
+        console.log(identity.translate(0, -valueBasis * valueRange))
         this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
         this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
@@ -368,7 +373,7 @@ class EventCurveEditor {
     }
     drawCoordination(beats: number) {
         const {height: canvasHeight, width: canvasWidth} = this.canvas;
-        const height = canvasHeight - this.padding * 2, width = canvasWidth - this.padding * 2;
+        const {innerHeight, innerWidth} = this;
         const {
             timeGridSpan, valueGridSpan,
             valueRatio, timeRatio, context} = this;
@@ -376,18 +381,19 @@ class EventCurveEditor {
         context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight)
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
+        const basis = this.valueBasis * this.innerHeight;
         // 计算上下界
         context.save()
         context.fillStyle = "#EEE";
-        const upperEnd = Math.ceil((height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
-        const lowerEnd = Math.ceil((-height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan
+        const upperEnd = Math.ceil((innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan
+        const lowerEnd = Math.ceil((-innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan
         context.strokeStyle = rgb(...this.valueGridColor)
         context.lineWidth = 1;
 
         for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
-            const positionY = value * valueRatio + this.valueBasis;
+            const positionY = value * valueRatio + basis;
             drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
-            context.fillText(value + "", -width / 2, -positionY)
+            context.fillText(value + "", -innerWidth / 2, -positionY)
         }
         context.strokeStyle = rgb(...this.timeGridColor)
         
@@ -395,21 +401,21 @@ class EventCurveEditor {
         const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionX = (time - beats)  * timeRatio
-            drawLine(context, positionX, height / 2, positionX, -height / 2);
-            context.fillText(time + "", positionX, height / 2)
+            drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
+            context.fillText(time + "", positionX, innerHeight / 2)
 
             
             context.save()
             context.lineWidth = 1
             for (let i = 1; i < timeDivisor; i++) {
                 const minorPosX = (time + i / timeDivisor - beats) * timeRatio
-                drawLine(context, minorPosX, height / 2, minorPosX, -height / 2);
+                drawLine(context, minorPosX, innerHeight / 2, minorPosX, -innerHeight / 2);
             }
             context.restore()
         }
         context.restore()
         context.lineWidth = 3;
-        drawLine(context, 0, width / 2, 0, -width / 2)
+        drawLine(context, 0, innerHeight / 2, 0, -innerHeight / 2)
         context.strokeStyle = "#EEE";
     }
     draw(beats?: number) {
@@ -453,6 +459,8 @@ class EventCurveEditor {
             const startValue = startNode.value;
             const endValue   = endNode.value;
             const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
+            console.log("startXY", startX, startY);
+            console.log(Matrix.fromDOMMatrix(context.getTransform()))
             const {x: endX, y: endY} = new Coordinate(endTime - beats, endValue).mul(matrix);
             const topY = startY - NODE_HEIGHT / 2
             const topEndY = endY - NODE_HEIGHT / 2

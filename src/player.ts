@@ -1,4 +1,5 @@
-
+const ENABLE_PLAYER = true;
+const DRAWS_NOTES = true;
 
 const DEFAULT_ASPECT_RATIO = 3 / 2
 const LINE_WIDTH = 10;
@@ -143,6 +144,9 @@ class Player {
         })
     }
     render() {
+        if (!ENABLE_PLAYER) {
+            return;
+        }
         // console.time("render")
         const context = this.context;
         const hitContext = this.hitContext;
@@ -270,31 +274,34 @@ class Player {
             for (let name in trees) {
                 const tree = trees[name];
                 const speedVal: number = tree.speed;
-                // debugger
-                // 渲染音符
-                const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
-                tree.timeRanges = timeRanges
-                // console.log(timeRanges, startY, endY);
-                for (let range of timeRanges) {
-                    const start = range[0];
-                    const end = range[1];
-                    // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
-                    // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
-                    
-                    let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
-                    let startBeats;
-                    
-                    while (!("tailing" in noteNode)
-                        && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end
-                    ) {
-                        // 判断是否为多押
-                        const isChord = noteNode.notes.length > 1
-                            || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length)
-                            || noteNode.totalNode.holdNodes.some(node => node !== noteNode && node.notes.length)
-                        this.renderSameTimeNotes(noteNode, isChord, judgeLine, timeCalculator);
-                        noteNode = noteNode.next;
+                if (DRAWS_NOTES) {
+                        
+                    // debugger
+                    // 渲染音符
+                    const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                    tree.timeRanges = timeRanges
+                    // console.log(timeRanges, startY, endY);
+                    for (let range of timeRanges) {
+                        const start = range[0];
+                        const end = range[1];
+                        // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
+                        // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
+                        
+                        let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
+                        let startBeats;
+                        
+                        while (!("tailing" in noteNode)
+                            && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end
+                        ) {
+                            // 判断是否为多押
+                            const isChord = noteNode.notes.length > 1
+                                || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length)
+                                || noteNode.totalNode.holdNodes.some(node => node !== noteNode && node.notes.length)
+                            this.renderSameTimeNotes(noteNode, isChord, judgeLine, timeCalculator);
+                            noteNode = noteNode.next;
+                        }
+                        
                     }
-                    
                 }
                 // 处理音效
                 this.renderSounds(tree, beats, soundQueue, timeCalculator)

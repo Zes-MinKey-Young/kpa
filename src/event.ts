@@ -556,6 +556,9 @@ class EventNodeSequence {
     getNodeAt(beats: number, usePrev: boolean = false): EventStartNode {
         let node = this.jump?.getNodeAt(beats) || this.head.next;
         if ("tailing" in node) {
+            if (usePrev) {
+                return node.previous.previous.previous;
+            }
             // 最后一个事件节点本身具有无限延伸的特性
             return node.previous;
         }
