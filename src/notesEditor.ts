@@ -66,6 +66,7 @@ class NotesEditor extends Z<"div"> {
     startingCanvasPoint: Coordinate;
     canvasPoint: Coordinate;
     notesSelection: Set<Note>;
+    clipboard: Set<Note>;
     selectingTail: boolean;
     state: NotesEditorState;
     selectState: SelectState;
@@ -85,8 +86,11 @@ class NotesEditor extends Z<"div"> {
     $typeOption: ZDropdownOptionBox;
     $noteAboveOption: ZDropdownOptionBox;
     $selectOption: ZDropdownOptionBox;
+    $copyButton: ZButton;
+    $pasteButton: ZButton;
     $editButton: ZSwitch;
     allOption: EditableBoxOption
+    mouseIn: boolean;
     
     get target() {
         return this._target
@@ -171,6 +175,14 @@ class NotesEditor extends Z<"div"> {
                                     }
                                 });
         this.noteAbove = true;
+        this.$copyButton = new ZButton("Copy")
+            .onClick(() => {
+                this.copy()
+            });
+        this.$pasteButton = new ZButton("Paste")
+            .onClick(() => {
+                this.paste()
+            });
         this.$editButton = new ZSwitch("Edit")
             .onClickChange((checked) => {
                 this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
@@ -180,6 +192,8 @@ class NotesEditor extends Z<"div"> {
             this.$typeOption,
             this.$noteAboveOption,
             this.$editButton,
+            this.$copyButton,
+            this.$pasteButton,
             this.$selectOption
             )
         this.$statusBar.css("width", width + "px")
@@ -238,12 +252,59 @@ class NotesEditor extends Z<"div"> {
                     
 
             }
-        })
+        });
         on(["mousedown", "mousemove", "touchstart", "touchmove"], this.canvas, (event) => {
             if (this.drawn) {
                 return
             }
             this.draw();
+        });
+
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        })
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        })
+        const map = {q: NoteType.tap, w: NoteType.drag, e: NoteType.flick, r: NoteType.hold}
+        window.addEventListener("keypress", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
+            console.log("Key press:", e.key);
+            if (!this.mouseIn) {
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+                case "q":
+                case "w":
+                case "e":
+                case "r":
+                    const noteType = map[e.key.toLowerCase()];
+                    
+                    const {beatFraction, pointedBeats} = this
+                    const startTime: TimeT = [pointedBeats, beatFraction, editor.timeDivisor];
+                    const endTime: TimeT = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime]
+                    const note = new Note({
+                        endTime: endTime,
+                        startTime: startTime,
+                        visibleTime: 99999,
+                        positionX: this.pointedPositionX,
+                        alpha: 255,
+                        above: this.noteAbove ? 1 : 0,
+                        isFake: 0,
+                        size: 1.0,
+                        speed: 1.0,
+                        type: noteType,
+                        yOffset: 0
+                    });
+                    // this.editor.chart.getComboInfoEntity(startTime).add(note)
+                    this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                    break;
+            }
         })
         
         this.timeGridColor = [120, 255, 170];
@@ -397,7 +458,11 @@ class NotesEditor extends Z<"div"> {
             timeSpan,
             timeRatio,
             
-            padding} = this;
+            padding,
+
+            pointedBeats,
+            beatFraction
+        } = this;
         const width = canvasWidth - padding * 2
         const height = canvasHeight - padding * 2
         context.fillStyle = "#333"
@@ -411,6 +476,9 @@ class NotesEditor extends Z<"div"> {
         drawLine(context, -canvasWidth / 2, 0, canvasWidth / 2, 0);
         context.fillStyle = "#EEE";
         context.fillText("State:" + NotesEditorState[this.state], 0, -height + 20)
+        
+        if (pointedBeats)
+            context.fillText(`PointedTime: ${pointedBeats}:${beatFraction}/${this.editor.timeDivisor}`, 0, -height + 70)
         if (this.targetTree && this.targetTree.timeRanges) {
             context.fillText("Range:" + arrayForIn(this.targetTree.timeRanges, (range) => range.join("-")).join(","), -100, -height + 50)
         }
@@ -668,5 +736,37 @@ class NotesEditor extends Z<"div"> {
                 priority: 0
             })
         }
+    }
+
+
+
+
+
+    paste() {
+        const {clipboard, lastBeats} = this;
+        const {timeDivisor} = this.editor;
+        if (!clipboard || clipboard.size === 0) {
+            return;
+        }
+        if (!lastBeats) {
+            Editor.notify("Have not rendered a frame")
+        }
+        const notes = [...clipboard];
+        notes.sort((a: Note, b: Note) => TimeCalculator.gt(a.startTime, b.startTime) ? 1 : -1);
+        const startTime: TimeT = notes[0].startTime;
+        // const portions: number = Math.round(timeDivisor * lastBeats);
+        const dest: TimeT = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const offset: TimeT = TimeCalculator.sub(dest, startTime);
+
+        
+        const newNotes: Note[] = notes.map(n => n.clone(offset));
+        this.editor.chart.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
+        this.editor.multiNoteEditor.target = this.notesSelection = new Set<Note>(newNotes);
+        this.editor.update();
+    }
+    copy(): void {
+        this.clipboard = this.notesSelection;
+        this.notesSelection = new Set<Note>();
+        this.editor.update();
     }
 }

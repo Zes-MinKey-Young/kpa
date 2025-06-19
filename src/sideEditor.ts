@@ -116,14 +116,20 @@ class NoteEditor extends SideEditor<Note> {
 }
 
 class MultiNoteEditor extends SideEditor<Set<Note>> {
+    $reverse: ZButton;
     $delete: ZButton;
     constructor() {
         super()
         this.$title.text("Multi Notes")
         this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$reverse = new ZButton("Reverse");
         this.$body.append(
-            this.$delete
-        )
+            this.$delete,
+            this.$reverse
+        );
+        this.$reverse.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))))
+        })
         this.$delete.onClick(() => {
             editor.chart.operationList.do(new MultiNoteDeleteOperation(this.target))
         })

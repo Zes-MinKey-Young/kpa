@@ -62,7 +62,7 @@ class Note {
     constructor(data: NoteDataRPE) {
         this.above = data.above === 1;
         this.alpha = data.alpha || 255;
-        this.endTime = data.endTime;
+        this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
         this.size = data.size || 1.0;
@@ -77,6 +77,17 @@ class Note {
         this.previousSibling = null;
         this.nextSibling = null;
         */
+    }
+    /**
+     * 
+     * @param offset 
+     * @returns 
+     */
+    clone(offset: TimeT) {
+        const data = this.dumpRPE();
+        data.startTime = TimeCalculator.add(data.startTime, offset);
+        data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
+        return new Note(data);
     }
     /*
     static connectPosSibling(note1: Note, note2: Note) {

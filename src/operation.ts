@@ -133,6 +133,8 @@ class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     }
 }
 
+
+
 class NoteRemoveOperation extends Operation {
     noteNode: NoteNode;
     note: Note;
@@ -232,6 +234,22 @@ class NoteAddOperation extends Operation {
             const tailJump = (noteNode.parentSeq as HNList).holdTailJump;
             const updateFrom = tailJump.getPreviousOf(noteNode, endBeats);
             tailJump.updateRange(updateFrom, noteNode.next);
+        }
+    }
+}
+
+class MultiNoteAddOperation extends ComplexOperation<NoteAddOperation[]> {
+    updatesEditor = true
+    constructor(notes: Set<Note> | Note[], judgeLine: JudgeLine) {
+        if (notes instanceof Set) {
+            notes = [...notes];
+        }
+        super(...notes.map(note => {
+            const node = judgeLine.getNode(note, true)
+            return new NoteAddOperation(note, node);
+        }))
+        if (notes.length === 0) {
+            this.ineffective = true
         }
     }
 }

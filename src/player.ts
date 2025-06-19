@@ -288,6 +288,7 @@ class Player {
                         // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                         
                         let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
+                        console.log(noteNode)
                         let startBeats;
                         
                         while (!("tailing" in noteNode)
@@ -441,6 +442,7 @@ class Player {
                     )
             }
         } else {
+            console.log("renderSameTimeNotes", noteNode)
             const notes = noteNode.notes
             , len = notes.length
             for (let i = 0; i < len; i++) {
@@ -455,6 +457,7 @@ class Player {
         }
     }
     renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number) {
+        console.log(note, this.beats)
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
