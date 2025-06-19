@@ -241,8 +241,8 @@ class Editor extends EventTarget {
 
         this.backgroundInput.addEventListener("change", () => {
             this.readImage(this.backgroundInput.files[0])
-        })
-        this.$preview.on("wheel", (event: WheelEvent) => {
+        });
+        [this.$preview, this.eventCurveEditors].forEach($e => $e.on("wheel", (event: WheelEvent) => {
             if (!this.initialized) {
                 return;
             }
@@ -264,7 +264,7 @@ class Editor extends EventTarget {
             this.update()
             this.player.render()
             // event.preventDefault()
-        })
+        }));
         // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox()
         this.$timeDivisor.onChange((n) => {
