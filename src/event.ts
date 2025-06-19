@@ -419,7 +419,7 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], chart: Chart) {
+    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], chart: Chart, endValue?: number) {
         const {templateEasingLib: templates, timeCalculator} = chart
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
@@ -466,7 +466,7 @@ class EventNodeSequence {
             debugger // 这里事件层级里面一定有至少一个事件
             throw new Error();
         }
-        tail = new EventStartNode(last.time, last.value);
+        tail = new EventStartNode(last.time, endValue ?? last.value);
         EventNode.connect(last, tail);
         tail.easing = last.previous.easing;
         tail.cachedIntegral = lastIntegral
@@ -608,7 +608,8 @@ class EventNodeSequence {
         return {
             type: this.type,
             events: nodes,
-            id: this.id // 或者使用其他唯一标识符
+            id: this.id,
+            endValue: currentNode.value
         };
     }
     /**

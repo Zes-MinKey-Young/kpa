@@ -268,6 +268,7 @@ interface EventNodeSequenceDataKPA {
     events: EventDataRPE[];
     id: string;
     type: EventType;
+    endValue: number;
 }
 
 interface ChartDataKPA {

@@ -188,7 +188,7 @@ class Chart {
         const length = data.eventNodeSequences.length
         for (let i = 0; i < length; i++) {
             const sequence = sequences[i];
-            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart)).id = sequence.id;
+            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart, sequence.endValue)).id = sequence.id;
         }
         chart.templateEasingLib.add(data.envEasings)
         chart.templateEasingLib.check()
