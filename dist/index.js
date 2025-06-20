@@ -7,6 +7,21 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+/**
+ * @author Zes Minkey Young
+ * This file is an alternative for those users whose browsers don't support ESnext.Collection
+ */
+var _a, _b, _c;
+Set.prototype.union = (_a = Set.prototype.union) !== null && _a !== void 0 ? _a : function (other) {
+    const it = other.keys();
+    return new Set([...this, ...{ [Symbol.iterator]() { return it; } }]);
+};
+Set.prototype.intersection = (_b = Set.prototype.intersection) !== null && _b !== void 0 ? _b : function (other) {
+    return new Set([...this].filter(x => other.has(x)));
+};
+Set.prototype.difference = (_c = Set.prototype.difference) !== null && _c !== void 0 ? _c : function (other) {
+    return new Set([...this].filter(x => !other.has(x)));
+};
 const easeOutElastic = (x) => {
     const c4 = (2 * Math.PI) / 3;
     return x === 0
@@ -439,9 +454,16 @@ rpeEasingArray.forEach((easing, index) => {
  * Supports chaining, like jQuery.
  */
 class Z extends EventTarget {
-    constructor(type) {
+    constructor(type, newElement = true) {
         super();
-        this.element = document.createElement(type);
+        if (newElement)
+            this.element = document.createElement(type);
+    }
+    get clientWidth() {
+        return this.element.clientWidth;
+    }
+    get clientHeight() {
+        return this.element.clientHeight;
     }
     html(str) {
         this.element.innerHTML = str;
@@ -484,9 +506,14 @@ class Z extends EventTarget {
     append(...$elements) {
         const elements = new Array($elements.length);
         for (let index = 0; index < $elements.length; index++) {
-            elements[index] = $elements[index].release();
+            const $element = $elements[index];
+            elements[index] = $element instanceof Z ? $element.release() : $element;
         }
         this.element.append(...elements);
+        return this;
+    }
+    appendTo(element) {
+        element.append(this.element);
         return this;
     }
     onClick(callback) {
@@ -497,12 +524,6 @@ class Z extends EventTarget {
         this.element.addEventListener("input", callback);
         return this;
     }
-    /**
-     * 用于绑定元素原生事件
-     * @param eventType
-     * @param callback
-     * @returns
-     */
     on(eventType, callback) {
         this.element.addEventListener(eventType, callback);
         return this;
@@ -516,8 +537,13 @@ class Z extends EventTarget {
     remove() {
         this.element.remove();
     }
+    static from(element) {
+        const $ele = new Z(element.localName);
+        $ele.element = element;
+        return $ele;
+    }
 }
-const $ = (...args) => new Z(...args);
+const $ = (strOrEle) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from(strOrEle);
 /*
  * The classes below encapsulate some common UI Gadgets in KPA.
  */
@@ -540,10 +566,38 @@ class ZButton extends Z {
         this.text(text);
     }
     onClick(callback) {
-        if (this.disabled) {
-            return;
+        this.element.addEventListener("click", (e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        });
+        return this;
+    }
+}
+class ZSwitch extends ZButton {
+    get checked() {
+        return this.element.classList.contains("checked");
+    }
+    set checked(val) {
+        if (val !== this.checked) {
+            this.element.classList.toggle("checked", val);
+            console.log("switch checked:", val, this.checked);
+            this.dispatchEvent(new ZValueChangeEvent());
         }
-        this.element.addEventListener("click", callback);
+    }
+    constructor(text) {
+        super(text);
+        this.addClass("switch");
+        this.onClick(() => {
+            this.checked = !this.checked;
+            this.dispatchEvent(new Event("clickChange"));
+        });
+    }
+    onClickChange(callback) {
+        this.addEventListener("clickChange", (event) => {
+            callback(this.checked, event);
+        });
         return this;
     }
 }
@@ -679,10 +733,16 @@ class ZFractionInput extends Z {
 }
 class BoxOption {
     constructor(text, onChangedTo, onChanged) {
-        this.$element = $("div").addClass("box-option").text(text);
+        this.$elementMap = new Map();
         this.text = text;
         this.onChangedTo = onChangedTo;
         this.onChanged = onChanged;
+    }
+    getElement(box) {
+        if (!this.$elementMap.has(box)) {
+            this.$elementMap.set(box, $("div").addClass("box-option").text(this.text));
+        }
+        return this.$elementMap.get(box);
     }
 }
 class EditableBoxOption extends BoxOption {
@@ -722,17 +782,17 @@ class ZDropdownOptionBox extends Z {
         this.options = options;
         const length = options.length;
         for (let i = 0; i < length; i++) {
-            const $element = options[i].$element;
+            const $element = options[i].getElement(this);
             optionList.append($element);
         }
         optionList.onClick((event) => {
             const target = event.target;
             if (target instanceof HTMLDivElement) {
-                if (target !== this.value.$element.release()) {
+                if (target !== this.value.getElement(this).release()) {
                     let option;
                     for (let i = 0; i < options.length; i++) {
                         option = options[i];
-                        if (option.$element.release() === target) {
+                        if (option.getElement(this).release() === target) {
                             break;
                         }
                     }
@@ -766,15 +826,15 @@ class ZDropdownOptionBox extends Z {
     }
     appendOption(option) {
         this.options.push(option);
-        this.$optionList.append(option.$element);
+        this.$optionList.append(option.getElement(this));
         return this;
     }
     replaceWithOptions(options) {
         this.options.splice(0, this.options.length)
-            .forEach((option) => option.$element.remove());
+            .forEach((option) => option.getElement(this).remove());
         this.options.push(...options);
         for (let i = 0; i < options.length; i++) {
-            this.$optionList.append(options[i].$element);
+            this.$optionList.append(options[i].getElement(this));
         }
         return this;
     }
@@ -812,17 +872,17 @@ class ZEditableDropdownOptionBox extends Z {
         this.options = options;
         const length = options.length;
         for (let i = 0; i < length; i++) {
-            const $element = options[i].$element;
+            const $element = options[i].getElement(this);
             optionList.append($element);
         }
         optionList.onClick((event) => {
             const target = event.target;
             if (target instanceof HTMLDivElement) {
-                if (target !== this.value.$element.release()) {
+                if (target !== this.value.getElement(this).release()) {
                     let option;
                     for (let i = 0; i < options.length; i++) {
                         option = options[i];
-                        if (option.$element.release() === target) {
+                        if (option.getElement(this).release() === target) {
                             break;
                         }
                     }
@@ -856,15 +916,15 @@ class ZEditableDropdownOptionBox extends Z {
     }
     appendOption(option) {
         this.options.push(option);
-        this.$optionList.append(option.$element);
+        this.$optionList.append(option.getElement(this));
         return this;
     }
     replaceWithOptions(options) {
         this.options.splice(0, this.options.length)
-            .forEach((option) => option.$element.remove());
+            .forEach((option) => option.getElement(this).remove());
         this.options.push(...options);
         for (let i = 0; i < options.length; i++) {
-            this.$optionList.append(options[i].$element);
+            this.$optionList.append(options[i].getElement(this));
         }
         return this;
     }
@@ -910,24 +970,25 @@ var EasingOptions;
  * A box to input normal easings (See ./easing.ts)
  */
 class ZEasingBox extends Z {
-    constructor() {
+    constructor(dropdownUp = false) {
         super("div");
-        this.callbacks = [];
         this.$input = new ZArrowInputBox()
             .onChange((num) => {
             const easing = easingArray[num];
             this.$easeType.value = EasingOptions.easeTypeOptionsMapping[easing.easeType];
             this.$funcType.value = EasingOptions.funcTypeOptionsMapping[easing.funcType];
+            this.value = num;
+            this.dispatchEvent(new ZValueChangeEvent());
         });
-        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions).onChange(() => this.update());
-        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions).onChange(() => this.update());
+        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions, dropdownUp).onChange(() => this.update());
+        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions, dropdownUp).onChange(() => this.update());
         this.addClass("flex-row")
             .append(this.$input, $("span").text("Ease"), this.$easeType, this.$funcType);
     }
     update() {
         this.value = easingMap[this.$funcType.value.text][this.$easeType.value.text].id;
         this.$input.setValue(this.value);
-        this.callbacks.forEach(f => f(this.value));
+        this.dispatchEvent(new ZValueChangeEvent());
     }
     /**
      * Set a new KPA easing id and change the $funcType and $easeType, but does not call the callback
@@ -940,7 +1001,10 @@ class ZEasingBox extends Z {
         this.$easeType.value = EasingOptions.easeTypeOptionsMapping[easing.easeType];
     }
     onChange(callback) {
-        this.callbacks.push(callback);
+        this.addEventListener("valueChange", () => {
+            callback(this.value);
+        });
+        return this;
     }
 }
 class ZRadioBox extends Z {
@@ -1031,6 +1095,46 @@ class ZRadioTabs extends Z {
         return this;
     }
 }
+class ZDialog extends Z {
+    constructor() {
+        super("dialog");
+    }
+    show() {
+        this.element.show();
+        return this;
+    }
+    bindDonePromise(promise) {
+        promise.then(() => {
+            this.element.close();
+        });
+        return this;
+    }
+    whenClosed(callback) {
+        this.element.addEventListener("close", callback);
+        return this;
+    }
+    close() {
+        this.element.close();
+    }
+}
+class ZNotification extends Z {
+    constructor(text, timeout = 8000) {
+        super("div");
+        this.addClass("notification");
+        setTimeout(() => this.addClass("fade-in"), 50);
+        this.onClick(() => {
+            this.removeClass("fade-in");
+        });
+        setTimeout(() => {
+            this.removeClass("fade-in");
+            setTimeout(() => {
+                this.remove();
+            }, 1000);
+        }, timeout);
+        this.$text = $("span").text(text);
+        this.append(this.$text);
+    }
+}
 const connect = (foreNode, lateNode) => {
     foreNode.next = lateNode;
 };
@@ -1105,8 +1209,6 @@ const absVector = (v) => {
 const innerProduct = (v1, v2) => {
     return v1[0] * v2[0] + v1[1] * v2[1];
 };
-const pointIsInRect = (x, y, rectPos, width, height) => rectPos.x <= x && x <= rectPos.x + width
-    && rectPos.y <= y && y <= rectPos.y + height;
 /**
  * To get offset coordinates from mouse or touch
  * @param event
@@ -1138,14 +1240,20 @@ function shortenFloat(num, decimalPlaces) {
     const multiplier = Math.pow(10, decimalPlaces);
     return Math.round(num * multiplier) / multiplier;
 }
-class OperationList {
-    constructor() {
+class OperationList extends EventTarget {
+    constructor(parentChart) {
+        super();
+        this.parentChart = parentChart;
         this.operations = [];
         this.undoneOperations = [];
     }
     undo() {
         const op = this.operations.pop();
         if (op) {
+            if (!this.parentChart.modified) {
+                this.parentChart.modified = true;
+                this.dispatchEvent(new Event("firstmodified"));
+            }
             this.undoneOperations.push(op);
             op.undo();
         }
@@ -1153,6 +1261,10 @@ class OperationList {
     redo() {
         const op = this.undoneOperations.pop();
         if (op) {
+            if (!this.parentChart.modified) {
+                this.parentChart.modified = true;
+                this.dispatchEvent(new Event("firstmodified"));
+            }
             this.operations.push(op);
             op.do();
         }
@@ -1160,6 +1272,10 @@ class OperationList {
     do(operation) {
         if (operation.ineffective) {
             return;
+        }
+        if (!this.parentChart.modified) {
+            this.parentChart.modified = true;
+            this.dispatchEvent(new Event("firstmodified"));
         }
         if (this.operations.length !== 0) {
             const lastOp = this.operations[this.operations.length - 1];
@@ -1195,7 +1311,7 @@ class ComplexOperation extends Operation {
         for (let i = 0; i < length; i++) {
             const op = this.subOperations[i];
             if (op.ineffective) {
-                break;
+                continue;
             }
             op.do();
         }
@@ -1205,7 +1321,7 @@ class ComplexOperation extends Operation {
         for (let i = length - 1; i >= 0; i--) {
             const op = this.subOperations[i];
             if (op.ineffective) {
-                break;
+                continue;
             }
             op.undo();
         }
@@ -1224,6 +1340,9 @@ class NoteValueChangeOperation extends Operation {
         }
     }
     do() {
+        if (this.field === "endTime") {
+            console.log("endTime");
+        }
         this.note[this.field] = this.value;
     }
     undo() {
@@ -1242,18 +1361,40 @@ class NoteRemoveOperation extends Operation {
     constructor(note) {
         super();
         this.note = note; // In memory of forgettting to add this(
-        if (!note.parent) {
+        this.isHold = note.type === NoteType.hold;
+        if (!note.parentNode) {
             this.ineffective = true;
         }
         else {
-            this.noteNode = note.parent;
+            this.noteNode = note.parentNode;
         }
     }
     do() {
-        this.noteNode.remove(this.note);
+        const { note, noteNode } = this;
+        noteNode.remove(note);
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = noteNode.parentSeq.holdTailJump;
+            const updateFrom = tailJump.header;
+            const updateTo = tailJump.tailer;
+            // tailJump.getPreviousOf(noteNode, endBeats);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
     }
     undo() {
-        this.noteNode.add(this.note);
+        const { note, noteNode } = this;
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = noteNode.parentSeq.holdTailJump;
+            const updateFrom = tailJump.getNodeAt(endBeats).previous;
+            noteNode.add(note);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
+        else {
+            noteNode.add(note);
+        }
     }
 }
 /**
@@ -1267,37 +1408,88 @@ class NoteDeleteOperation extends NoteRemoveOperation {
         this.updatesEditor = true;
     }
 }
+class MultiNoteDeleteOperation extends ComplexOperation {
+    constructor(notes) {
+        if (notes instanceof Set) {
+            notes = [...notes];
+        }
+        super(...notes.map(note => new NoteDeleteOperation(note)));
+        this.updatesEditor = true;
+        if (notes.length === 0) {
+            this.ineffective = true;
+        }
+    }
+}
 class NoteAddOperation extends Operation {
     constructor(note, node) {
         super();
         this.updatesEditor = true;
         this.note = note;
+        this.isHold = note.type === NoteType.hold;
         this.noteNode = node;
     }
     do() {
-        this.noteNode.add(this.note);
+        const { note, noteNode } = this;
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = noteNode.parentSeq.holdTailJump;
+            const updateFrom = tailJump.header;
+            // tailJump.getNodeAt(endBeats).previous;
+            noteNode.add(note);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
+        else {
+            noteNode.add(note);
+        }
     }
     undo() {
-        this.noteNode.remove(this.note);
+        const { note, noteNode } = this;
+        noteNode.remove(note);
+        const needsUpdate = this.isHold && TimeCalculator.lt(noteNode.endTime, note.endTime);
+        if (needsUpdate) {
+            const endBeats = TimeCalculator.toBeats(note.endTime);
+            const tailJump = noteNode.parentSeq.holdTailJump;
+            const updateFrom = tailJump.getPreviousOf(noteNode, endBeats);
+            tailJump.updateRange(updateFrom, noteNode.next);
+        }
+    }
+}
+class MultiNoteAddOperation extends ComplexOperation {
+    constructor(notes, judgeLine) {
+        if (notes instanceof Set) {
+            notes = [...notes];
+        }
+        super(...notes.map(note => {
+            const node = judgeLine.getNode(note, true);
+            return new NoteAddOperation(note, node);
+        }));
+        this.updatesEditor = true;
+        if (notes.length === 0) {
+            this.ineffective = true;
+        }
     }
 }
 class NoteTimeChangeOperation extends ComplexOperation {
     constructor(note, noteNode) {
-        super(new NoteValueChangeOperation(note, "startTime", noteNode.startTime), new NoteRemoveOperation(note), new NoteAddOperation(note, noteNode));
+        super(new NoteRemoveOperation(note), new NoteValueChangeOperation(note, "startTime", noteNode.startTime), new NoteAddOperation(note, noteNode));
         this.updatesEditor = true;
+        if (note.type === NoteType.hold && !TimeCalculator.gt(note.endTime, noteNode.startTime)) {
+            this.ineffective = true;
+        }
         this.note = note;
-        if (note.parent === noteNode) {
+        if (note.parentNode === noteNode) {
             this.ineffective = true;
         }
     }
     rewrite(operation) {
         if (operation.note === this.note) {
-            this.subOperations[0].value = operation.subOperations[0].value;
-            this.subOperations[0].do();
-            this.subOperations[1] = new NoteRemoveOperation(this.note);
-            if (!this.subOperations[1].ineffective) {
-                this.subOperations[1].do();
+            this.subOperations[0] = new NoteRemoveOperation(this.note);
+            if (!this.subOperations[0].ineffective) {
+                this.subOperations[0].do();
             }
+            this.subOperations[1].value = operation.subOperations[1].value;
+            this.subOperations[1].do();
             this.subOperations[2].noteNode = operation.subOperations[2].noteNode;
             this.subOperations[2].do();
             return true;
@@ -1308,19 +1500,36 @@ class NoteTimeChangeOperation extends ComplexOperation {
 class HoldEndTimeChangeOperation extends NoteValueChangeOperation {
     constructor(note, value) {
         super(note, "endTime", value);
-        if (TimeCalculator.lt(value, note.startTime)) {
+        if (!TimeCalculator.gt(value, note.startTime)) {
             this.ineffective = true;
         }
     }
     do() {
         super.do();
-        const node = this.note.parent;
-        node.parent.holdTailJump.updateRange(node.previous, node.next);
+        const node = this.note.parentNode;
+        node.sort(this.note);
+        const tailJump = node.parentSeq.holdTailJump;
+        tailJump.updateRange(tailJump.header, tailJump.tailer);
     }
     undo() {
         super.undo();
-        const node = this.note.parent;
-        node.parent.holdTailJump.updateRange(node.previous, node.next);
+        const node = this.note.parentNode;
+        node.sort(this.note);
+        const tailJump = node.parentSeq.holdTailJump;
+        tailJump.updateRange(tailJump.header, tailJump.tailer);
+    }
+    rewrite(operation) {
+        if (operation.note === this.note && this.field === operation.field) {
+            if (operation.value === this.value) {
+                return true;
+            }
+            this.value = operation.value;
+            this.note[this.field] = operation.value;
+            const tailJump = this.note.parentNode.parentSeq.holdTailJump;
+            tailJump.updateRange(tailJump.header, tailJump.tailer);
+            return true;
+        }
+        return false;
     }
 }
 class NoteSpeedChangeOperation extends ComplexOperation {
@@ -1340,7 +1549,7 @@ class NoteTypeChangeOperation extends ComplexOperation {
         const isHold = note.type === NoteType.hold;
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parent.parent.parent.getNNList(note.speed, !isHold, true);
+            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, !isHold, true);
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
@@ -1357,12 +1566,16 @@ class EventNodePairRemoveOperation extends Operation {
     constructor(node) {
         super();
         this.updatesEditor = true;
+        if (node.previous === null) {
+            this.ineffective = true;
+            return;
+        }
         if (node.isFirstStart()) {
             this.ineffective = true;
             return;
         }
         [this.endNode, this.startNode] = EventNode.getEndStart(node);
-        this.sequence = this.startNode.parent;
+        this.sequence = this.startNode.parentSeq;
         this.originalPrev = node.previous.previous;
     }
     do() {
@@ -1378,12 +1591,42 @@ class EventNodePairInsertOperation extends Operation {
         this.updatesEditor = true;
         this.node = node;
         this.tarPrev = targetPrevious;
+        this.originalSequence = targetPrevious.parentSeq;
     }
     do() {
-        this.node.parent.jump.updateRange(...EventNode.insert(this.node, this.tarPrev));
+        const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
+        this.node.parentSeq.jump.updateRange(endNode, startNode);
     }
     undo() {
-        this.node.parent.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)));
+        var _a;
+        (_a = this.originalSequence) === null || _a === void 0 ? void 0 : _a.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)));
+    }
+}
+/**
+ * Only used for new nodes
+ * dynamically compute the targetPrevious
+ * /
+class EventNodePairAddOperation extends Operation {
+    updatesEditor = true
+    constructor(public node: EventStartNode, public targetSequence: EventNodeSequence) {
+        super();
+    }
+    do() {
+        const tarPrev = this.targetSequence.getNodeAt(this.node.start);
+        const [endNode, startNode] =
+    }
+}
+*/
+class MultiNodeAddOperation extends ComplexOperation {
+    constructor(nodes, seq) {
+        let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
+        super(...nodes.map(node => {
+            const op = new EventNodePairInsertOperation(node, prev);
+            prev = node; // 有种reduce的感觉
+            return op;
+        }));
+        this.updatesEditor = true;
+        this.nodes = nodes;
     }
 }
 class EventNodeValueChangeOperation extends Operation {
@@ -1422,7 +1665,7 @@ class EventNodeTimeChangeOperation extends Operation {
             return;
         }
         [this.endNode, this.startNode] = EventNode.getEndStart(node);
-        const seq = this.sequence = node.parent;
+        const seq = this.sequence = node.parentSeq;
         const mayBeThere = seq.getNodeAt(TimeCalculator.toBeats(val));
         if (mayBeThere && TC.eq(mayBeThere.time, val)) { // 不是arrayEq，这里踩坑
             this.ineffective = true;
@@ -1440,7 +1683,7 @@ class EventNodeTimeChangeOperation extends Operation {
             this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode));
             EventNode.insert(this.startNode, this.newPrevious);
         }
-        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode));
+        this.sequence.jump.updateRange(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode));
     }
     undo() {
         this.endNode.time = this.startNode.time = this.originalValue;
@@ -1471,6 +1714,7 @@ class EventNodeInnerEasingChangeOperation extends Operation {
 const MIN_LENGTH = 128;
 const MAX_LENGTH = 1024;
 const MINOR_PARTS = 16;
+const breakpoint = () => { debugger; };
 class JumpArray {
     /**
      *
@@ -1481,11 +1725,14 @@ class JumpArray {
      * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]（停止遍历的条件是抵达尾部而不是得到null）
      * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
      */
-    constructor(head, tail, originalListLength, effectiveBeats, endNextFn, nextFn) {
-        this.header = head;
-        this.tailer = tail;
+    constructor(head, tail, originalListLength, effectiveBeats, endNextFn, nextFn, resolveLastNode = (node) => node
+    // goPrev: (node: T) => T
+    ) {
         this.endNextFn = endNextFn;
         this.nextFn = nextFn;
+        this.resolveLastNode = resolveLastNode;
+        this.header = head;
+        this.tailer = tail;
         // const originalListLength = this.listLength
         const listLength = Math.max(MIN_LENGTH, Math.min(originalListLength * 4, MAX_LENGTH));
         const averageBeats = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
@@ -1616,6 +1863,25 @@ class JumpArray {
             }
         }
     }
+    getPreviousOf(node, beats) {
+        const jumpAverageBeats = this.averageBeats;
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        const nextFn = this.nextFn;
+        for (let i = jumpPos; i >= 0; i--) {
+            let canBeNodeOrArray = this.array[i];
+            if (Array.isArray(canBeNodeOrArray)) {
+                const minorIndex = Math.floor(rest / (jumpAverageBeats / MINOR_PARTS)) - 1;
+                for (let j = minorIndex; j >= 0; j--) {
+                    const minorNode = canBeNodeOrArray[j];
+                    if (minorNode !== node) {
+                        return minorNode;
+                    }
+                }
+            }
+        }
+        return this.header;
+    }
     /**
      *
      * @param beats 拍数
@@ -1623,11 +1889,12 @@ class JumpArray {
      * @returns 时间索引链表的节点
      */
     getNodeAt(beats) {
+        var _a, _b;
         if (beats < 0) {
-            return this.header.next;
+            return (_a = this.header.next) !== null && _a !== void 0 ? _a : breakpoint();
         }
         if (beats >= this.effectiveBeats) {
-            return this.tailer;
+            return (_b = this.tailer) !== null && _b !== void 0 ? _b : breakpoint();
         }
         const jumpAverageBeats = this.averageBeats;
         const jumpPos = Math.floor(beats / jumpAverageBeats);
@@ -1638,7 +1905,7 @@ class JumpArray {
             ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
             : canBeNodeOrArray;
         if ("tailing" in node) {
-            return node;
+            return node !== null && node !== void 0 ? node : breakpoint();
         }
         // console.log(this, node, jumpPos, beats)
         if (!node) {
@@ -1653,7 +1920,7 @@ class JumpArray {
                 break;
             }
         }
-        return node;
+        return node !== null && node !== void 0 ? node : breakpoint();
     }
 }
 /**
@@ -1694,7 +1961,7 @@ class Settings {
         localStorage.setItem("settings", JSON.stringify(this.cache));
     }
 }
-class SideEditor {
+class SideEditor extends Z {
     get target() {
         var _a;
         return (_a = this._target) === null || _a === void 0 ? void 0 : _a.deref();
@@ -1704,17 +1971,11 @@ class SideEditor {
         this.update();
     }
     constructor() {
-        this.$element = $("div").addClass("side-editor");
-        this.element = this.$element.release();
-        this.$title = $("div").addClass("side-editor-title").text("Event");
+        super("div");
+        this.addClass("side-editor");
+        this.$title = $("div").addClass("side-editor-title");
         this.$body = $("div").addClass("side-editor-body");
-        this.$element.append(this.$title, this.$body);
-    }
-    hide() {
-        this.$element.hide();
-    }
-    show() {
-        this.$element.show();
+        this.append(this.$title, this.$body);
     }
 }
 class NoteEditor extends SideEditor {
@@ -1739,7 +2000,7 @@ class NoteEditor extends SideEditor {
         this.$delete = new ZButton("Delete").addClass("destructive");
         this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parent.parent.getNodeOf(t)));
+            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)));
             if (this.target.type !== NoteType.hold) {
                 this.$endTime.setValue(t);
             }
@@ -1752,7 +2013,7 @@ class NoteEditor extends SideEditor {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()));
         });
         this.$speed.onChange(() => {
-            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parent.parent.parent));
+            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine));
         });
         this.$alpha.onChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()));
@@ -1786,10 +2047,45 @@ class NoteEditor extends SideEditor {
         this.$size.setValue(note.size + "");
     }
 }
+class MultiNoteEditor extends SideEditor {
+    constructor() {
+        super();
+        this.$title.text("Multi Notes");
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$reverse = new ZButton("Reverse");
+        this.$body.append(this.$delete, this.$reverse);
+        this.$reverse.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))));
+        });
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new MultiNoteDeleteOperation(this.target));
+        });
+    }
+    update() {
+    }
+}
+class MultiNodeEditor extends SideEditor {
+    constructor() {
+        super();
+        this.$title.text("Multi Nodes");
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$reverse = new ZButton("Reverse");
+        this.$body.append(this.$delete, this.$reverse);
+        this.$reverse.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))));
+        });
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodePairRemoveOperation(n))));
+        });
+    }
+    update() {
+    }
+}
 class EventEditor extends SideEditor {
     constructor() {
         super();
-        this.$element.addClass("event-editor");
+        this.$title.text("Event");
+        this.addClass("event-editor");
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
         this.$easing = new ZEasingBox();
@@ -1798,7 +2094,9 @@ class EventEditor extends SideEditor {
             "Normal": this.$easing,
             "Template": this.$templateEasing
         });
-        this.$body.append($("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs);
+        this.$delete = new ZButton("delete").addClass("destructive")
+            .onClick(() => editor.chart.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
+        this.$body.append($("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
             editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
         });
@@ -1844,6 +2142,8 @@ class EventEditor extends SideEditor {
         }
     }
 }
+const pointIsInRect = (x, y, rectTop, rectLeft, width, height) => rectLeft <= x && x <= rectLeft + width
+    && rectTop <= y && y <= rectTop + height;
 class SelectionManager {
     constructor() {
     }
@@ -1856,33 +2156,73 @@ class SelectionManager {
             annotate: (context, canvasX, canvasY) => {
                 context.save();
                 context.fillStyle = "pink";
-                context.fillText(`${shortenFloat(entity.x, 1)}, ${shortenFloat(entity.y, 1)}`, canvasX, canvasY - 10);
+                context.fillText(`${shortenFloat(entity.left || entity.centerX, 1)}, ${shortenFloat(entity.top || entity.centerY, 1)}`, canvasX, canvasY - 10);
                 context.restore();
             },
         };
     }
     click(x, y) {
+        if (typeof x !== "number") {
+            return this.click(x.x, x.y);
+        }
         const positions = this.positions;
-        console.log(positions, x, y);
+        // console.log(positions, x, y)
         const len = positions.length;
         let i = 0;
         let selected, priority = -1;
         for (; i < len; i++) {
             const pos = positions[i];
-            if (pointIsInRect(x, y, pos, pos.width, pos.height)) {
-                if (pos.priority > priority) {
+            if ("centerX" in pos) {
+                const dx = x - pos.centerX;
+                const dy = y - pos.centerY;
+                const theta = pos.rad || 0;
+                // dx dy 顺时针转rad，判断绝对值与半宽高的关系，均小于则在旋转矩形内
+                const rx = Math.abs(theta ? dx * Math.cos(theta) + dy * Math.sin(theta) : dx);
+                const ry = Math.abs(theta ? dx * -Math.sin(theta) + dy * Math.cos(theta) : dy);
+                if (rx < pos.width / 2 && ry < pos.height / 2 && pos.priority > priority) {
                     selected = pos;
                     priority = pos.priority;
+                }
+            }
+            else {
+                if (pointIsInRect(x, y, pos.top, pos.left, pos.width, pos.height)) {
+                    if (pos.priority > priority) {
+                        selected = pos;
+                        priority = pos.priority;
+                    }
                 }
             }
         }
         return selected;
     }
+    /**
+     * For PositionEntities whose centerXY is given, this method only examine whether the center is in the rect.
+     * For PositionEntities whose left, top is given, this method also examine whether the pos rect is in the rect.
+     * @param top
+     * @param left
+     * @param right
+     * @param bottom
+     * @returns
+     */
+    selectScope(top, left, bottom, right) {
+        return this.positions.filter(pos => {
+            if ("centerX" in pos) {
+                console.log(left, pos.centerX, right);
+                console.log(top, pos.centerY, bottom);
+                return pos.centerX >= left && pos.centerX <= right && pos.centerY >= top && pos.centerY <= bottom;
+            }
+            else {
+                return pos.left >= left && pos.left + pos.width <= right
+                    && pos.top >= top && pos.top + pos.height <= bottom;
+            }
+        });
+    }
 }
+// ** TODO: Charting time stats
 const eventTypeMap = [
     {
         basis: 0,
-        valueGridSpan: 270,
+        valueGridSpan: 135,
         valueRange: 1350
     },
     {
@@ -1909,13 +2249,24 @@ const eventTypeMap = [
         basis: 0,
         valueGridSpan: 270,
         valueRange: 1350
+    },
+    {
+        basis: -0.5,
+        valueGridSpan: 40,
+        valueRange: 300
     }
 ];
-class EventCurveEditors {
+var NewNodeState;
+(function (NewNodeState) {
+    NewNodeState[NewNodeState["controlsStart"] = 0] = "controlsStart";
+    NewNodeState[NewNodeState["controlsEnd"] = 1] = "controlsEnd";
+    NewNodeState[NewNodeState["controlsBoth"] = 2] = "controlsBoth";
+})(NewNodeState || (NewNodeState = {}));
+class EventCurveEditors extends Z {
     constructor(width, height) {
+        super("div");
         this._selectedLayer = "0";
-        this.$element = $("div");
-        this.$element.addClass("event-curve-editors");
+        this.addClass("event-curve-editors");
         this.$bar = $("div").addClass("flex-row");
         this.$typeSelect = new ZDropdownOptionBox([
             "moveX",
@@ -1923,7 +2274,8 @@ class EventCurveEditors {
             "alpha",
             "rotate",
             "speed",
-            "easing"
+            "easing",
+            "bpm"
         ].map((s) => new BoxOption(s)), true);
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
@@ -1932,27 +2284,48 @@ class EventCurveEditors {
         this.$layerSelect.onChange((val) => {
             this.selectedLayer = val;
         });
-        this.$bar.append(this.$typeSelect, this.$layerSelect);
-        this.$element.append(this.$bar);
-        this.element = this.$element.element;
-        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing"]) {
-            this[type] = new EventCurveEditor(EventType[type], height - 24, width, this);
+        this.$editSwitch = new ZSwitch("Edit");
+        this.$easingBox = new ZEasingBox(true)
+            .onChange(id => {
+            for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+                this[type].easing = rpeEasingArray[id];
+            }
+        });
+        this.$easingBox.setValue(easingMap.linear.in);
+        this.$newNodeStateSelect = new ZDropdownOptionBox([
+            "Both",
+            "Start",
+            "End"
+        ].map((s) => new BoxOption(s)), true)
+            .onChange((val) => {
+            for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+                this[type].newNodeState = NewNodeState["controls" + val];
+            }
+        });
+        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true);
+        this.$copyButton = new ZButton("Copy");
+        this.$pasteButton = new ZButton("Paste");
+        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect);
+        this.append(this.$bar);
+        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+            this[type] = new EventCurveEditor(EventType[type], height - 40, width, this);
             this[type].displayed = false;
-            this.element.append(this[type].element);
+            this.append(this[type].element);
         }
+        this.nodesSelection = new Set();
         this.selectedEditor = this.moveX;
-    }
-    appendTo(element) {
-        element.append(this.element);
     }
     get selectedEditor() {
         return this._selectedEditor;
     }
     set selectedEditor(val) {
+        if (val === this._selectedEditor)
+            return;
         if (this._selectedEditor)
             this._selectedEditor.displayed = false;
         this._selectedEditor = val;
         val.displayed = true;
+        this.nodesSelection = new Set();
         this.draw();
     }
     get selectedLayer() {
@@ -1984,6 +2357,8 @@ var EventCurveEditorState;
     EventCurveEditorState[EventCurveEditorState["selecting"] = 1] = "selecting";
     EventCurveEditorState[EventCurveEditorState["edit"] = 2] = "edit";
     EventCurveEditorState[EventCurveEditorState["flowing"] = 3] = "flowing";
+    EventCurveEditorState[EventCurveEditorState["selectScope"] = 4] = "selectScope";
+    EventCurveEditorState[EventCurveEditorState["selectingScope"] = 5] = "selectingScope";
 })(EventCurveEditorState || (EventCurveEditorState = {}));
 class EventCurveEditor {
     get selectedNode() {
@@ -2012,9 +2387,10 @@ class EventCurveEditor {
         }
     }
     constructor(type, height, width, parent) {
+        this.newNodeState = NewNodeState.controlsBoth;
         const config = eventTypeMap[type];
         this.type = type;
-        this.parent = parent;
+        this.parentEditorSet = parent;
         this._displayed = true;
         this.$element = $("div");
         this.element = this.$element.element;
@@ -2025,27 +2401,32 @@ class EventCurveEditor {
         this.element.append(this.canvas);
         this.canvas.width = width; //this.canvas.parentElement.clientWidth;
         this.canvas.height = height;
-        this.padding = 10;
+        this.padding = 14;
+        this.innerHeight = this.canvas.height - this.padding * 2;
+        this.innerWidth = this.canvas.width - this.padding * 2;
         this.context = this.canvas.getContext("2d");
         this.timeRange = 4;
         // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
-        this.valueBasis = this.canvas.height * config.basis;
-        this.valueRatio = this.canvas.height / this.valueRange;
-        this.timeRatio = this.canvas.width / this.timeRange;
+        this.valueBasis = config.basis;
+        this.valueRatio = this.innerHeight / this.valueRange;
+        this.timeRatio = this.innerWidth / this.timeRange;
         this.timeGridSpan = 1;
         this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
         this.valueGridColor = [255, 170, 120];
         this.initContext();
+        parent.$editSwitch.onClickChange((checked) => {
+            this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
+        });
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-            const { width, height } = this.canvas;
-            const [x, y] = [offsetX - width / 2, offsetY - height / 2 - this.valueBasis];
-            this.cursorPos = [x, y];
+            const coord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const { x, y } = coord;
             const { padding } = this;
-            this.pointedValue = -Math.round((y / this.valueRatio) / this.valueGridSpan) * this.valueGridSpan;
-            const accurateBeats = x / this.timeRatio + this.lastBeats;
+            const { x: beats, y: value } = coord.mul(this.invertedMatrix);
+            this.pointedValue = Math.round(value / this.valueGridSpan) * this.valueGridSpan;
+            const accurateBeats = beats + this.lastBeats;
             this.pointedBeats = Math.floor(accurateBeats);
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor);
             if (this.beatFraction === editor.timeDivisor) {
@@ -2058,6 +2439,7 @@ class EventCurveEditor {
                     editor.chart.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue));
                     editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]));
             }
+            this.draw();
         });
         on(["mousedown", "touchstart"], this.canvas, (event) => {
             this.downHandler(event);
@@ -2067,6 +2449,53 @@ class EventCurveEditor {
             this.upHandler(event);
             this.draw();
         });
+        parent.$selectOption.onChange((v) => {
+            this.selectState = SelectState[v];
+            if (this.selectState === SelectState.none) {
+                this.state = EventCurveEditorState.select;
+            }
+            else {
+                this.state = EventCurveEditorState.selectScope;
+            }
+        });
+        this.mouseIn = false;
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        });
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        });
+        parent.$copyButton.onClick(() => {
+            this.copy();
+        });
+        parent.$pasteButton.onClick(() => {
+            this.paste();
+        });
+        window.addEventListener("keypress", (e) => {
+            console.log("Key press:", e.key);
+            if (!this.mouseIn) {
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+            }
+        });
+    }
+    updateMatrix() {
+        this.valueRatio = this.innerHeight / this.valueRange;
+        this.timeRatio = this.innerWidth / this.timeRange;
+        const { timeRange, valueRange, timeRatio, valueRatio, valueBasis } = this;
+        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
+        this.invertedMatrix = this.matrix.invert();
+        console.log(this.matrix);
+        console.log(identity.translate(0, -valueBasis * valueRange));
+        this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
+        this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
     appendTo(parent) {
         parent.append(this.element);
@@ -2075,13 +2504,14 @@ class EventCurveEditor {
         const { width, height } = this.canvas;
         const { padding } = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-        const [x, y] = [offsetX - width / 2, offsetY - height / 2];
-        this.cursorPos = [x, y];
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const coord = canvasCoord.mul(this.invertedMatrix);
+        this.canvasPoint = canvasCoord;
         // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
             case EventCurveEditorState.selecting:
-                const snode = this.selectionManager.click(x, y);
+                const snode = this.selectionManager.click(canvasCoord);
                 this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
                 if (snode) {
                     this.selectedNode = snode.target;
@@ -2098,18 +2528,28 @@ class EventCurveEditor {
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
                 }
-                const endNode = new EventEndNode(time, this.pointedValue);
-                const node = new EventStartNode(time, this.pointedValue);
+                const endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue);
+                const node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
+                node.easing = this.easing;
                 EventNode.connect(endNode, node);
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
+                this.parentEditorSet.$editSwitch.checked = false;
                 this.wasEditing = true;
+                break;
+            case EventCurveEditorState.selectScope:
+                this.startingPoint = coord;
+                this.startingCanvasPoint = canvasCoord;
+                this.state = EventCurveEditorState.selectingScope;
                 break;
         }
     }
     upHandler(event) {
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const { x, y } = canvasCoord.mul(this.invertedMatrix);
         switch (this.state) {
             case EventCurveEditorState.selecting:
                 if (!this.wasEditing) {
@@ -2117,7 +2557,35 @@ class EventCurveEditor {
                 }
                 else {
                     this.state = EventCurveEditorState.edit;
+                    this.parentEditorSet.$editSwitch.checked = true;
                 }
+                break;
+            case EventCurveEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                console.log("Arr", array);
+                console.log(sx, sy, ex, ey);
+                const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
+                console.log(nodes);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
+                        break;
+                    case SelectState.replace:
+                        this.parentEditorSet.nodesSelection = new Set(nodes);
+                        break;
+                    case SelectState.exclude:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.difference(new Set(nodes));
+                        break;
+                }
+                this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note) => !!note.parentSeq));
+                console.log("bp");
+                if (this.parentEditorSet.nodesSelection.size !== 0) {
+                    editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
+                    editor.switchSide(editor.multiNodeEditor);
+                }
+                this.state = EventCurveEditorState.selectScope;
                 break;
             default:
                 this.state = EventCurveEditorState.select;
@@ -2131,42 +2599,43 @@ class EventCurveEditor {
     }
     drawCoordination(beats) {
         const { height: canvasHeight, width: canvasWidth } = this.canvas;
-        const height = canvasHeight - this.padding * 2, width = canvasWidth - this.padding * 2;
+        const { innerHeight, innerWidth } = this;
         const { timeGridSpan, valueGridSpan, valueRatio, timeRatio, context } = this;
         const timeDivisor = editor.timeDivisor;
         context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
+        const basis = this.valueBasis * this.innerHeight;
         // 计算上下界
         context.save();
         context.fillStyle = "#EEE";
-        const upperEnd = Math.ceil((height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan;
-        const lowerEnd = Math.ceil((-height / 2 - this.valueBasis) / valueGridSpan / valueRatio) * valueGridSpan;
+        const upperEnd = Math.ceil((innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan;
+        const lowerEnd = Math.ceil((-innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan;
         context.strokeStyle = rgb(...this.valueGridColor);
         context.lineWidth = 1;
         for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
-            const positionY = value * valueRatio + this.valueBasis;
+            const positionY = value * valueRatio + basis;
             drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
-            context.fillText(value + "", -width / 2, -positionY);
+            context.fillText(value + "", -innerWidth / 2, -positionY);
         }
         context.strokeStyle = rgb(...this.timeGridColor);
         const stopBeats = Math.ceil((beats + this.timeRange / 2) / timeGridSpan) * timeGridSpan;
         const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionX = (time - beats) * timeRatio;
-            drawLine(context, positionX, height / 2, positionX, -height / 2);
-            context.fillText(time + "", positionX, height / 2);
+            drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
+            context.fillText(time + "", positionX, innerHeight / 2);
             context.save();
             context.lineWidth = 1;
             for (let i = 1; i < timeDivisor; i++) {
                 const minorPosX = (time + i / timeDivisor - beats) * timeRatio;
-                drawLine(context, minorPosX, height / 2, minorPosX, -height / 2);
+                drawLine(context, minorPosX, innerHeight / 2, minorPosX, -innerHeight / 2);
             }
             context.restore();
         }
         context.restore();
         context.lineWidth = 3;
-        drawLine(context, 0, width / 2, 0, -width / 2);
+        drawLine(context, 0, innerHeight / 2, 0, -innerHeight / 2);
         context.strokeStyle = "#EEE";
     }
     draw(beats) {
@@ -2174,18 +2643,22 @@ class EventCurveEditor {
             return;
         }
         beats = beats || this.lastBeats || 0;
+        this.updateMatrix();
         const { height, width } = this.canvas;
-        const { timeRatio, valueRatio, valueBasis: basis, context, selectionManager } = this;
+        const { timeRatio, valueRatio, valueBasis: basis, context, selectionManager, matrix } = this;
         selectionManager.refresh();
         this.drawCoordination(beats);
         context.save();
-        this.context.fillStyle = "#EEE";
-        this.context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
-        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
-        this.context.fillText("Sequence: " + this.target.id, 10, -50);
-        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
-        if (this.cursorPos) {
-            this.context.fillText(`Cursor: ${this.cursorPos[0]}, ${this.cursorPos[1]}`, 10, -90);
+        context.fillStyle = "#EEE";
+        context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
+        context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
+        context.fillText("Sequence: " + this.target.id, 10, -50);
+        context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
+        if (this.pointedBeats) {
+            context.fillText(`pointedTime: ${this.pointedBeats}:${this.beatFraction}:${editor.timeDivisor}`, 10, 10);
+        }
+        if (this.canvasPoint) {
+            this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
         }
         context.restore();
         const startBeats = beats - this.timeRange / 2;
@@ -2202,29 +2675,37 @@ class EventCurveEditor {
             const endTime = TimeCalculator.toBeats(endNode.time);
             const startValue = startNode.value;
             const endValue = endNode.value;
-            const startX = (startTime - beats) * timeRatio;
-            const endX = (endTime - beats) * timeRatio;
-            const startY = startValue * valueRatio + basis;
-            const topY = -startY - NODE_HEIGHT / 2;
-            const endY = endValue * valueRatio + basis;
-            const topEndY = -endY - NODE_HEIGHT / 2;
+            const { x: startX, y: startY } = new Coordinate(startTime - beats, startValue).mul(matrix);
+            console.log("startXY", startX, startY);
+            console.log(Matrix.fromDOMMatrix(context.getTransform()));
+            const { x: endX, y: endY } = new Coordinate(endTime - beats, endValue).mul(matrix);
+            const topY = startY - NODE_HEIGHT / 2;
+            const topEndY = endY - NODE_HEIGHT / 2;
             selectionManager.add({
                 target: startNode,
-                x: startX,
-                y: topY,
+                left: startX,
+                top: topY,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
             }).annotate(context, startX, topY);
             selectionManager.add({
                 target: endNode,
-                x: endX - NODE_WIDTH,
-                y: topEndY,
+                left: endX - NODE_WIDTH,
+                top: topEndY,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 priority: 1
             }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20);
-            startNode.easing.drawCurve(context, startX, -startY, endX, -endY);
+            const selected = this.parentEditorSet.nodesSelection.has(startNode);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
+            startNode.easing.drawCurve(context, startX, startY, endX, endY);
+            if (selected) {
+                context.restore();
+            }
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT);
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT);
             // console.log(this.type, EventType.speed)
@@ -2242,10 +2723,33 @@ class EventCurveEditor {
             const lastStart = previousEndNode.next;
             const startTime = TimeCalculator.toBeats(lastStart.time);
             const startValue = lastStart.value;
-            const startX = (startTime - beats) * timeRatio;
-            const startY = startValue * valueRatio + basis;
+            const { x: startX, y: startY } = new Coordinate(startTime - beats, startValue).mul(matrix);
+            const topY = startY - NODE_HEIGHT / 2;
+            const selected = this.parentEditorSet.nodesSelection.has(lastStart);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
             drawLine(context, startX, startY, width / 2, startY);
-            context.drawImage(NODE_START, startX, -startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT);
+            if (selected) {
+                context.restore();
+            }
+            context.drawImage(NODE_START, startX, startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT);
+            selectionManager.add({
+                target: lastStart,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+        }
+        if (this.state === EventCurveEditorState.selectingScope) {
+            const { startingCanvasPoint, canvasPoint } = this;
+            context.save();
+            context.strokeStyle = "#84F";
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore();
         }
         this.lastBeats = beats;
     }
@@ -2256,6 +2760,39 @@ class EventCurveEditor {
         }
         line.eventLayers[index] = line.eventLayers[index] || {};
         this.target = line.eventLayers[index][EventType[this.type]] || EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+    }
+    paste() {
+        if (!this.displayed) {
+            return;
+        }
+        const { lastBeats } = this;
+        const { clipboard } = this.parentEditorSet;
+        const { timeDivisor } = editor;
+        if (!clipboard || clipboard.size === 0) {
+            return;
+        }
+        if (!lastBeats) {
+            Editor.notify("Have not rendered a frame");
+        }
+        const nodes = [...clipboard];
+        nodes.sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+        const startTime = nodes[0].time;
+        // const portions: number = Math.round(timeDivisor * lastBeats);
+        const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const offset = TimeCalculator.sub(dest, startTime);
+        const newNodes = nodes.map(n => n.clonePair(offset));
+        editor.chart.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
+        editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set(newNodes);
+        editor.update();
+    }
+    copy() {
+        if (!this.displayed) {
+            return;
+        }
+        console.log(this.parentEditorSet.nodesSelection);
+        this.parentEditorSet.clipboard = this.parentEditorSet.nodesSelection;
+        this.parentEditorSet.nodesSelection = new Set();
+        editor.update();
     }
 }
 const DRAWS_NN = true;
@@ -2269,9 +2806,26 @@ var NotesEditorState;
     NotesEditorState[NotesEditorState["select"] = 0] = "select";
     NotesEditorState[NotesEditorState["selecting"] = 1] = "selecting";
     NotesEditorState[NotesEditorState["edit"] = 2] = "edit";
-    NotesEditorState[NotesEditorState["flowing"] = 3] = "flowing";
+    NotesEditorState[NotesEditorState["selectScope"] = 3] = "selectScope";
+    NotesEditorState[NotesEditorState["selectingScope"] = 4] = "selectingScope";
+    NotesEditorState[NotesEditorState["flowing"] = 5] = "flowing";
 })(NotesEditorState || (NotesEditorState = {}));
-class NotesEditor {
+class HoldTail {
+    constructor(note) {
+        this.note = note;
+    }
+}
+const timeToString = (time) => {
+    return `${time[0]}:${time[1]}/${time[2]}`;
+};
+var SelectState;
+(function (SelectState) {
+    SelectState[SelectState["none"] = 0] = "none";
+    SelectState[SelectState["extend"] = 1] = "extend";
+    SelectState[SelectState["replace"] = 2] = "replace";
+    SelectState[SelectState["exclude"] = 3] = "exclude";
+})(SelectState || (SelectState = {}));
+class NotesEditor extends Z {
     get target() {
         return this._target;
     }
@@ -2322,22 +2876,43 @@ class NotesEditor {
         }
     }
     constructor(editor, width, height) {
+        super("div");
+        this.addClass("notes-editor");
         this.selectionManager = new SelectionManager();
         this.allOption = new EditableBoxOption("*", (_s, t) => { }, () => this.targetTree = null, () => undefined, false);
-        this.$element = $("div").addClass("notes-editor");
         this.$statusBar = $("div").addClass("notes-editor-status-bar");
-        this.$element.append(this.$statusBar);
+        this.append(this.$statusBar);
         this.$optionBox = new ZEditableDropdownOptionBox([this.allOption]);
         this.$typeOption = new ZDropdownOptionBox(arrayForIn([
             "tap", "hold", "flick", "drag"
         ], (v) => new BoxOption(v))).onChange(() => this.noteType = NoteType[this.$typeOption.value.text]);
         this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
             .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above");
-        this.$editButton = new ZButton("e/s")
-            .onClick(() => {
-            this.state = this.state === NotesEditorState.edit ? NotesEditorState.select : NotesEditorState.edit;
+        this.notesSelection = new Set();
+        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)))
+            .onChange((v) => {
+            this.selectState = SelectState[v];
+            if (this.selectState === SelectState.none) {
+                this.state = NotesEditorState.select;
+            }
+            else {
+                this.state = NotesEditorState.selectScope;
+            }
         });
-        this.$statusBar.append(this.$optionBox, this.$typeOption, this.$noteAboveOption, this.$editButton);
+        this.noteAbove = true;
+        this.$copyButton = new ZButton("Copy")
+            .onClick(() => {
+            this.copy();
+        });
+        this.$pasteButton = new ZButton("Paste")
+            .onClick(() => {
+            this.paste();
+        });
+        this.$editButton = new ZSwitch("Edit")
+            .onClickChange((checked) => {
+            this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
+        });
+        this.$statusBar.append(this.$optionBox, this.$typeOption, this.$noteAboveOption, this.$editButton, this.$copyButton, this.$pasteButton, this.$selectOption);
         this.$statusBar.css("width", width + "px");
         this.editor = editor;
         this.padding = 10;
@@ -2346,6 +2921,7 @@ class NotesEditor {
         this.wasEditing = false;
         this.positionBasis = 0;
         this.positionGridSpan = 135;
+        this.positionSpan = 1350;
         this.positionRatio = width / 1350;
         this.timeGridSpan = 1;
         this.timeSpan = 2;
@@ -2356,15 +2932,17 @@ class NotesEditor {
         this.canvas.height = height;
         console.log("Initialized:", width, height);
         this.context = this.canvas.getContext("2d");
-        this.$element.release().append(this.canvas);
+        this.append(this.canvas);
         on(["mousedown", "touchstart"], this.canvas, (event) => { this.downHandler(event); });
         on(["mouseup", "touchend"], this.canvas, (event) => this.upHandler(event));
         on(["mousemove", "touchmove"], this.canvas, (event) => {
-            const [x, y] = getOffsetCoordFromEvent(event, this.canvas);
-            const { width, height } = this.canvas;
-            const { padding } = this;
-            this.pointedPositionX = Math.round(((x - width / 2 - padding) / this.positionRatio) / this.positionGridSpan) * this.positionGridSpan;
-            const accurateBeats = (height - y - padding) / this.timeRatio + this.lastBeats;
+            const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+            const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const { x, y } = canvasCoord.mul(this.invertedMatrix);
+            // const {width, height} = this.canvas
+            // const {padding} = this;
+            this.pointedPositionX = Math.round((x) / this.positionGridSpan) * this.positionGridSpan;
+            const accurateBeats = y + this.lastBeats;
             this.pointedBeats = Math.floor(accurateBeats);
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor);
             if (this.beatFraction === editor.timeDivisor) {
@@ -2375,15 +2953,70 @@ class NotesEditor {
                 case NotesEditorState.selecting:
                     console.log("det");
                     console.log(this.selectedNote);
+                    if (!this.selectedNote) {
+                        console.warn("Unexpected error: selected note does not exist");
+                        break;
+                    }
+                    const timeT = [this.pointedBeats, this.beatFraction, editor.timeDivisor];
                     editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX));
-                    editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parent.parent.getNodeOf([this.pointedBeats, this.beatFraction, editor.timeDivisor])));
+                    if (this.selectingTail) {
+                        editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT));
+                    }
+                    else {
+                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)));
+                    }
             }
         });
         on(["mousedown", "mousemove", "touchstart", "touchmove"], this.canvas, (event) => {
             if (this.drawn) {
                 return;
             }
-            this.drawn = true;
+            this.draw();
+        });
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        });
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        });
+        const map = { q: NoteType.tap, w: NoteType.drag, e: NoteType.flick, r: NoteType.hold };
+        window.addEventListener("keypress", (e) => {
+            console.log("Key press:", e.key);
+            if (!this.mouseIn) {
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+                case "q":
+                case "w":
+                case "e":
+                case "r":
+                    const noteType = map[e.key.toLowerCase()];
+                    const { beatFraction, pointedBeats } = this;
+                    const startTime = [pointedBeats, beatFraction, editor.timeDivisor];
+                    const endTime = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime];
+                    const note = new Note({
+                        endTime: endTime,
+                        startTime: startTime,
+                        visibleTime: 99999,
+                        positionX: this.pointedPositionX,
+                        alpha: 255,
+                        above: this.noteAbove ? 1 : 0,
+                        isFake: 0,
+                        size: 1.0,
+                        speed: 1.0,
+                        type: noteType,
+                        yOffset: 0
+                    });
+                    // this.editor.chart.getComboInfoEntity(startTime).add(note)
+                    this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                    break;
+            }
         });
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
@@ -2393,16 +3026,20 @@ class NotesEditor {
         const { width, height } = this.canvas;
         console.log(width, height);
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-        const [x, y] = [offsetX - width / 2, offsetY - (this.canvas.height - this.padding)];
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const coord = canvasCoord.mul(this.invertedMatrix);
+        const { x, y } = coord;
         console.log("offset:", offsetX, offsetY);
         console.log("Coord:", x, y);
         switch (this.state) {
             case NotesEditorState.select:
             case NotesEditorState.selecting:
-                const snote = this.selectionManager.click(x, y);
+                const snote = this.selectionManager.click(canvasCoord);
                 this.state = !snote ? NotesEditorState.select : NotesEditorState.selecting;
                 if (snote) {
-                    this.selectedNote = snote.target;
+                    const tar = snote.target;
+                    const isTail = this.selectingTail = tar instanceof HoldTail;
+                    this.selectedNote = isTail ? tar.note : tar;
                     this.editor.switchSide(editor.noteEditor);
                 }
                 console.log(NotesEditorState[this.state]);
@@ -2428,14 +3065,58 @@ class NotesEditor {
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
+                if (note.type === NoteType.hold) {
+                    this.selectingTail = true;
+                }
                 this.state = NotesEditorState.selecting;
+                this.editor.switchSide(this.editor.noteEditor);
+                this.$editButton.checked = false;
                 this.wasEditing = true;
+                break;
+            case NotesEditorState.selectScope:
+                this.startingPoint = coord;
+                this.startingCanvasPoint = canvasCoord;
+                this.state = NotesEditorState.selectingScope;
                 break;
         }
     }
     upHandler(event) {
-        if (this.state === NotesEditorState.selecting) {
-            this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select;
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const { x, y } = canvasCoord.mul(this.invertedMatrix);
+        switch (this.state) {
+            case NotesEditorState.selecting:
+                this.state = this.wasEditing ? NotesEditorState.edit : NotesEditorState.select;
+                if (this.wasEditing) {
+                    this.$editButton.checked = true;
+                }
+                break;
+            case NotesEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                console.log("Arr", array);
+                console.log(sx, sy, ex, ey);
+                const notes = array.map(x => x.target).filter(x => x instanceof Note);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.notesSelection = this.notesSelection.union(new Set(notes));
+                        break;
+                    case SelectState.replace:
+                        this.notesSelection = new Set(notes);
+                        break;
+                    case SelectState.exclude:
+                        this.notesSelection = this.notesSelection.difference(new Set(notes));
+                        break;
+                }
+                this.notesSelection = new Set([...this.notesSelection].filter((note) => !!note.parentNode));
+                console.log("bp");
+                if (this.notesSelection.size !== 0) {
+                    this.editor.multiNoteEditor.target = this.notesSelection;
+                    this.editor.switchSide(editor.multiNoteEditor);
+                }
+                this.state = NotesEditorState.selectScope;
+                break;
         }
     }
     get selectedNote() {
@@ -2448,8 +3129,17 @@ class NotesEditor {
         this._selectedNote = new WeakRef(val);
         this.editor.noteEditor.target = val;
     }
-    appendTo(element) {
-        element.append(this.$element.release());
+    updateMatrix() {
+        this.positionRatio = this.canvas.height / this.positionSpan;
+        this.timeRatio = this.canvas.width / this.timeSpan;
+        const { 
+        // timeSpan,
+        // positionSpan,
+        timeRatio, positionRatio } = this;
+        this.matrix = identity.scale(positionRatio, -timeRatio);
+        this.invertedMatrix = this.matrix.invert();
+        this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
+        this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
     init() {
         this.context.translate(this.canvas.width / 2, this.canvas.height - this.padding);
@@ -2462,7 +3152,7 @@ class NotesEditor {
         const { context, canvas } = this;
         const { width: canvasWidth, height: canvasHeight } = canvas;
         // console.log(canvasWidth, canvasHeight)
-        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan: timeRange, timeRatio, padding } = this;
+        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan, timeRatio, padding, pointedBeats, beatFraction } = this;
         const width = canvasWidth - padding * 2;
         const height = canvasHeight - padding * 2;
         context.fillStyle = "#333";
@@ -2474,6 +3164,8 @@ class NotesEditor {
         drawLine(context, -canvasWidth / 2, 0, canvasWidth / 2, 0);
         context.fillStyle = "#EEE";
         context.fillText("State:" + NotesEditorState[this.state], 0, -height + 20);
+        if (pointedBeats)
+            context.fillText(`PointedTime: ${pointedBeats}:${beatFraction}/${this.editor.timeDivisor}`, 0, -height + 70);
         if (this.targetTree && this.targetTree.timeRanges) {
             context.fillText("Range:" + arrayForIn(this.targetTree.timeRanges, (range) => range.join("-")).join(","), -100, -height + 50);
         }
@@ -2484,6 +3176,7 @@ class NotesEditor {
         const lowerEnd = Math.ceil((-width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan;
         context.strokeStyle = rgb(...this.positionGridColor);
         context.lineWidth = 1;
+        console.log(upperEnd, lowerEnd);
         // debugger;
         for (let value = lowerEnd; value < upperEnd; value += positionGridSpan) {
             const positionX = value * positionRatio + positionBasis;
@@ -2495,7 +3188,7 @@ class NotesEditor {
         context.strokeStyle = rgb(...this.timeGridColor);
         // 绘制时间线
         const startBeats = Math.floor(beats);
-        const stopBeats = Math.ceil(beats + timeRange);
+        const stopBeats = Math.ceil(beats + timeSpan);
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionY = (time - beats) * timeRatio;
             drawLine(context, -width / 2, -positionY, width / 2, -positionY);
@@ -2512,6 +3205,7 @@ class NotesEditor {
     }
     draw(beats) {
         beats = beats || this.lastBeats || 0;
+        this.updateMatrix();
         this.selectionManager.refresh();
         const { context, canvas } = this;
         const { width: canvasWidth, height: canvasHeight } = canvas;
@@ -2520,16 +3214,18 @@ class NotesEditor {
         const height = canvasHeight - padding * 2;
         this.drawCoordination(beats);
         if (this.targetTree) {
-            this.drawTree(this.targetTree, beats);
+            this.drawNNList(this.targetTree, beats);
         }
         else {
-            for (let trees of [this.target.nnLists, this.target.hnLists]) {
+            // Hold first, so that drag/flicks can be seen
+            for (let trees of [this.target.hnLists, this.target.nnLists]) {
                 for (let speed in trees) {
                     let tree = trees[speed];
-                    this.drawTree(tree, beats);
+                    this.drawNNList(tree, beats);
                 }
             }
         }
+        // 绘制侧边音符节点标识
         if (DRAWS_NN && this.targetTree) {
             context.save();
             context.lineWidth = 3;
@@ -2538,21 +3234,27 @@ class NotesEditor {
             const start = Math.floor(beats / averageBeats);
             const end = Math.ceil((beats + timeRange) / averageBeats);
             const array = jump.array;
+            const array2 = this.targetTree instanceof HNList ? this.targetTree.holdTailJump.array : null;
             let lastNode = null;
             let color = COLOR_1;
             const minorAverageBeats = jump.averageBeats / MINOR_PARTS;
             const x = width / 2 - 10;
+            const x2 = -width / 2 + 10;
             const switchColor = () => (context.strokeStyle = color = color === COLOR_1 ? COLOR_2 : COLOR_1);
             for (let i = start; i < end; i++) {
                 const scale = array[i];
+                if (!scale) {
+                    continue;
+                }
                 const y = -(i * averageBeats - beats) * timeRatio;
-                console.log(i, y);
+                // console.log(i, y)
                 if (Array.isArray(scale)) {
                     for (let j = 0; j < MINOR_PARTS; j++) {
                         const node = scale[j];
                         if (node !== lastNode) {
                             switchColor();
                             lastNode = node;
+                            context.fillText("tailing" in node ? "Tail" : node.id.toString(), x - 30, y - j * minorAverageBeats * timeRatio);
                         }
                         drawLine(context, x - 4, y - j * minorAverageBeats * timeRatio, x, y - (j + 1) * minorAverageBeats * timeRatio + 5);
                     }
@@ -2562,75 +3264,176 @@ class NotesEditor {
                         switchColor();
                         lastNode = scale;
                     }
+                    context.fillText("tailing" in scale ? "Tail" : scale.id.toString(), x - 30, y);
                     drawLine(context, x - 10, y, x + 10, y - averageBeats * timeRatio + 5);
                 }
             }
+            if (array2)
+                for (let i = start; i < end; i++) {
+                    const scale = array2[i];
+                    if (!scale) {
+                        continue;
+                    }
+                    const y = -(i * averageBeats - beats) * timeRatio;
+                    // console.log(i, y)
+                    if (Array.isArray(scale)) {
+                        for (let j = 0; j < MINOR_PARTS; j++) {
+                            const node = scale[j];
+                            if (node !== lastNode) {
+                                switchColor();
+                                lastNode = node;
+                                context.fillText("tailing" in node ? "Tail" : `${node.id} (${timeToString(node.startTime)}-${timeToString(node.endTime)})`, x2 + 10, y - j * minorAverageBeats * timeRatio);
+                            }
+                            drawLine(context, x2 - 4, y - j * minorAverageBeats * timeRatio, x2, y - (j + 1) * minorAverageBeats * timeRatio + 5);
+                        }
+                    }
+                    else {
+                        if (scale !== lastNode) {
+                            switchColor();
+                            lastNode = scale;
+                        }
+                        context.fillText("tailing" in scale ? "Tail" : `${scale.id} (${timeToString(scale.startTime)}-${timeToString(scale.endTime)})`, x2 + 10, y);
+                        drawLine(context, x2 - 10, y, x2 + 10, y - averageBeats * timeRatio + 5);
+                    }
+                }
+            context.restore();
+        }
+        if (this.state === NotesEditorState.selectingScope) {
+            const { startingCanvasPoint, canvasPoint } = this;
+            context.save();
+            context.strokeStyle = "#84F";
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
             context.restore();
         }
         this.drawn = false;
         this.lastBeats = beats;
     }
-    drawTree(tree, beats) {
+    drawNNList(tree, beats) {
         const timeRange = this.timeSpan;
-        let noteNode = tree.getNodeAt(beats, true, tree.editorPointer);
+        let noteNode = tree.getNodeAt(beats, true);
         if ("tailing" in noteNode) {
             return;
         }
         while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < beats + timeRange) {
             const notes = noteNode.notes, length = notes.length;
+            const posMap = new Map();
             for (let i = 0; i < length; i++) {
-                this.drawNote(beats, notes[i], i === 0);
+                const note = notes[i];
+                const posX = note.positionX;
+                const count = posMap.get(note.positionX) || 0;
+                this.drawNote(beats, note, i === 0, count);
+                posMap.set(posX, count + 1);
             }
             noteNode = noteNode.next; // 这句之前忘了，卡死了，特此留念（
         }
     }
-    drawNote(beats, note, isTruck) {
+    drawNote(beats, note, isTruck, nth) {
         const context = this.context;
-        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan: timeRange, timeRatio, padding } = this;
-        const posX = note.positionX * positionRatio;
-        const posLeft = posX - NOTE_WIDTH / 2;
+        const { 
+        //positionGridSpan,
+        positionRatio, 
+        //positionSpan: positionRange,
+        //positionBasis,
+        //timeGridSpan,
+        //timeSpan: timeRange,
+        timeRatio, padding, matrix } = this;
         const start = TimeCalculator.toBeats(note.startTime) - beats;
         const end = TimeCalculator.toBeats(note.endTime) - beats;
-        const posY = -start * timeRatio;
-        context.drawImage(getImageFromType(note.type), posLeft, posY, NOTE_WIDTH, NOTE_HEIGHT);
-        if (isTruck) {
-            context.drawImage(TRUCK, posLeft, posY, NOTE_WIDTH, NOTE_HEIGHT);
-        }
-        this.selectionManager.add({
-            target: note,
-            x: posLeft,
-            y: posY,
-            height: NOTE_HEIGHT,
-            width: NOTE_WIDTH,
-            priority: 1
-        });
-        if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+        const { x: posX, y: posY } = new Coordinate(note.positionX, start).mul(matrix);
+        const posLeft = posX - NOTE_WIDTH / 2;
+        const isHold = note.type === NoteType.hold;
+        let rad;
+        if (nth !== 0) {
+            rad = Math.PI * (1 - Math.pow(2, -nth));
+            context.save();
+            context.translate(posX, posY);
+            context.rotate(rad);
+            context.drawImage(getImageFromType(note.type), -NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT);
+            if (this.notesSelection.has(note)) {
+                context.save();
+                context.fillStyle = "#DFD9";
+                context.fillRect(-NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT);
+                context.restore();
+            }
+            else if (this.selectedNote === note) {
+                context.drawImage(SELECT_NOTE, -NOTE_WIDTH / 2, -NOTE_HEIGHT / 2, NOTE_WIDTH, NOTE_HEIGHT);
+            }
+            context.restore();
             this.selectionManager.add({
                 target: note,
-                x: posLeft,
-                y: -end * timeRatio,
+                centerX: posX,
+                centerY: posY,
+                width: NOTE_WIDTH,
+                height: NOTE_HEIGHT,
+                rad,
+                priority: isHold ? 1 : 2
+            });
+        }
+        else {
+            const posTop = posY - NOTE_HEIGHT / 2;
+            context.drawImage(getImageFromType(note.type), posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT);
+            if (this.notesSelection.has(note)) {
+                context.save();
+                context.fillStyle = "#DFD9";
+                context.fillRect(posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT);
+                context.restore();
+            }
+            else if (this.selectedNote === note && !this.selectingTail) {
+                context.drawImage(SELECT_NOTE, posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT);
+            }
+            this.selectionManager.add({
+                target: note,
+                centerX: posX,
+                centerY: posY,
+                height: NOTE_HEIGHT,
+                width: NOTE_WIDTH,
+                priority: isHold ? 1 : 2
+            });
+        }
+        if (isHold) {
+            context.drawImage(HOLD_BODY, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
+            this.selectionManager.add({
+                target: new HoldTail(note),
+                left: posLeft,
+                top: -end * timeRatio,
                 height: NOTE_HEIGHT,
                 width: NOTE_WIDTH,
                 priority: 1
             });
             this.selectionManager.add({
                 target: note,
-                x: posLeft,
-                y: -end * timeRatio,
+                left: posLeft,
+                top: -end * timeRatio,
                 height: (end - start) * timeRatio,
                 width: NOTE_WIDTH,
                 priority: 0
             });
         }
-        if (note === this.selectedNote) {
-            if (note.type === NoteType.hold) {
-                context.drawImage(SELECT_NOTE, posLeft, -end * timeRatio, NOTE_WIDTH, (end - start) * timeRatio);
-            }
-            else {
-                context.drawImage(SELECT_NOTE, posLeft, posY, NOTE_WIDTH, NOTE_HEIGHT);
-            }
+    }
+    paste() {
+        const { clipboard, lastBeats } = this;
+        const { timeDivisor } = this.editor;
+        if (!clipboard || clipboard.size === 0) {
+            return;
         }
+        if (!lastBeats) {
+            Editor.notify("Have not rendered a frame");
+        }
+        const notes = [...clipboard];
+        notes.sort((a, b) => TimeCalculator.gt(a.startTime, b.startTime) ? 1 : -1);
+        const startTime = notes[0].startTime;
+        // const portions: number = Math.round(timeDivisor * lastBeats);
+        const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const offset = TimeCalculator.sub(dest, startTime);
+        const newNotes = notes.map(n => n.clone(offset));
+        this.editor.chart.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
+        this.editor.multiNoteEditor.target = this.notesSelection = new Set(newNotes);
+        this.editor.update();
+    }
+    copy() {
+        this.clipboard = this.notesSelection;
+        this.notesSelection = new Set();
+        this.editor.update();
     }
 }
 const NODE_WIDTH = 20;
@@ -2712,6 +3515,31 @@ class JudgeLineEditor {
         this.$alphaSpan.text(Math.round(this.judgeLine.alpha) + "(" + Math.round(this.judgeLine.alpha).toString(16) + ")");
     }
 }
+class SaveDialog extends ZDialog {
+    constructor() {
+        super();
+        this.append($("span").text("Message"));
+        this.$message = new ZInputBox();
+        this.$message.attr("placeholder", "Enter Commit Message");
+        this.append(this.$message);
+        this.append(new ZButton("Save")
+            .addClass("progressive")
+            .onClick(() => {
+            this.close();
+            this.dispatchEvent(new CustomEvent("save", { detail: this.$message.getValue() }));
+        }));
+        this.append(new ZButton("Cancel")
+            .addClass("destructive")
+            .onClick(() => this.close()));
+        this.addEventListener("save", (customEvent) => {
+            console.log("save", customEvent.detail);
+            serverApi.uploadChart(this.chartData, customEvent.detail)
+                .then((successful) => {
+                this.dispatchEvent(new Event("saved"));
+            });
+        });
+    }
+}
 class Editor extends EventTarget {
     constructor() {
         super();
@@ -2720,26 +3548,26 @@ class Editor extends EventTarget {
         this.audioInitialized = false;
         this.chartInitialized = false;
         // load areas
-        this.topbarEle = document.getElementById("topbar");
-        this.previewEle = document.getElementById("preview");
-        this.eventSequenceEle = document.getElementById("eventSequence");
-        this.noteInfoEle = document.getElementById("noteInfo");
+        this.$topbar = $(document.getElementById("topbar"));
+        this.$preview = $(document.getElementById("preview"));
+        this.$eventSequence = $(document.getElementById("eventSequence"));
+        this.$noteInfo = $(document.getElementById("noteInfo"));
         this.lineInfoEle = document.getElementById("lineInfo");
         // load player
         this.player = new Player(document.getElementById("player"), this);
-        this.notesEditor = new NotesEditor(this, this.previewEle.clientWidth - this.player.canvas.width, this.player.canvas.height);
-        this.notesEditor.appendTo(this.previewEle);
-        this.progressBar = new ProgressBar(this.player.audio, () => this.pause(), () => {
+        this.notesEditor = new NotesEditor(this, this.$preview.clientWidth - this.player.canvas.width, this.player.canvas.height);
+        this.notesEditor.appendTo(this.$preview);
+        this.progressBar = new ZProgressBar(this.player.audio, () => this.pause(), () => {
             this.update();
             this.player.render();
         });
-        this.progressBar.appendTo(this.topbarEle);
+        this.progressBar.appendTo(this.$topbar);
         // load file inputs
         this.fileInput = document.getElementById("fileInput");
         this.musicInput = document.getElementById("musicInput");
         this.backgroundInput = document.getElementById("backgroundInput");
-        this.eventCurveEditors = new EventCurveEditors(this.eventSequenceEle.clientWidth, this.eventSequenceEle.clientHeight);
-        this.eventCurveEditors.appendTo(this.eventSequenceEle);
+        this.eventCurveEditors = new EventCurveEditors(this.$eventSequence.clientWidth, this.$eventSequence.clientHeight);
+        this.eventCurveEditors.appendTo(this.$eventSequence);
         this.playButton = document.getElementById("playButton");
         this.playButton.addEventListener("click", (event) => {
             if (!this.playing) {
@@ -2758,7 +3586,7 @@ class Editor extends EventTarget {
         this.backgroundInput.addEventListener("change", () => {
             this.readImage(this.backgroundInput.files[0]);
         });
-        this.previewEle.addEventListener("wheel", (event) => {
+        [this.$preview, this.eventCurveEditors].forEach($e => $e.on("wheel", (event) => {
             if (!this.initialized) {
                 return;
             }
@@ -2781,7 +3609,8 @@ class Editor extends EventTarget {
             this.update();
             this.player.render();
             // event.preventDefault()
-        });
+        }));
+        // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox();
         this.$timeDivisor.onChange((n) => {
             this.timeDivisor = n;
@@ -2789,17 +3618,47 @@ class Editor extends EventTarget {
         });
         this.$timeDivisor.setValue(4);
         this.timeDivisor = 4;
-        this.topbarEle.append(this.$timeDivisor.release());
+        // PlaybackRate
+        this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
+            .onChange((rateStr) => {
+            this.player.audio.playbackRate = parseFloat(rateStr);
+        });
+        // Save Button
         this.$saveButton = new ZButton("保存");
+        this.$saveButton.disabled = true;
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA();
-            if (serverApi.supportsServer) {
-                serverApi.uploadChart(json);
+            if (serverApi.supportsServer && serverApi.chartId) {
+                this.$saveDialog.show();
+                this.$saveDialog.chartData = json;
+                this.$saveDialog.addEventListener("saved", () => {
+                    this.chart.modified = false;
+                    this.$saveButton.disabled = true;
+                }, { once: true });
                 return;
             }
             saveTextToFile(JSON.stringify(json), this.chart.name + ".kpa.json");
+            this.chart.modified = false;
         });
-        this.topbarEle.append(this.$saveButton.release());
+        this.$saveDialog = new SaveDialog();
+        this.$offsetInput = new ZInputBox()
+            .onChange(() => {
+            this.chart.offset = this.$offsetInput.getInt();
+        });
+        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$saveButton, this.$saveDialog, this.$offsetInput);
+        this.addEventListener("chartloaded", (e) => {
+            this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence;
+            this.$offsetInput.setValue(this.chart.offset.toString());
+            this.chart.operationList.addEventListener("firstmodified", () => {
+                this.$saveButton.disabled = false;
+            });
+        });
+        window.addEventListener("beforeunload", (e) => {
+            if (this.chart.modified) {
+                e.preventDefault();
+                e.returnValue = "Unsaved Changes";
+            }
+        });
     }
     switchSide(editor) {
         if (editor === this.shownSideEditor) {
@@ -2854,6 +3713,7 @@ class Editor extends EventTarget {
         if (this.chartType === "rpejson") {
             // 若为1.6.0版本以后，元数据中有时长信息，直接使用以建立谱面
             // 否则等待<audio>加载完
+            // @ts-expect-error
             if (this.chartData.META.duration) {
                 assignChart(Chart.fromRPEJSON(this.chartData, this.chartData.META.duration));
             }
@@ -2870,14 +3730,18 @@ class Editor extends EventTarget {
         this.player.render();
         this.notesEditor.draw(this.player.beats);
         const eventLayer = chart.judgeLines[0].eventLayers[0];
-        const height = this.eventSequenceEle.clientHeight;
-        const width = this.eventSequenceEle.clientWidth;
+        const height = this.$eventSequence.clientHeight;
+        const width = this.$eventSequence.clientWidth;
         this.eventEditor = new EventEditor();
         this.noteEditor = new NoteEditor();
-        this.noteInfoEle.append(this.eventEditor.element, this.noteEditor.element);
+        this.multiNoteEditor = new MultiNoteEditor();
+        this.multiNodeEditor = new MultiNodeEditor();
+        this.$noteInfo.append(this.eventEditor, this.noteEditor, this.multiNoteEditor, this.multiNodeEditor);
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next;
         this.eventEditor.update();
         this.eventEditor.hide();
+        this.multiNoteEditor.hide();
+        this.multiNodeEditor.hide();
         this.shownSideEditor = this.noteEditor;
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
@@ -2939,6 +3803,9 @@ class Editor extends EventTarget {
         this.update();
         this.playButton.innerHTML = "继续";
     }
+    static notify(message) {
+        $(document.body).append(new ZNotification(message));
+    }
 }
 /**
  * @author Zes M Young
@@ -2977,7 +3844,7 @@ class Note {
     constructor(data) {
         this.above = data.above === 1;
         this.alpha = data.alpha || 255;
-        this.endTime = data.endTime;
+        this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
         this.size = data.size || 1.0;
@@ -2992,6 +3859,17 @@ class Note {
         this.previousSibling = null;
         this.nextSibling = null;
         */
+    }
+    /**
+     *
+     * @param offset
+     * @returns
+     */
+    clone(offset) {
+        const data = this.dumpRPE();
+        data.startTime = TimeCalculator.add(data.startTime, offset);
+        data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
+        return new Note(data);
     }
     /*
     static connectPosSibling(note1: Note, note2: Note) {
@@ -3037,6 +3915,7 @@ class NoteNode {
     constructor(time) {
         this.startTime = [...time];
         this.notes = [];
+        this.id = NoteNode.count++;
     }
     static fromKPAJSON(data) {
         const node = new NoteNode(data.startTime);
@@ -3047,9 +3926,12 @@ class NoteNode {
         return node;
     }
     get isHold() {
-        return this.parent instanceof HNList;
+        return this.parentSeq instanceof HNList;
     }
     get endTime() {
+        if (this.notes.length === 0) {
+            return [0, 0, 1];
+        }
         return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime;
     }
     add(note) {
@@ -3057,11 +3939,47 @@ class NoteNode {
             console.warn("Wrong addition!");
         }
         this.notes.push(note);
-        note.parent = this;
+        note.parentNode = this;
+        this.sort(this.notes.length - 1);
+    }
+    sort(index) {
+        if (typeof index !== "number") {
+            index = this.notes.indexOf(index);
+            if (index === -1) {
+                return;
+            }
+        }
+        if (!this.isHold) {
+            return;
+        }
+        const { notes } = this;
+        const note = notes[index];
+        for (let i = index; i > 0; i--) {
+            const prev = notes[i - 1];
+            if (TimeCalculator.lt(prev.endTime, note.endTime)) {
+                // swap
+                notes[i] = prev;
+                notes[i - 1] = note;
+            }
+            else {
+                break;
+            }
+        }
+        for (let i = index; i < notes.length - 1; i++) {
+            const next = notes[i + 1];
+            if (TimeCalculator.gt(next.endTime, note.endTime)) {
+                // swap
+                notes[i] = next;
+                notes[i + 1] = note;
+            }
+            else {
+                break;
+            }
+        }
     }
     remove(note) {
         this.notes.splice(this.notes.indexOf(note), 1);
-        note.parent = null;
+        note.parentNode = null;
     }
     static disconnect(note1, note2) {
         if (note1) {
@@ -3081,7 +3999,7 @@ class NoteNode {
             note2.previous = note1;
         }
         if (note1 && note2) {
-            note2.parent = note1.parent;
+            note2.parentSeq = note1.parentSeq;
         }
     }
     static insert(note1, inserted, note2) {
@@ -3095,20 +4013,21 @@ class NoteNode {
         };
     }
 }
+NoteNode.count = 0;
 class NNList {
     constructor(speed, effectiveBeats) {
         this.speed = speed;
         this.head = {
             heading: true,
             next: null,
-            parent: this
+            parentSeq: this
         };
         this.currentPoint = this.head;
         // this.currentBranchPoint = <NoteNode>{startTime: [-1, 0, 1]}
         this.tail = {
             tailing: true,
             previous: null,
-            parent: this
+            parentSeq: this
         };
         this.timesWithNotes = 0;
         /*
@@ -3204,10 +4123,11 @@ class NNList {
             const newNode = new NoteNode(time);
             const next = node.next;
             NoteNode.insert(node, newNode, next);
-            console.log("created:", node2string(newNode));
+            // console.log("created:", node2string(newNode))
             this.jump.updateRange(node, next);
-            if ((_a = this.parent) === null || _a === void 0 ? void 0 : _a.chart) {
-                this.parent.chart.nnnList.getNode(time).add(newNode);
+            console.log("pl", this.parentLine);
+            if ((_a = this.parentLine) === null || _a === void 0 ? void 0 : _a.chart) {
+                this.parentLine.chart.nnnList.getNode(time).add(newNode);
             }
             return newNode;
         }
@@ -3382,21 +4302,10 @@ class HNList extends NNList {
         return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
     }
     //*/
-    getNodeAt(beats, beforeEnd = false, pointer) {
-        /*
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats)
-                } else {
-                    this.movePointerBeforeStart(pointer, beats)
-                }
-            }
-            return pointer.node
-        }
-        */
+    getNodeAt(beats, beforeEnd = false) {
         return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
     }
+    // unused
     insertNoteJumpUpdater(note) {
         const { previous, next } = note;
         return () => {
@@ -3443,12 +4352,12 @@ class NNNList {
         this.head = {
             "heading": true,
             "next": null,
-            "parent": this
+            "parentSeq": this
         };
         this.tail = {
             "tailing": true,
             "previous": null,
-            "parent": this
+            "parentSeq": this
         };
         this.editorPointer = new Pointer();
         this.editorPointer.pointTo(this.tail, 0);
@@ -3532,12 +4441,12 @@ class NNNList {
         return this.jump.getNodeAt(beats);
     }
     getNode(time) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false);
-        if ("tailing" in node || TimeCalculator.ne(node.startTime, time)) {
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
+        if ("heading" in node || TimeCalculator.ne(node.startTime, time)) {
             const newNode = new NNNode(time);
-            const previous = node.previous;
-            NoteNode.insert(previous, newNode, node);
-            this.jump.updateRange(previous, node);
+            const next = node.next;
+            NoteNode.insert(node, newNode, next);
+            this.jump.updateRange(node, next);
             return newNode;
         }
         else {
@@ -3646,6 +4555,7 @@ class JudgeLine {
             for (let name in lists) {
                 const listData = lists[name];
                 const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
+                list.parentLine = line;
                 list.id = name;
                 line[key][name] = list;
             }
@@ -3679,6 +4589,7 @@ class JudgeLine {
      * @returns
      */
     computeTimeRange(beats, timeCalculator, startY, endY) {
+        console.log("invoked");
         //return [[0, Infinity]]
         //*
         // 提取所有有变化的时间点
@@ -3705,6 +4616,7 @@ class JudgeLine {
         let nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
         let nextSpeed = this.getStackedValue("speed", nextTime, true);
         let range = [undefined, undefined];
+        console.log(times);
         const computeTime = (speed, currentPos, fore) => timeCalculator.secondsToBeats(currentPos / (speed * 120) + timeCalculator.toSeconds(fore));
         for (let i = 0; i < len - 1;) {
             const thisTime = nextTime;
@@ -3716,6 +4628,7 @@ class JudgeLine {
             nextTime = times[i + 1];
             nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
             nextSpeed = this.getStackedValue("speed", nextTime, true);
+            console.log(thisSpeed, nextSpeed, thisSpeed * nextSpeed < 0, i, [...result]);
             if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
                 //debugger;
                 nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
@@ -3724,6 +4637,7 @@ class JudgeLine {
                 //debugger
             }
             else {
+                console.log("i++");
                 i++;
             }
             if (range[0] === undefined) {
@@ -3760,7 +4674,7 @@ class JudgeLine {
         }
         const thisPosY = nextPosY;
         const thisTime = nextTime;
-        const thisSpeed = nextSpeed;
+        const thisSpeed = this.getStackedValue("speed", thisTime);
         const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY);
         if (range[0] === undefined) {
             // 变速区间直接全部囊括，匀速要算一下，因为好算
@@ -3865,7 +4779,7 @@ class JudgeLine {
             }
         }
         const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
-        list.parent = this;
+        list.parentLine = this;
         NoteNode.connect(list.head, list.tail);
         if (initsJump)
             list.initJump();
@@ -4003,6 +4917,7 @@ interface ComboMapping {
 //*/
 class Chart {
     constructor() {
+        this.modified = false;
         this.timeCalculator = new TimeCalculator();
         this.judgeLines = [];
         this.orphanLines = [];
@@ -4013,7 +4928,7 @@ class Chart {
         this.offset = 0;
         this.sequenceMap = {};
         this.judgeLineGroups = [];
-        this.operationList = new OperationList();
+        this.operationList = new OperationList(this);
     }
     getEffectiveBeats() {
         console.log(editor.player.audio.src);
@@ -4086,7 +5001,7 @@ class Chart {
         const length = data.eventNodeSequences.length;
         for (let i = 0; i < length; i++) {
             const sequence = sequences[i];
-            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart)).id = sequence.id;
+            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart, sequence.endValue)).id = sequence.id;
         }
         chart.templateEasingLib.add(data.envEasings);
         chart.templateEasingLib.check();
@@ -4277,6 +5192,58 @@ class RPEChartCompiler {
         };
     }
 }
+class Coordinate {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+    mul(matrix) {
+        const { x, y } = this;
+        return new Coordinate(x * matrix.a + y * matrix.c + matrix.e, x * matrix.b + y * matrix.d + matrix.f);
+    }
+    static from([x, y]) {
+        return new Coordinate(x, y);
+    }
+}
+class Matrix {
+    constructor(a, b, c, d, e, f) {
+        this.a = a;
+        this.b = b;
+        this.c = c;
+        this.d = d;
+        this.e = e;
+        this.f = f;
+    }
+    rotate(angle) {
+        const { a, b, c, d, e, f } = this;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        return new Matrix(a * cos + c * sin, b * cos + d * sin, a * -sin + c * cos, b * -sin + d * cos, e, f);
+    }
+    translate(x, y) {
+        const { a, b, c, d, e, f } = this;
+        return new Matrix(a, b, c, d, a * x + c * y + e, b * x + d * y + f);
+    }
+    scale(x, y) {
+        const { a, b, c, d, e, f } = this;
+        return new Matrix(a * x, b * y, c * x, d * y, e, f);
+    }
+    invert() {
+        const { a, b, c, d, e, f } = this;
+        const det = a * d - b * c;
+        return new Matrix(d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det);
+    }
+    xmul(x, y) {
+        return x * this.a + y * this.c + this.e;
+    }
+    ymul(x, y) {
+        return x * this.b + y * this.d + this.f;
+    }
+    static fromDOMMatrix({ a, b, c, d, e, f }) {
+        return new Matrix(a, b, c, d, e, f);
+    }
+}
+const identity = new Matrix(1, 0, 0, 1, 0, 0);
 // interface TemplateEasingLib {[name: string]: TemplateEasing}
 /**
  * To compare two arrays
@@ -4320,8 +5287,8 @@ class EventNode {
         this.ratio = 1;
         this.easing = linearEasing;
     }
-    clone() {
-        const ret = new this.constructor([...this.time], this.value);
+    clone(offset) {
+        const ret = new this.constructor(TimeCalculator.add(this.time, offset), this.value);
         ret.easing = this.easing;
         ret.ratio = this.ratio;
         return ret;
@@ -4380,7 +5347,7 @@ class EventNode {
         node1.next = node2;
         node2.previous = node1;
         if (node1 && node2) {
-            node2.parent = node1.parent;
+            node2.parentSeq = node1.parentSeq;
         }
     }
     /*
@@ -4405,6 +5372,7 @@ class EventNode {
             throw new Error("Cannot insert a head node before any node");
         }
         this.connect(tarPrev, node.previous);
+        node.parentSeq = node.previous.parentSeq;
         this.connect(node, tarNext);
         return [this.previousStartOfStart(tarPrev), this.nextStartOfEnd(tarNext)];
     }
@@ -4604,8 +5572,15 @@ class EventStartNode extends EventNode {
     isLastStart() {
         return this.next && "tailing" in this.next;
     }
-    clone() {
-        return super.clone();
+    clone(offset) {
+        return super.clone(offset);
+    }
+    ;
+    clonePair(offset) {
+        const endNode = !("heading" in this.previous) ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
+        const startNode = this.clone(offset);
+        EventNode.connect(endNode, startNode);
+        return startNode;
     }
     ;
 }
@@ -4615,16 +5590,16 @@ type AnyStartNode = EventStartNode<EventNodeType.first>
                   | EventStartNode<EventNodeType.last>
                   */
 class EventEndNode extends EventNode {
-    get parent() { return this.previous.parent; }
-    set parent(_parent) { }
+    get parentSeq() { var _a; return (_a = this.previous) === null || _a === void 0 ? void 0 : _a.parentSeq; }
+    set parentSeq(_parent) { }
     constructor(time, value) {
         super(time, value);
     }
     getValueAt(beats) {
         return this.previous.getValueAt(beats);
     }
-    clone() {
-        return super.clone();
+    clone(offset) {
+        return super.clone(offset);
     }
 }
 /**
@@ -4657,12 +5632,12 @@ class EventNodeSequence {
         this.head = {
             heading: true,
             next: null,
-            parent: this
+            parentSeq: this
         };
         this.tail = {
             tailing: true,
             previous: null,
-            parent: this
+            parentSeq: this
         };
         this.listLength = 1;
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
@@ -4670,7 +5645,7 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
-    static fromRPEJSON(type, data, chart) {
+    static fromRPEJSON(type, data, chart, endValue) {
         const { templateEasingLib: templates, timeCalculator } = chart;
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
@@ -4717,7 +5692,7 @@ class EventNodeSequence {
             debugger; // 这里事件层级里面一定有至少一个事件
             throw new Error();
         }
-        tail = new EventStartNode(last.time, last.value);
+        tail = new EventStartNode(last.time, endValue !== null && endValue !== void 0 ? endValue : last.value);
         EventNode.connect(last, tail);
         tail.easing = last.previous.easing;
         tail.cachedIntegral = lastIntegral;
@@ -4788,7 +5763,14 @@ class EventNodeSequence {
             }
         }, (node, beats) => {
             return TimeCalculator.toBeats(node.next.time) > beats ? false : EventNode.nextStartInJumpArray(node);
-        });
+        }, (node) => {
+            return node.next && "tailing" in node.next ? node.next : node;
+        }
+        /*(node: EventStartNode) => {
+            const prev = node.previous;
+            return "heading" in prev ? node : prev.previous;
+        }*/
+        );
     }
     insert() {
     }
@@ -4796,6 +5778,9 @@ class EventNodeSequence {
         var _a;
         let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
         if ("tailing" in node) {
+            if (usePrev) {
+                return node.previous.previous.previous;
+            }
             // 最后一个事件节点本身具有无限延伸的特性
             return node.previous;
         }
@@ -4840,7 +5825,8 @@ class EventNodeSequence {
         return {
             type: this.type,
             events: nodes,
-            id: this.id // 或者使用其他唯一标识符
+            id: this.id,
+            endValue: currentNode.value
         };
     }
     /**
@@ -4979,6 +5965,8 @@ const getImageFromType = (noteType) => {
             return TAP;
     }
 };
+const ENABLE_PLAYER = true;
+const DRAWS_NOTES = true;
 const DEFAULT_ASPECT_RATIO = 3 / 2;
 const LINE_WIDTH = 10;
 const LINE_COLOR = "#CCCC77";
@@ -5103,6 +6091,9 @@ class Player {
         });
     }
     render() {
+        if (!ENABLE_PLAYER) {
+            return;
+        }
         // console.time("render")
         const context = this.context;
         const hitContext = this.hitContext;
@@ -5222,25 +6213,29 @@ class Player {
             for (let name in trees) {
                 const tree = trees[name];
                 const speedVal = tree.speed;
-                // debugger
-                // 渲染音符
-                const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
-                tree.timeRanges = timeRanges;
-                // console.log(timeRanges, startY, endY);
-                for (let range of timeRanges) {
-                    const start = range[0];
-                    const end = range[1];
-                    // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
-                    // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
-                    let noteNode = tree.getNodeAt(start, true);
-                    let startBeats;
-                    while (!("tailing" in noteNode)
-                        && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end) {
-                        // 判断是否为多押
-                        const isDuplicate = noteNode.notes.length > 1
-                            || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length);
-                        this.renderSameTimeNotes(noteNode, isDuplicate, judgeLine, timeCalculator);
-                        noteNode = noteNode.next;
+                if (DRAWS_NOTES) {
+                    // debugger
+                    // 渲染音符
+                    const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                    tree.timeRanges = timeRanges;
+                    // console.log(timeRanges, startY, endY);
+                    for (let range of timeRanges) {
+                        const start = range[0];
+                        const end = range[1];
+                        // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
+                        // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
+                        let noteNode = tree.getNodeAt(start, true);
+                        console.log(noteNode);
+                        let startBeats;
+                        while (!("tailing" in noteNode)
+                            && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end) {
+                            // 判断是否为多押
+                            const isChord = noteNode.notes.length > 1
+                                || noteNode.totalNode.noteNodes.some(node => node !== noteNode && node.notes.length)
+                                || noteNode.totalNode.holdNodes.some(node => node !== noteNode && node.notes.length);
+                            this.renderSameTimeNotes(noteNode, isChord, judgeLine, timeCalculator);
+                            noteNode = noteNode.next;
+                        }
                     }
                 }
                 // 处理音效
@@ -5248,7 +6243,7 @@ class Player {
                 // 打击特效
                 if (beats > 0) {
                     if (tree instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator);
+                        this.renderHoldHitEffects(judgeLine, tree, beats, hitRenderLimit, beats, this.hitContext, timeCalculator);
                     }
                     else {
                         this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator);
@@ -5319,14 +6314,26 @@ class Player {
             noteNode = noteNode.next;
         }
     }
-    renderHoldHitEffects(judgeLine, tree, startBeats, endBeats, hitContext, timeCalculator) {
-        let noteNode = tree.getNodeAt(startBeats, true);
-        const end = tree.getNodeAt(endBeats);
+    /**
+     *
+     * @param judgeLine
+     * @param tree
+     * @param beats 当前拍数
+     * @param startBeats
+     * @param endBeats 截止拍数
+     * @param hitContext
+     * @param timeCalculator
+     * @returns
+     */
+    renderHoldHitEffects(judgeLine, tree, beats, startBeats, endBeats, hitContext, timeCalculator) {
+        const start = tree.getNodeAt(startBeats, true);
+        // console.log("start", start)
+        let noteNode = start;
+        const end = tree.getNodeAt(endBeats, true);
         if ("tailing" in noteNode) {
             return;
         }
         while (noteNode !== end) {
-            const beats = TimeCalculator.toBeats(noteNode.startTime);
             const base = judgeLine.getBaseCoordinate(beats);
             const thisCoord = judgeLine.getThisCoordinate(beats);
             const bx = base[0] + thisCoord[0];
@@ -5346,24 +6353,26 @@ class Player {
             noteNode = noteNode.next;
         }
     }
-    renderSameTimeNotes(noteNode, duplicated, judgeLine, timeCalculator) {
+    renderSameTimeNotes(noteNode, chord, judgeLine, timeCalculator) {
         if (noteNode.isHold) {
-            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parent.speed;
+            const startY = judgeLine.getStackedIntegral(TimeCalculator.toBeats(noteNode.startTime), timeCalculator) * noteNode.parentSeq.speed;
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
-                this.renderNote(note, duplicated, startY < 0 ? 0 : startY, judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed);
+                this.renderNote(note, chord, startY < 0 ? 0 : startY, judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.endTime), timeCalculator) * note.speed);
             }
         }
         else {
+            console.log("renderSameTimeNotes", noteNode);
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
-                this.renderNote(note, duplicated, judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed);
+                this.renderNote(note, chord, judgeLine.getStackedIntegral(TimeCalculator.toBeats(note.startTime), timeCalculator) * note.speed);
             }
         }
     }
-    renderNote(note, double, positionY, endpositionY) {
+    renderNote(note, chord, positionY, endpositionY) {
+        console.log(note, this.beats);
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
@@ -5387,7 +6396,7 @@ class Player {
             context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, this.noteSize, length);
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height);
-        if (double) {
+        if (chord) {
             context.drawImage(DOUBLE, note.positionX - half, positionY - 10, size, height);
         }
         if (!note.above) {
@@ -5419,10 +6428,10 @@ class Player {
         this.audio.pause();
     }
 }
-class ProgressBar {
+class ZProgressBar extends Z {
     constructor(target, pauseFn, updateFn) {
+        super("progress");
         this.target = target;
-        this.element = document.createElement("progress");
         const element = this.element;
         if (target.duration) {
             this.element.max = target.duration;
@@ -5474,10 +6483,6 @@ class ProgressBar {
         on(["mouseleave", "touchend"], element, () => {
             controlling = false;
         });
-    }
-    appendTo(element) {
-        element.appendChild(this.element);
-        return this;
     }
     update() {
         if (this.target.paused) {
@@ -5664,6 +6669,9 @@ class TimeCalculator {
     static ne(beaT1, beaT2) {
         return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1];
     }
+    static add(beaT1, beaT2) {
+        return [beaT1[0] + beaT2[0], beaT1[1] * beaT2[2] + beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
+    }
     static sub(beaT1, beaT2) {
         return [beaT1[0] - beaT2[0], beaT1[1] * beaT2[2] - beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
     }
@@ -5750,6 +6758,9 @@ class ChartMetadata {
         });
     }
 }
+/**
+ * 运行时位置是kpa/dist
+ */
 class ServerApi {
     constructor() {
         this.statusPromise = fetch("../status")
@@ -5757,6 +6768,7 @@ class ServerApi {
             if (res.status == 204) {
                 this.supportsServer = true;
                 document.title += "Connected";
+                this.startAutosave();
                 return true;
             }
             else {
@@ -5786,15 +6798,48 @@ class ServerApi {
             editor.readAudio(yield res3.blob());
         });
     }
-    uploadChart(chart) {
+    uploadChart(chart, message) {
         return __awaiter(this, void 0, void 0, function* () {
             const id = this.chartId;
             const chartBlob = new Blob([JSON.stringify(chart)], { type: "application/json" });
-            yield fetch(`../Resources/${id}/chart.json`, {
-                method: "PUT",
-                body: chartBlob
+            const res = yield fetch(`../commit/${id}?message=${message}`, {
+                method: "POST",
+                body: chartBlob,
             });
+            Editor.notify((yield res.json()).message);
+            return res.status === 200;
         });
+    }
+    autosave(chart) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const id = this.chartId;
+            const chartBlob = new Blob([JSON.stringify(chart)], { type: "application/json" });
+            const res = yield fetch(`../autosave/${id}`, {
+                method: "POST",
+                body: chartBlob,
+            });
+            if (res.status !== 200) {
+                return false;
+            }
+            return res.status === 200;
+        });
+    }
+    startAutosave() {
+        setInterval(() => {
+            const chart = editor.chart;
+            if (chart.modified) {
+                this.autosave(chart.dumpKPA())
+                    .then(success => {
+                    if (success) {
+                        chart.modified = false;
+                        editor.$saveButton.disabled = true;
+                    }
+                    else {
+                        Editor.notify("Autosave failed");
+                    }
+                });
+            }
+        }, 60000);
     }
 }
 if (globalThis.document) {
