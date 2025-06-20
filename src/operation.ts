@@ -371,6 +371,10 @@ class EventNodePairRemoveOperation extends Operation {
     originalPrev: EventStartNode;
     constructor(node: EventStartNode) {
         super();
+        if (node.previous === null) {
+            this.ineffective = true;
+            return;
+        }
         if (node.isFirstStart()) {
             this.ineffective = true;
             return;
@@ -404,6 +408,37 @@ class EventNodePairInsertOperation extends Operation {
     }
     undo() {
         this.originalSequence?.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
+    }
+}
+
+
+/**
+ * Only used for new nodes
+ * dynamically compute the targetPrevious
+ * /
+class EventNodePairAddOperation extends Operation {
+    updatesEditor = true
+    constructor(public node: EventStartNode, public targetSequence: EventNodeSequence) {
+        super();
+    }
+    do() {
+        const tarPrev = this.targetSequence.getNodeAt(this.node.start);
+        const [endNode, startNode] = 
+    }
+}
+*/
+
+class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
+    updatesEditor = true
+    nodes: EventStartNode[];
+    constructor(nodes: EventStartNode[], seq: EventNodeSequence) {
+        let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
+        super(...nodes.map(node => {
+            const op = new EventNodePairInsertOperation(node, prev);
+            prev = node; // 有种reduce的感觉
+            return op
+        }));
+        this.nodes = nodes
     }
 }
 

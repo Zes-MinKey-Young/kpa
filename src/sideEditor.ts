@@ -139,6 +139,31 @@ class MultiNoteEditor extends SideEditor<Set<Note>> {
     }
 }
 
+class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
+    $reverse: ZButton;
+    $delete: ZButton;
+    constructor() {
+        super();
+        this.$title.text("Multi Nodes");
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$reverse = new ZButton("Reverse");
+        this.$body.append(
+            this.$delete,
+            this.$reverse
+        );
+        
+        this.$reverse.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))))
+        })
+        this.$delete.onClick(() => {
+            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodePairRemoveOperation(n))))
+        })
+    }
+    update(): void {
+        
+    }
+} 
+
 class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
 
     $time: ZFractionInput;
@@ -146,6 +171,7 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     $easing: ZEasingBox;
     $radioTabs: ZRadioTabs;
     $templateEasing: ZInputBox;
+    $delete: ZButton;
     constructor() {
         super()
         this.$title.text("Event")
@@ -157,11 +183,14 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$easing,
             "Template": this.$templateEasing
-        })
+        });
+        this.$delete = new ZButton("delete").addClass("destructive")
+            .onClick(() => editor.chart.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
         this.$body.append(
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
-            this.$radioTabs
+            this.$radioTabs,
+            $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
             editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t))

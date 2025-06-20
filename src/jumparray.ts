@@ -13,8 +13,6 @@ class JumpArray<T extends TwoDirectionNode> {
     array: (TypeOrTailer<T>[] | TypeOrTailer<T>)[];
     averageBeats: number;
     effectiveBeats: number;
-    endNextFn: EndNextFn<T>
-    nextFn: (node: T, beats: number) => T | false;
     goPrev: (node: T) => T;
 
     /**
@@ -31,14 +29,13 @@ class JumpArray<T extends TwoDirectionNode> {
         tail: Tailer<T>,
         originalListLength: number,
         effectiveBeats: number,
-        endNextFn: EndNextFn<T>,
-        nextFn: (node: T, beats: number) => T | false,
+        public endNextFn: EndNextFn<T>,
+        public nextFn: (node: T, beats: number) => T | false,
+        public resolveLastNode: (node: TypeOrTailer<T>) => TypeOrTailer<T> = (node) => node
         // goPrev: (node: T) => T
         ) {
         this.header = head;
         this.tailer = tail;
-        this.endNextFn = endNextFn;
-        this.nextFn = nextFn;
         // const originalListLength = this.listLength
         const listLength: number = Math.max(MIN_LENGTH, Math.min(originalListLength * 4, MAX_LENGTH));
         const averageBeats: number = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));

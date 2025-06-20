@@ -38,6 +38,13 @@ const eventTypeMap = [
 ]
 
 type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
+
+enum NewNodeState {
+    controlsStart,
+    controlsEnd,
+    controlsBoth
+}
+
 class EventCurveEditors extends Z<"div"> {
     element: HTMLDivElement;
     $bar: Z<"div">;
@@ -45,6 +52,7 @@ class EventCurveEditors extends Z<"div"> {
     $layerSelect: ZDropdownOptionBox;
     $editSwitch: ZSwitch;
     $easingBox: ZEasingBox;
+    $newNodeStateSelect: ZDropdownOptionBox
 
 
     moveX: EventCurveEditor;
@@ -55,7 +63,15 @@ class EventCurveEditors extends Z<"div"> {
     easing: EventCurveEditor;
     bpm: EventCurveEditor;
 
-    lastBeats: number
+    lastBeats: number;
+
+    clipboard: Set<EventStartNode>;
+    nodesSelection: Set<EventStartNode>;
+
+    $selectOption: ZDropdownOptionBox;
+    selectState: SelectState;
+    $copyButton: ZButton;
+    $pasteButton: ZButton;
     constructor(width: number, height: number) {
         super("div")
         this.addClass("event-curve-editors")
@@ -79,30 +95,49 @@ class EventCurveEditors extends Z<"div"> {
             this.selectedLayer = val;
         });
         this.$editSwitch = new ZSwitch("Edit");
-        this.$easingBox = new ZEasingBox()
+        this.$easingBox = new ZEasingBox(true)
             .onChange(id => {
                 for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
                     this[type].easing = rpeEasingArray[id];
                 }
             });
         this.$easingBox.setValue(easingMap.linear.in);
-
+        this.$newNodeStateSelect = new ZDropdownOptionBox([
+            "Both",
+            "Start",
+            "End"
+        ].map((s) => new BoxOption(s)), true)
+            .onChange((val) => {
+                for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
+                    this[type].newNodeState = NewNodeState["controls" + val];
+                }
+            });
+            
+        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true)
+        
+        this.$copyButton = new ZButton("Copy")
+        this.$pasteButton = new ZButton("Paste")
 
 
 
         this.$bar.append(
             this.$typeSelect,
             this.$layerSelect,
+            this.$selectOption,
             this.$editSwitch,
-            this.$easingBox
+            this.$copyButton,
+            this.$pasteButton,
+            this.$easingBox,
+            this.$newNodeStateSelect
         )
         this.append(this.$bar)
 
         for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
-            this[type] = new EventCurveEditor(EventType[type], height - 32, width, this);
+            this[type] = new EventCurveEditor(EventType[type], height - 40, width, this);
             this[type].displayed = false;
             this.append(this[type].element)
         }
+        this.nodesSelection = new Set<EventStartNode>();
         this.selectedEditor = this.moveX;
 
     }
@@ -111,9 +146,11 @@ class EventCurveEditors extends Z<"div"> {
         return this._selectedEditor
     }
     set selectedEditor(val) {
+        if (val === this._selectedEditor) return;
         if (this._selectedEditor) this._selectedEditor.displayed = false;
         this._selectedEditor = val;
         val.displayed = true;
+        this.nodesSelection = new Set<EventStartNode>();
         this.draw()
     }
     _selectedLayer: "0" | "1" | "2" | "3" | "ex" = "0";
@@ -152,7 +189,9 @@ enum EventCurveEditorState {
     select,
     selecting,
     edit,
-    flowing
+    flowing,
+    selectScope,
+    selectingScope
 }
 
 class EventCurveEditor {
@@ -187,7 +226,6 @@ class EventCurveEditor {
     lastBeats: number;
 
     selectionManager: SelectionManager<EventNode>;
-    cursorPos: Coordinate;
     state: EventCurveEditorState;
     wasEditing: boolean
 
@@ -197,6 +235,12 @@ class EventCurveEditor {
     beatFraction: number;
 
     easing: NormalEasing;
+    newNodeState: NewNodeState = NewNodeState.controlsBoth;
+    selectState: SelectState;
+    mouseIn: boolean;
+    startingPoint: Coordinate;
+    startingCanvasPoint: Coordinate;
+    canvasPoint: Coordinate;
 
     get selectedNode() {
         if (!this._selectedNode) {
@@ -242,7 +286,7 @@ class EventCurveEditor {
         this.element.append(this.canvas)
         this.canvas.width = width//this.canvas.parentElement.clientWidth;
         this.canvas.height = height;
-        this.padding = 10;
+        this.padding = 14;
         this.innerHeight = this.canvas.height - this.padding * 2;
         this.innerWidth = this.canvas.width - this.padding * 2;
         this.context = this.canvas.getContext("2d");
@@ -266,7 +310,7 @@ class EventCurveEditor {
 
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-            const coord = this.cursorPos = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const coord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
             
             const {x, y} = coord;
             const {padding} = this;
@@ -287,6 +331,7 @@ class EventCurveEditor {
                     editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]))
 
             }
+            this.draw()
         })
         on(["mousedown", "touchstart"], this.canvas, (event) => {
             this.downHandler(event)
@@ -295,6 +340,44 @@ class EventCurveEditor {
         on(["mouseup", "touchend"], this.canvas, (event) => {
             this.upHandler(event)
             this.draw()
+        })
+
+        parent.$selectOption.onChange((v: string) => {
+            this.selectState = SelectState[v];
+            if (this.selectState === SelectState.none) {
+                this.state = EventCurveEditorState.select;
+            } else {
+                this.state = EventCurveEditorState.selectScope;
+            }
+        });
+
+        this.mouseIn = false;
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        });
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        });
+        parent.$copyButton.onClick(() => {
+            this.copy();
+        });
+        parent.$pasteButton.onClick(() => {
+            this.paste();
+        });
+        
+        window.addEventListener("keypress", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
+            console.log("Key press:", e.key);
+            if (!this.mouseIn) {
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+            }
         })
 
     }
@@ -327,13 +410,14 @@ class EventCurveEditor {
         const {width, height} = this.canvas;
         const {padding} = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
-        const coord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
-        this.cursorPos = coord;
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const coord = canvasCoord.mul(this.invertedMatrix);
+        this.canvasPoint = canvasCoord;
         // console.log("ECECoord:" , [x, y])
         switch (this.state) {
             case EventCurveEditorState.select:
             case EventCurveEditorState.selecting:
-                const snode = this.selectionManager.click(coord)
+                const snode = this.selectionManager.click(canvasCoord)
                 this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
                 if (snode) {
                     this.selectedNode = snode.target
@@ -350,8 +434,8 @@ class EventCurveEditor {
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
                 }
-                const endNode = new EventEndNode(time, this.pointedValue)
-                const node = new EventStartNode(time, this.pointedValue);
+                const endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue)
+                const node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
                 node.easing = this.easing;
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
@@ -361,9 +445,17 @@ class EventCurveEditor {
                 this.parentEditorSet.$editSwitch.checked = false;
                 this.wasEditing = true;
                 break;
+            case EventCurveEditorState.selectScope:
+                this.startingPoint = coord;
+                this.startingCanvasPoint = canvasCoord;
+                this.state = EventCurveEditorState.selectingScope;
+                break;
         }
     }
     upHandler(event: MouseEvent | TouchEvent) {
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        const {x, y} = canvasCoord.mul(this.invertedMatrix);
         switch (this.state) {
             case EventCurveEditorState.selecting:
                 if (!this.wasEditing) {
@@ -372,6 +464,33 @@ class EventCurveEditor {
                     this.state = EventCurveEditorState.edit;
                     this.parentEditorSet.$editSwitch.checked = true;
                 }
+                break;
+            case EventCurveEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                console.log("Arr", array);
+                console.log(sx, sy, ex, ey)
+                const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
+                console.log(nodes);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
+                        break;
+                    case SelectState.replace:
+                        this.parentEditorSet.nodesSelection = new Set(nodes);
+                        break;
+                    case SelectState.exclude:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.difference(new Set(nodes));
+                        break;
+                }
+                this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note: EventStartNode) => !!note.parentSeq))
+                console.log("bp")
+                if (this.parentEditorSet.nodesSelection.size !== 0) {
+                    editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
+                    editor.switchSide(editor.multiNodeEditor);
+                }
+                this.state = EventCurveEditorState.selectScope;
                 break;
             default:
                 this.state = EventCurveEditorState.select;
@@ -448,13 +567,17 @@ class EventCurveEditor {
         selectionManager.refresh()
         this.drawCoordination(beats)
         context.save()
-        this.context.fillStyle = "#EEE"
-        this.context.fillText("State: " + EventCurveEditorState[this.state], 10, -30)
-        this.context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10)
-        this.context.fillText("Sequence: " + this.target.id, 10, -50)
-        this.context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
-        if (this.cursorPos) {
-            this.context.fillText(`Cursor: ${this.cursorPos.x}, ${this.cursorPos.y}`, 10, -90)
+        context.fillStyle = "#EEE"
+        context.fillText("State: " + EventCurveEditorState[this.state], 10, -30)
+        context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10)
+        context.fillText("Sequence: " + this.target.id, 10, -50)
+        context.fillText("Last Frame Took:" + (shortenFloat(editor.renderingTime, 2) || "??") + "ms", 10, -70);
+        if (this.pointedBeats) {
+            context.fillText(`pointedTime: ${this.pointedBeats}:${this.beatFraction}:${editor.timeDivisor}`, 10, 10);
+        }
+
+        if (this.canvasPoint) {
+            this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90)
         }
         context.restore()
         const startBeats = beats - this.timeRange / 2;
@@ -495,8 +618,18 @@ class EventCurveEditor {
                 priority: 1
             }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20)
 
+            const selected = this.parentEditorSet.nodesSelection.has(startNode)
+
+            if (selected) {
+                context.save()
+                context.strokeStyle = 'cyan';
+            }
+
 
             startNode.easing.drawCurve(context, startX, startY, endX, endY)
+            if (selected) {
+                context.restore()
+            }
             context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT)
             context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT)
             // console.log(this.type, EventType.speed)
@@ -516,7 +649,15 @@ class EventCurveEditor {
             const startValue = lastStart.value;
             const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
             const topY = startY - NODE_HEIGHT / 2;
+            const selected = this.parentEditorSet.nodesSelection.has(lastStart)
+            if (selected) {
+                context.save()
+                context.strokeStyle = 'cyan';
+            }
             drawLine(context, startX, startY, width / 2, startY);
+            if (selected) {
+                context.restore()
+            }
             context.drawImage(NODE_START, startX, startY - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT)
             selectionManager.add({
                 target: lastStart,
@@ -528,6 +669,14 @@ class EventCurveEditor {
             }).annotate(context, startX, topY);
 
         }
+        
+        if (this.state === EventCurveEditorState.selectingScope) {
+            const {startingCanvasPoint, canvasPoint} = this;
+            context.save()
+            context.strokeStyle = "#84F";
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore()
+        }
         this.lastBeats = beats;
     }
     changeTarget(line: JudgeLine, index: number) {
@@ -537,5 +686,43 @@ class EventCurveEditor {
         }
         line.eventLayers[index] = line.eventLayers[index] || {};
         this.target = line.eventLayers[index][EventType[this.type]] || EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+    }
+
+    
+
+    paste() {
+        if (!this.displayed) {
+            return;
+        }
+        const {lastBeats} = this;
+        const {clipboard} = this.parentEditorSet;
+        const {timeDivisor} = editor;
+        if (!clipboard || clipboard.size === 0) {
+            return;
+        }
+        if (!lastBeats) {
+            Editor.notify("Have not rendered a frame")
+        }
+        const nodes = [...clipboard];
+        nodes.sort((a: EventNode, b: EventNode) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+        const startTime: TimeT = nodes[0].time;
+        // const portions: number = Math.round(timeDivisor * lastBeats);
+        const dest: TimeT = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const offset: TimeT = TimeCalculator.sub(dest, startTime);
+
+        
+        const newNodes: EventStartNode[] = nodes.map(n => n.clonePair(offset));
+        editor.chart.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
+        editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set<EventStartNode>(newNodes);
+        editor.update();
+    }
+    copy(): void {
+        if (!this.displayed) {
+            return;
+        }
+        console.log(this.parentEditorSet.nodesSelection);
+        this.parentEditorSet.clipboard = this.parentEditorSet.nodesSelection;
+        this.parentEditorSet.nodesSelection = new Set<EventStartNode>();
+        editor.update();
     }
 }

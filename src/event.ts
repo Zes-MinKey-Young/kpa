@@ -53,9 +53,9 @@ abstract class EventNode {
         this.ratio = 1;
         this.easing = linearEasing
     }
-    clone(): EventStartNode | EventEndNode {
+    clone(offset: TimeT): EventStartNode | EventEndNode {
         const ret = new (this.constructor as (typeof EventStartNode | typeof EventEndNode))
-                        ([...this.time], this.value);
+                        (TimeCalculator.add(this.time, offset), this.value);
         ret.easing = this.easing;
         ret.ratio = this.ratio;
         return ret;
@@ -341,8 +341,14 @@ class EventStartNode extends EventNode {
     isLastStart() {
         return this.next && "tailing" in this.next
     }
-    clone(): EventStartNode {
-        return super.clone() as EventStartNode;
+    clone(offset: TimeT): EventStartNode {
+        return super.clone(offset) as EventStartNode;
+    };
+    clonePair(offset: TimeT): EventStartNode {
+        const endNode = !("heading" in this.previous) ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
+        const startNode = this.clone(offset);
+        EventNode.connect(endNode, startNode);
+        return startNode;
     };
 }
 /*
@@ -361,8 +367,8 @@ class EventEndNode extends EventNode {
     getValueAt(beats: number) {
         return this.previous.getValueAt(beats);
     }
-    clone(): EventEndNode {
-        return super.clone() as EventEndNode;
+    clone(offset: TimeT): EventEndNode {
+        return super.clone(offset) as EventEndNode;
     }
 }
 
@@ -544,6 +550,9 @@ class EventNodeSequence {
             (node: EventStartNode, beats: number) => {
                 return TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : EventNode.nextStartInJumpArray(node)
             },
+            (node: EventStartNode) => {
+                return node.next && "tailing" in node.next ? node.next : node;
+            }
             /*(node: EventStartNode) => {
                 const prev = node.previous;
                 return "heading" in prev ? node : prev.previous;

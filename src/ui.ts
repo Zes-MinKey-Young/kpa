@@ -336,15 +336,22 @@ class ZFractionInput extends Z<"span"> {
 }
 
 class BoxOption {
-    $element: Z<"div">
+    $elementMap: Map<ZDropdownOptionBox, Z<"div">>;
     text: string;
     onChangedTo: (option: BoxOption) => void;
-    onChanged: (option: BoxOption) => void
+    onChanged: (option: BoxOption) => void;
+
     constructor(text: string, onChangedTo?: (option: BoxOption) => void, onChanged?: (option: BoxOption) => void) {
-        this.$element = $("div").addClass("box-option").text(text);
+        this.$elementMap = new Map();
         this.text = text;
         this.onChangedTo = onChangedTo;
         this.onChanged = onChanged;
+    }
+    getElement(box: ZDropdownOptionBox) {
+        if (!this.$elementMap.has(box)) {
+            this.$elementMap.set(box, $("div").addClass("box-option").text(this.text));
+        }
+        return this.$elementMap.get(box)
     }
 }
 
@@ -394,17 +401,17 @@ class ZDropdownOptionBox extends Z<"div"> {
         this.options = options;
         const length = options.length;
         for (let i = 0; i < length; i++) {
-            const $element = options[i].$element
+            const $element = options[i].getElement(this);
             optionList.append($element)
         }
         optionList.onClick((event) => {
             const target = event.target
             if (target instanceof HTMLDivElement) {
-                if (target !== this.value.$element.release()) {
+                if (target !== this.value.getElement(this).release()) {
                     let option: BoxOption;
                     for (let i = 0; i < options.length; i++) {
                         option = options[i]
-                        if (option.$element.release() === target) {
+                        if (option.getElement(this).release() === target) {
                             break;
                         }
                     }
@@ -439,15 +446,15 @@ class ZDropdownOptionBox extends Z<"div"> {
     }
     appendOption(option: BoxOption): this {
         this.options.push(option);
-        this.$optionList.append(option.$element);
+        this.$optionList.append(option.getElement(this));
         return this;
     }
     replaceWithOptions(options: BoxOption[]): this {
         this.options.splice(0, this.options.length)
-            .forEach((option) => option.$element.remove())
+            .forEach((option) => option.getElement(this).remove())
         this.options.push(...options);
         for (let i = 0; i < options.length; i++) {
-            this.$optionList.append(options[i].$element)
+            this.$optionList.append(options[i].getElement(this))
         }
         return this;
     }
@@ -491,17 +498,17 @@ class ZEditableDropdownOptionBox extends Z<"div"> {
         this.options = options;
         const length = options.length;
         for (let i = 0; i < length; i++) {
-            const $element = options[i].$element
+            const $element = options[i].getElement(this)
             optionList.append($element)
         }
         optionList.onClick((event) => {
             const target = event.target
             if (target instanceof HTMLDivElement) {
-                if (target !== this.value.$element.release()) {
+                if (target !== this.value.getElement(this).release()) {
                     let option: EditableBoxOption;
                     for (let i =0; i < options.length; i++) {
                         option = options[i]
-                        if (option.$element.release() === target) {
+                        if (option.getElement(this).release() === target) {
                             break;
                         }
                     }
@@ -536,15 +543,15 @@ class ZEditableDropdownOptionBox extends Z<"div"> {
     }
     appendOption(option: EditableBoxOption): this {
         this.options.push(option);
-        this.$optionList.append(option.$element);
+        this.$optionList.append(option.getElement(this));
         return this;
     }
     replaceWithOptions(options: EditableBoxOption[]): this {
         this.options.splice(0, this.options.length)
-            .forEach((option) => option.$element.remove())
+            .forEach((option) => option.getElement(this).remove())
         this.options.push(...options);
         for (let i = 0; i < options.length; i++) {
-            this.$optionList.append(options[i].$element)
+            this.$optionList.append(options[i].getElement(this))
         }
         return this;
     }
@@ -596,7 +603,7 @@ class ZEasingBox extends Z<"div"> {
     $easeType: ZDropdownOptionBox;
     $funcType: ZDropdownOptionBox;
     value: number;
-    constructor() {
+    constructor(dropdownUp: boolean=false) {
         super("div")
         this.$input = new ZArrowInputBox()
             .onChange((num) => {
@@ -606,8 +613,8 @@ class ZEasingBox extends Z<"div"> {
                 this.value = num;
                 this.dispatchEvent(new ZValueChangeEvent())
             });
-        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions).onChange(() => this.update())
-        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions).onChange(() => this.update())
+        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions, dropdownUp).onChange(() => this.update())
+        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions, dropdownUp).onChange(() => this.update())
 
         this.addClass("flex-row")
             .append(
