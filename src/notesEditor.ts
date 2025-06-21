@@ -305,7 +305,15 @@ class NotesEditor extends Z<"div"> {
                     this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                     break;
             }
-        })
+        });
+        /*
+        window.addEventListener("resize", () => {
+            const {clientHeight: outerHeight, clientWidth: outerWidth} = editor.$preview.element;
+            const {clientHeight, clientWidth} = editor.player.canvas;
+            this.canvas.width = outerWidth - clientWidth;
+            this.canvas.height = outerHeight;
+        });
+        //*/
         
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];

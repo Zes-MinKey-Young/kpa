@@ -126,7 +126,7 @@ const versionControlEnabled = configData.versionControlEnabled || false;
 const generateCommand = (cmdTemplate: string[], time: Date, message: string) => {
     return cmdTemplate.map(
         (token) => token
-            .replaceAll("$time", time.toISOString())
+            .replaceAll("$time", time.toLocaleString().replaceAll("/", "-"))
             .replaceAll("$message", message)
     )
 }
@@ -292,7 +292,7 @@ Bun.serve({
                     cwd: `../Resources/${id}`
                 }))
             } else {
-                Bun.write(`../Resources/${id}/AutoSave ${new Date().toISOString}.json`, blob)
+                Bun.write(`../Resources/${id}/AutoSave ${new Date().toLocaleString().replaceAll("/", "-")}.json`, blob)
             }
                 
 

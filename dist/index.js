@@ -1777,8 +1777,9 @@ class JumpArray {
      * @param lastNode 含
      */
     updateRange(firstNode, lastNode) {
+        const { endNextFn, effectiveBeats, resolveLastNode } = this;
+        lastNode = resolveLastNode(lastNode);
         console.log(firstNode, lastNode);
-        const { endNextFn, effectiveBeats } = this;
         /**
          *
          * @param startTime
@@ -3018,6 +3019,14 @@ class NotesEditor extends Z {
                     break;
             }
         });
+        /*
+        window.addEventListener("resize", () => {
+            const {clientHeight: outerHeight, clientWidth: outerWidth} = editor.$preview.element;
+            const {clientHeight, clientWidth} = editor.player.canvas;
+            this.canvas.width = outerWidth - clientWidth;
+            this.canvas.height = outerHeight;
+        });
+        //*/
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
         this.init();
