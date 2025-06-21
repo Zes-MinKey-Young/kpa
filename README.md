@@ -25,12 +25,12 @@ KPA expects editing events like editing videos. In KPA, Events are presented and
 # 使用
 访问https://zes-minkey-young.github.io/kpa/html
 
-或者下载本仓库，创建本地服务器运行index.html
+或者下载发布版本
 
 # Usage
 Visit https://zes-minkey-young.github.io/kpa/html
 
-Or download this repository, create a local server and run index.html
+Or download the releases
 
 # 开发
 本仓库使用TypeScript编写，使用VSCode开发。由于文件之间的类、接口等引用交错复杂，故采用直接编译到一个文件的方式，而不是使用ESModule的方式。欢迎为本项目做出贡献。
