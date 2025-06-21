@@ -80,8 +80,9 @@ class JumpArray<T extends TwoDirectionNode> {
      * @param lastNode 含
      */
     updateRange(firstNode: TypeOrHeader<T>, lastNode: TypeOrTailer<T>) {
+        const {endNextFn, effectiveBeats, resolveLastNode} = this;
+        lastNode = resolveLastNode(lastNode);
         console.log(firstNode, lastNode)
-        const {endNextFn, effectiveBeats} = this;
         /**
          * 
          * @param startTime 
