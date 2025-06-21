@@ -304,6 +304,8 @@ class EventCurveEditor {
         this.valueGridColor = [255, 170, 120];
         this.initContext()
 
+        this.easing = easingMap.linear.in;
+
         parent.$editSwitch.onClickChange((checked) => {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
         })
