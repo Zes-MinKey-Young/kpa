@@ -110,6 +110,8 @@ interface Config {
     commit: string[][];
     autosave: string[][];
     versionControlEnabled: boolean;
+    key: string;
+    cert: string;
 }
 
 const errors: ParseError[] = [];
@@ -122,6 +124,9 @@ const createCmds = configData.create;
 const commitCmds = configData.commit;
 const autosaveCmds = configData.autosave;
 const versionControlEnabled = configData.versionControlEnabled || false;
+
+const key = configData.key;
+const cert = configData.cert;
 
 const generateCommand = (cmdTemplate: string[], time: Date, message: string) => {
     return cmdTemplate.map(
@@ -155,6 +160,10 @@ function checkOrCreateRepo(cwd: string) {
     }
 }
 Bun.serve({
+    tls: (key && cert) ? {
+        key: await Bun.file(key).text(),
+        cert: await Bun.file(cert).text()
+    } : undefined,
     port: 2460,
     routes: {
         "/": Response.redirect("/html/chartIndex.html"),

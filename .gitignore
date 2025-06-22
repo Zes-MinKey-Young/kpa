@@ -6,3 +6,4 @@ Resources
 pgrfmwiki/pictures
 *.exe
 server/config.jsonc
+*.pem
