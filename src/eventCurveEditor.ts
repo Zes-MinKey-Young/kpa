@@ -399,8 +399,8 @@ class EventCurveEditor {
         } = this;
         this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
         this.invertedMatrix = this.matrix.invert();
-        console.log(this.matrix);
-        console.log(identity.translate(0, -valueBasis * valueRange))
+        // console.log(this.matrix);
+        // console.log(identity.translate(0, -valueBasis * valueRange))
         this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
         this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
@@ -471,10 +471,10 @@ class EventCurveEditor {
                 const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
                 const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
                 const array = this.selectionManager.selectScope(sy, sx, ey, ex);
-                console.log("Arr", array);
-                console.log(sx, sy, ex, ey)
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
                 const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
-                console.log(nodes);
+                // console.log(nodes);
                 switch (this.selectState) {
                     case SelectState.extend:
                         this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
@@ -487,7 +487,7 @@ class EventCurveEditor {
                         break;
                 }
                 this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note: EventStartNode) => !!note.parentSeq))
-                console.log("bp")
+                // console.log("bp")
                 if (this.parentEditorSet.nodesSelection.size !== 0) {
                     editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
                     editor.switchSide(editor.multiNodeEditor);
@@ -597,8 +597,8 @@ class EventCurveEditor {
             const startValue = startNode.value;
             const endValue   = endNode.value;
             const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
-            console.log("startXY", startX, startY);
-            console.log(Matrix.fromDOMMatrix(context.getTransform()))
+            // console.log("startXY", startX, startY);
+            // console.log(Matrix.fromDOMMatrix(context.getTransform()))
             const {x: endX, y: endY} = new Coordinate(endTime - beats, endValue).mul(matrix);
             const topY = startY - NODE_HEIGHT / 2
             const topEndY = endY - NODE_HEIGHT / 2

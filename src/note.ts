@@ -402,7 +402,7 @@ class NNList {
             NoteNode.insert(node, newNode, next);
             // console.log("created:", node2string(newNode))
             this.jump.updateRange(node, next);
-            console.log("pl", this.parentLine)
+            // console.log("pl", this.parentLine)
 
             if (this.parentLine?.chart) {
                 this.parentLine.chart.nnnList.getNode(time).add(newNode)

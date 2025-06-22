@@ -321,13 +321,13 @@ class NotesEditor extends Z<"div"> {
     }
     downHandler(event: TouchEvent | MouseEvent) {
         const {width, height} = this.canvas;
-        console.log(width, height)
+        // console.log(width, height)
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
         const coord = canvasCoord.mul(this.invertedMatrix);
         const {x, y} = coord;
-        console.log("offset:", offsetX, offsetY)
-        console.log("Coord:", x, y);
+        // console.log("offset:", offsetX, offsetY)
+        // console.log("Coord:", x, y);
         switch (this.state) {
             case NotesEditorState.select:
             case NotesEditorState.selecting:
@@ -392,8 +392,8 @@ class NotesEditor extends Z<"div"> {
                 const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
                 const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
                 const array = this.selectionManager.selectScope(sy, sx, ey, ex);
-                console.log("Arr", array);
-                console.log(sx, sy, ex, ey)
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
                 const notes = array.map(x => x.target).filter(x => x instanceof Note);
                 switch (this.selectState) {
                     case SelectState.extend:
@@ -407,7 +407,7 @@ class NotesEditor extends Z<"div"> {
                         break;
                 }
                 this.notesSelection = new Set([...this.notesSelection].filter((note: Note) => !!note.parentNode))
-                console.log("bp")
+                // console.log("bp")
                 if (this.notesSelection.size !== 0) {
                     this.editor.multiNoteEditor.target = this.notesSelection;
                     this.editor.switchSide(editor.multiNoteEditor);

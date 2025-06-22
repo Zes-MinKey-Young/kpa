@@ -177,7 +177,7 @@ class JudgeLine {
         let nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
         let nextSpeed = this.getStackedValue("speed", nextTime, true)
         let range: [number, number] = [undefined, undefined];
-        console.log(times)
+        // console.log(times)
         const computeTime = (speed: number, currentPos: number, fore: number) => timeCalculator.secondsToBeats(currentPos / (speed * 120) + timeCalculator.toSeconds(fore));
         for (let i = 0; i < len - 1;) {
             const thisTime = nextTime;
@@ -189,7 +189,7 @@ class JudgeLine {
             nextTime = times[i + 1]
             nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
             nextSpeed = this.getStackedValue("speed", nextTime, true)
-            console.log(thisSpeed, nextSpeed, thisSpeed * nextSpeed < 0, i, [...result])
+            // console.log(thisSpeed, nextSpeed, thisSpeed * nextSpeed < 0, i, [...result])
             if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
                 //debugger;
                 nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
@@ -197,7 +197,7 @@ class JudgeLine {
                 nextPosY = this.getStackedIntegral(nextTime, timeCalculator)
                 //debugger
             } else {
-                console.log("i++")
+                // console.log("i++")
                 i++
             }
             if (range[0] === undefined) {

@@ -288,7 +288,7 @@ class Player {
                         // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                         
                         let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
-                        console.log(noteNode)
+                        // console.log(noteNode)
                         let startBeats;
                         
                         while (!("tailing" in noteNode)
@@ -400,12 +400,13 @@ class Player {
      */
     renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
         const start = tree.getNodeAt(startBeats, true);
-        // console.log("start", start)
         let noteNode = start;
-        const end = tree.getNodeAt(endBeats, true);
+        const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
         }
+        if (noteNode !== end)
+        console.log("start", start, startBeats, endBeats)
         while (noteNode !== end) {
             const base = judgeLine.getBaseCoordinate(beats);
             const thisCoord = judgeLine.getThisCoordinate(beats);
@@ -442,7 +443,7 @@ class Player {
                     )
             }
         } else {
-            console.log("renderSameTimeNotes", noteNode)
+            // console.log("renderSameTimeNotes", noteNode)
             const notes = noteNode.notes
             , len = notes.length
             for (let i = 0; i < len; i++) {
@@ -457,7 +458,7 @@ class Player {
         }
     }
     renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number) {
-        console.log(note, this.beats)
+        // console.log(note, this.beats)
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
