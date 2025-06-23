@@ -16,6 +16,8 @@ class OperationList extends EventTarget {
             }
             this.undoneOperations.push(op)
             op.undo()
+        } else {
+            this.dispatchEvent(new Event("noundo"))
         }
     }
     redo() {
@@ -27,6 +29,8 @@ class OperationList extends EventTarget {
             }
             this.operations.push(op)
             op.do()
+        } else {
+            this.dispatchEvent(new Event("noredo"))
         }
     }
     do(operation: Operation) {

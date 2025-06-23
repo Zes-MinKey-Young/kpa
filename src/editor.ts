@@ -315,11 +315,24 @@ class Editor extends EventTarget {
             this.chart.operationList.addEventListener("firstmodified", () => {
                 this.$saveButton.disabled = false;
             })
+            this.chart.operationList.addEventListener("noundo", () => {
+                Editor.notify("Nothing to undo");
+            });
+            this.chart.operationList.addEventListener("noredo", () => {
+                Editor.notify("Nothing to redo");
+            });
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {
                 e.preventDefault();
                 e.returnValue = "Unsaved Changes";
+            }
+        })
+        window.addEventListener("keypress", (e: KeyboardEvent) => {
+            if (e.key === "z") {
+                this.chart?.operationList.undo();
+            } else if (e.key === "y") {
+                this.chart?.operationList.redo();
             }
         })
     }
