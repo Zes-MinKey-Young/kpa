@@ -400,17 +400,40 @@ class EventNodePairInsertOperation extends Operation {
     node: EventStartNode;
     tarPrev: EventStartNode;
     originalSequence: EventNodeSequence;
+    overlapped: boolean;
+    originalValue: number;
+    value: number
+    /**
+     * 
+     * @param node the node to insert
+     * @param targetPrevious The node to insert before, accessed through EventNodeSequence.getNodeAt(TC.toBeats(node))
+     * If the targetPrevious's time is the same as node's time, the node will not be inserted,
+     * and the targetPrevious' value will be replaced with the node's value.
+     */
     constructor(node: EventStartNode, targetPrevious: EventStartNode) {
         super()
         this.node = node;
         this.tarPrev = targetPrevious
         this.originalSequence = targetPrevious.parentSeq
+        if (TimeCalculator.eq(node.time, targetPrevious.time)) {
+            this.overlapped = true;
+            this.value = node.value;
+            this.originalValue = targetPrevious.value;
+        }
     }
     do() {
+        if (this.overlapped) {
+            this.tarPrev.value = this.value;
+            return;
+        }
         const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
         this.node.parentSeq.jump.updateRange(endNode, startNode)
     }
     undo() {
+        if (this.overlapped) {
+            this.tarPrev.value = this.originalValue;
+            return;
+        }
         this.originalSequence?.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
     }
 }
@@ -439,7 +462,7 @@ class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperatio
         let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
         super(...nodes.map(node => {
             const op = new EventNodePairInsertOperation(node, prev);
-            prev = node; // 有种reduce的感觉
+            if (!op.overlapped) prev = node; // 有种reduce的感觉
             return op
         }));
         this.nodes = nodes

@@ -111,7 +111,7 @@ class JumpArray<T extends TwoDirectionNode> {
                 endTime = effectiveBeats;
             }
             // Hold树可能会不出现这种情况，故需特别考虑
-            if (endTime > previousEndTime) {
+            if (endTime >= previousEndTime) {
                 while (endTime >= (jumpIndex + 1) * averageBeats) {
                     if (Array.isArray(jumpArray[jumpIndex])) {
                         fillMinor(previousEndTime, endTime)

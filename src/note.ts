@@ -173,7 +173,7 @@ class NoteNode implements TwoDirectionNode {
     }
     get endTime(): TimeT {
         if (this.notes.length === 0) {
-            return [0, 0, 1] as const;
+            return this.startTime; // 改了半天这个逻辑本来就是对的()
         }
         return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime
     }
