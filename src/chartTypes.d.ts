@@ -15,6 +15,10 @@ interface ChartDataRPE {
     judgeLineGroup: string[];
     /** 判定线列表 */
     judgeLineList: JudgeLineDataRPE[];
+    chartTime?: number;
+    multiLineString: string;
+    multiScale: number;
+
 }
 
 interface BPMSegmentData {
@@ -283,6 +287,8 @@ interface ChartDataKPA {
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
     judgeLineGroups: string[];
+    chartTime?: number;
+    rpeChartTime?: number;
 }
 
 

@@ -134,6 +134,7 @@ class SaveDialog extends ZDialog {
         this.append(new ZButton("Cancel")
             .addClass("destructive")
             .onClick(() => this.close()));
+        // @ts-expect-error Here customEvent must be CustomEvent
         this.addEventListener("save", (customEvent: CustomEvent) => {
             console.log("save", customEvent.detail)
             serverApi.uploadChart(this.chartData, customEvent.detail)

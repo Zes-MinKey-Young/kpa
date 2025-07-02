@@ -99,6 +99,10 @@ class Chart {
     judgeLineGroups: JudgeLineGroup[];
     duration: number;
 
+
+    chartingTime: number;
+    rpeChartingTime: number;
+
     
     modified: boolean = false;
     constructor() {
@@ -130,6 +134,8 @@ class Chart {
         chart.level = data.META.level;
         chart.offset = data.META.offset;
         chart.duration = duration;
+        chart.rpeChartingTime = data.chartTime ? Math.round(data.chartTime / 60) : 0;
+        chart.chartingTime = 0;
         chart.updateCalculator()
         console.log(chart, chart.getEffectiveBeats())
         chart.nnnList = new NNNList(chart.getEffectiveBeats())
@@ -182,6 +188,8 @@ class Chart {
         chart.level = data.info.level;
         chart.offset = data.offset;
         chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
+        chart.chartingTime = data.chartTime ?? 0;
+        chart.rpeChartingTime = data.rpeChartTime ?? 0;
         chart.updateCalculator()
         chart.nnnList = new NNNList(chart.getEffectiveBeats())
         const sequences = data.eventNodeSequences
@@ -211,7 +219,7 @@ class Chart {
             judgeLine.updateEffectiveBeats(EB);
         }
     }
-    dumpKPA(): ChartDataKPA {
+    dumpKPA(): Required<ChartDataKPA> {
         const eventNodeSequences = new Set<EventNodeSequence>();
         const orphanLines = [];
         for (let line of this.orphanLines) {
@@ -234,6 +242,8 @@ class Chart {
             offset: this.offset,
             orphanLines: orphanLines,
             judgeLineGroups: this.judgeLineGroups.map(g => g.name),
+            chartTime: this.chartingTime,
+            rpeChartTime: this.rpeChartingTime
         };
     }
     getJudgeLineGroups(): string[] {

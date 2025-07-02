@@ -85,6 +85,7 @@ class ServerApi {
         setInterval(() => {
             const chart = editor.chart;
             if (chart.modified) {
+                chart.chartingTime++;
                 this.autosave(chart.dumpKPA())
                     .then(success => {
                         if (success) {
