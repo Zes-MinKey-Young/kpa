@@ -6,7 +6,7 @@ const MINOR_PARTS = 16;
 type EndNextFn<T extends TwoDirectionNode> = (node: TypeOrTailer<T> | Header<T>) => [endBeats: number, next: TypeOrTailer<T>];
 
 
-const breakpoint = () => {debugger}
+const breakpoint: () => never = () => {debugger}
 class JumpArray<T extends TwoDirectionNode> {
     header: Header<T>;
     tailer: Tailer<T>;

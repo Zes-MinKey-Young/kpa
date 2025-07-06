@@ -156,7 +156,7 @@ class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
             editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))))
         })
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodePairRemoveOperation(n))))
+            editor.chart.operationList.do(new MultiNodeDeleteOperation(Array.from(this.target)));
         })
     }
     update(): void {
@@ -226,10 +226,10 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
         if (eventNode.innerEasing instanceof NormalEasing) {
-            this.$radioTabs.$radioBox.switchTo(0)
+            this.$radioTabs.switchTo(0)
             this.$easing.setValue(eventNode.innerEasing);
         } else if (eventNode.innerEasing instanceof TemplateEasing) {
-            this.$radioTabs.$radioBox.switchTo(1)
+            this.$radioTabs.switchTo(1)
 
         }
     }

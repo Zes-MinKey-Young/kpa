@@ -17,7 +17,7 @@ interface List<TN extends TwoDirectionNode> {
 interface Header<TN extends TwoDirectionNode> {
     next: TN;
     heading: true;
-    parentSeq: List<TN>
+    parentSeq: List<TN>;
 }
 
 
@@ -25,7 +25,7 @@ interface Header<TN extends TwoDirectionNode> {
 interface Tailer<TN extends TwoDirectionNode> {
     previous: TN;
     tailing: true;
-    parentSeq: List<TN>
+    parentSeq: List<TN>;
 }
 type TypeOrHeader<T extends TwoDirectionNode> = Header<T> | T
 type TypeOrTailer<T extends TwoDirectionNode> = Tailer<T> | T
@@ -158,4 +158,16 @@ function saveTextToFile(text: string, filename: string) {
 function shortenFloat(num: number, decimalPlaces: number) {
     const multiplier = Math.pow(10, decimalPlaces);
     return Math.round(num * multiplier) / multiplier;
+}
+
+
+function changeAudioTime(audio: HTMLAudioElement, delta: number) {
+    const time = audio.currentTime + delta;
+    if (time < 0) {
+        audio.currentTime = 0;
+    } else if (time > audio.duration) {
+        audio.currentTime = audio.duration;
+    } else {
+        audio.currentTime = time;
+    }
 }

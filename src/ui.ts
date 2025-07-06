@@ -707,6 +707,7 @@ class ZRadioTabs extends Z<"div"> {
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
             this.append(pages[key]);
+            this.$pages.push(pages[key])
             if (i !== defaultIndex) {
                 pages[key].hide()
             }

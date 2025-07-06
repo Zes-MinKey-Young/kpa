@@ -28,6 +28,8 @@ class Player {
     noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number
+
+    greenLine: number = 0;
     
     constructor(canvas: HTMLCanvasElement, editor: Editor) {
         this.canvas = canvas
@@ -233,7 +235,7 @@ class Player {
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
         const lineColor = settings.get("lineColor")
-        context.strokeStyle = rgba(...lineColor, alpha / 255)
+        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as const) : lineColor), alpha / 255)
         drawLine(context, -1350, 0, 1350, 0)
         context.drawImage(ANCHOR, -10, -10)
 

@@ -43,6 +43,7 @@ class JudgeLinesEditor {
         this.editor.notesEditor.target = lineEditor.judgeLine;
         this.editor.eventCurveEditors.changeTarget(lineEditor.judgeLine)
         lineEditor.element.classList.add("judge-line-editor-selected")
+        this.editor.player.greenLine = lineEditor.judgeLine.id;
         this.editor.eventCurveEditors.draw();
         this.editor.notesEditor.draw()
     }
@@ -244,29 +245,21 @@ class Editor extends EventTarget {
         this.backgroundInput.addEventListener("change", () => {
             this.readImage(this.backgroundInput.files[0])
         });
-        [this.$preview, this.eventCurveEditors].forEach($e => $e.on("wheel", (event: WheelEvent) => {
+        this.$preview.on("wheel", (event: WheelEvent) => {
             if (!this.initialized) {
                 return;
             }
-            const player = this.player;
             if (this.playing) {
                 this.pause();
             }
             const audio = this.player.audio;
-            let currentTime = audio.currentTime;
             // console.log(event.deltaY)
-            currentTime += event.deltaY / 500;
-            if (currentTime > audio.duration) {
-                currentTime = audio.duration
-            } else if (currentTime < 0) {
-                currentTime = 0;
-            }
-            audio.currentTime = currentTime
+            changeAudioTime(audio, event.deltaY / 500)
             this.progressBar.update()
             this.update()
             this.player.render()
             // event.preventDefault()
-        }));
+        });
         // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox()
         this.$timeDivisor.onChange((n) => {

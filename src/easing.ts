@@ -1,4 +1,6 @@
 
+const DEFAULT_TEMPLATE_LENGTH = 16;
+
 const easeOutElastic = (x: number): number => {
     const c4 = (2 * Math.PI) / 3;
     
@@ -243,20 +245,23 @@ class BezierEasing extends Easing {
 class TemplateEasing extends Easing {
     eventNodeSequence: EventNodeSequence;
     name: string;
-    constructor(name: string, nodes: EventNodeSequence) {
+    constructor(name: string, sequence: EventNodeSequence) {
         super()
-        this.eventNodeSequence = nodes;
+        this.eventNodeSequence = sequence;
         this.name = name;
     }
     getValue(t: number) {
-        let seq = this.eventNodeSequence
+        const seq = this.eventNodeSequence;
         let delta = this.valueDelta;
-        let frac = seq.getValueAt(t * this.eventNodeSequence.effectiveBeats)
+        const frac = seq.getValueAt(t * seq.effectiveBeats) - this.headValue
         return delta === 0 ? frac : frac / delta;
     }
     get valueDelta(): number {
         let seq = this.eventNodeSequence;
         return seq.tail.previous.value - seq.head.next.value;
+    }
+    get headValue(): number {
+        return this.eventNodeSequence.head.next.value;
     }
 }
 
@@ -311,7 +316,8 @@ class TemplateEasingLib {
         if (this.easings[name]) {
             return this.easings[name];
         } else {
-            const easing = new TemplateEasing(name, EventNodeSequence.newSeq(EventType.easing));
+            const easing = new TemplateEasing(name, EventNodeSequence.newSeq(EventType.easing, DEFAULT_TEMPLATE_LENGTH));
+            easing.eventNodeSequence.id = "*" + name;
             return this.easings[name] = easing;
         }
     }
@@ -351,7 +357,7 @@ class TemplateEasingLib {
         }
         
     }
-    get(key: string) {
+    get(key: string): TemplateEasing | undefined {
         return this.easings[key];
     }
     

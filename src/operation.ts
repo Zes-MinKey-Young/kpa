@@ -388,13 +388,18 @@ class EventNodePairRemoveOperation extends Operation {
         this.originalPrev = (<EventEndNode>node.previous).previous
     }
     do() {
-        this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
+        this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode))
     }
     undo() {
-        this.sequence.jump.updateRange(...EventNode.insert(this.startNode, this.originalPrev))
+        this.sequence.updateJump(...EventNode.insert(this.startNode, this.originalPrev))
     }
 }
 
+/**
+ * 将一对孤立的节点对插入到一个开始节点之后的操作。
+ * 如果这个节点对的时刻与节点对的时刻相同，那么该节点对将不会被插入。
+ * 而是把原来开始节点的值修改。
+ */
 class EventNodePairInsertOperation extends Operation {
     updatesEditor = true
     node: EventStartNode;
@@ -427,14 +432,14 @@ class EventNodePairInsertOperation extends Operation {
             return;
         }
         const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
-        this.node.parentSeq.jump.updateRange(endNode, startNode)
+        this.node.parentSeq.updateJump(endNode, startNode)
     }
     undo() {
         if (this.overlapped) {
             this.tarPrev.value = this.originalValue;
             return;
         }
-        this.originalSequence?.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
+        this.originalSequence?.updateJump(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)))
     }
 }
 
@@ -466,6 +471,13 @@ class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperatio
             return op
         }));
         this.nodes = nodes
+    }
+}
+
+class MultiNodeDeleteOperation extends ComplexOperation<EventNodePairRemoveOperation[]> {
+    updatesEditor = true;
+    constructor(nodes: EventStartNode[]) {
+        super(...nodes.map(node => new EventNodePairRemoveOperation(node)));
     }
 }
 
@@ -535,18 +547,18 @@ class EventNodeTimeChangeOperation extends Operation {
     do() { // 这里其实还要设计重新选址的问题
         this.startNode.time = this.endNode.time = this.value;
         if (this.newPrevious !== this.originalPrevious) {
-            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
+            this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode))
             EventNode.insert(this.startNode, this.newPrevious)
         }
-        this.sequence.jump.updateRange(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode))
+        this.sequence.updateJump(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode))
     }
     undo() {
         this.endNode.time = this.startNode.time = this.originalValue;
         if (this.newPrevious !== this.originalPrevious) {
-            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode))
+            this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode))
             EventNode.insert(this.startNode, this.originalPrevious)
         }
-        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode))
+        this.sequence.updateJump(this.endNode.previous, EventNode.nextStartOfStart(this.startNode))
     }
 
 }
@@ -570,3 +582,69 @@ class EventNodeInnerEasingChangeOperation extends Operation {
         this.startNode.innerEasing = this.originalValue
    }
 }
+
+class EventNodeEasingChangeOperation extends Operation {
+    updatesEditor = true
+    startNode: EventStartNode;
+    value: Easing;
+    originalValue: Easing
+    constructor(node: EventStartNode | EventEndNode, val: Easing) {
+        super();
+        let _;
+        [this.startNode, _] = EventNode.getStartEnd(node)
+        this.value = val;
+        this.originalValue = node.easing
+    }
+    do() {
+        this.startNode.easing = this.value
+    }
+    undo() {
+        this.startNode.easing = this.originalValue
+    }
+}
+
+class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation]> {
+    updatesEditor = true;
+    constructor(nodes: EventStartNode[], easing: TemplateEasing) {
+        super(
+            new MultiNodeDeleteOperation(nodes.slice(1, -1)),
+            new EventNodeEasingChangeOperation(nodes[0], easing)
+        )
+    }
+}
+
+
+
+enum EncapsuleErrorType {
+    NotBelongToSourceSequence = 1,
+    NotContinuous = 2,
+    ZeroDelta = 3
+}
+
+/**
+ * 将一些来自sourceSequence的节点打包为一个用于模板缓动的事件序列
+ * 然后把sourceSequence中的源节点集合替换为单个使用了该模板的事件
+ * @param sourceSequence 
+ * @param sourceNodes
+ */
+function encapsule(templateEasingLib: TemplateEasingLib, sourceSequence: EventNodeSequence, sourceNodes: Set<EventStartNode>, name: string): EncapsuleErrorType | EncapsuleOperation {
+    if (!EventNode.belongToSequence(sourceNodes, sourceSequence)) {
+        return EncapsuleErrorType.NotBelongToSourceSequence;
+    }
+    const [oldArray, nodeArray] = EventNode.setToNewOrderedArray([0, 0, 1], sourceNodes);
+    if (Math.abs(nodeArray[0].value - nodeArray[nodeArray.length - 1].value) < 1e-10) {
+        return EncapsuleErrorType.ZeroDelta;
+    }
+    if (!EventNode.isContinuous(oldArray)) {
+        return EncapsuleErrorType.NotContinuous;
+    }
+    const easing = templateEasingLib.getOrNew(name);
+    const sequence = easing.eventNodeSequence;
+    sequence.effectiveBeats = TimeCalculator.toBeats(nodeArray[nodeArray.length - 1].time);
+    // 直接do，这个不需要做成可撤销的
+    new MultiNodeAddOperation(nodeArray, sequence).do();
+
+    return new EncapsuleOperation(oldArray, easing); 
+}
+
+

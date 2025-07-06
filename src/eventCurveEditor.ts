@@ -52,7 +52,13 @@ class EventCurveEditors extends Z<"div"> {
     $layerSelect: ZDropdownOptionBox;
     $editSwitch: ZSwitch;
     $easingBox: ZEasingBox;
-    $newNodeStateSelect: ZDropdownOptionBox
+    $newNodeStateSelect: ZDropdownOptionBox;
+    $encapsuleBtn: ZButton;
+    $templateNameInput: ZInputBox;
+    $selectOption: ZDropdownOptionBox;
+    selectState: SelectState;
+    $copyButton: ZButton;
+    $pasteButton: ZButton;
 
 
     moveX: EventCurveEditor;
@@ -64,14 +70,11 @@ class EventCurveEditors extends Z<"div"> {
     bpm: EventCurveEditor;
 
     lastBeats: number;
+    easingBeats: number = 0;
 
     clipboard: Set<EventStartNode>;
     nodesSelection: Set<EventStartNode>;
 
-    $selectOption: ZDropdownOptionBox;
-    selectState: SelectState;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
     constructor(width: number, height: number) {
         super("div")
         this.addClass("event-curve-editors")
@@ -115,8 +118,32 @@ class EventCurveEditors extends Z<"div"> {
             
         this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true)
         
-        this.$copyButton = new ZButton("Copy")
-        this.$pasteButton = new ZButton("Paste")
+        this.$copyButton = new ZButton("Copy");
+        this.$pasteButton = new ZButton("Paste");
+        this.$encapsuleBtn = new ZButton("Encapsule");
+        this.$templateNameInput = new ZInputBox();
+        this.$templateNameInput.onChange((name) => {
+            const easing = editor.chart.templateEasingLib.get(name)
+            if (easing) {
+                this.easing.target = easing.eventNodeSequence;
+                this.draw();
+            } else {
+                this.easing.target = null;
+            }
+        })
+        this.on("wheel", (ev) => {
+            const delta = ev.deltaY / 500;
+            if (editor.player.playing) {
+                editor.pause()
+            }
+            if (this.selectedEditor === this.easing) {
+                this.easingBeats = Math.min(Math.max(this.easingBeats + delta, 0), this.easing.target.effectiveBeats);
+                this.easing.draw(this.easingBeats)
+            } else {
+                changeAudioTime(editor.player.audio, delta);
+                editor.update()
+            }
+        })
 
 
 
@@ -128,13 +155,15 @@ class EventCurveEditors extends Z<"div"> {
             this.$copyButton,
             this.$pasteButton,
             this.$easingBox,
-            this.$newNodeStateSelect
+            this.$newNodeStateSelect,
+            this.$templateNameInput,
+            this.$encapsuleBtn
         )
         this.append(this.$bar)
 
         for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
             this[type] = new EventCurveEditor(EventType[type], height - 40, width, this);
-            this[type].displayed = false;
+            this[type].active = false;
             this.append(this[type].element)
         }
         this.nodesSelection = new Set<EventStartNode>();
@@ -147,9 +176,9 @@ class EventCurveEditors extends Z<"div"> {
     }
     set selectedEditor(val) {
         if (val === this._selectedEditor) return;
-        if (this._selectedEditor) this._selectedEditor.displayed = false;
+        if (this._selectedEditor) this._selectedEditor.active = false;
         this._selectedEditor = val;
-        val.displayed = true;
+        val.active = true;
         this.nodesSelection = new Set<EventStartNode>();
         this.draw()
     }
@@ -167,7 +196,12 @@ class EventCurveEditors extends Z<"div"> {
         beats = beats || this.lastBeats
         this.lastBeats = beats;
         //console.log("draw")
-        this.selectedEditor.draw(beats)
+        if (this.selectedEditor === this.easing) {
+            this.easing.draw(this.easingBeats);
+        } else {
+                
+            this.selectedEditor.draw(beats)
+        }
     }
     target: JudgeLine;
     changeTarget(target: JudgeLine) {
@@ -253,15 +287,18 @@ class EventCurveEditor {
         editor.eventEditor.target = val;
     }
 
-    _displayed: boolean
-    get displayed() {
-        return this._displayed
+    private _active: boolean
+    /** @deprecated use active instead */
+    get displayed() {return this.active}
+    set displayed(val) {this.active = val}
+    get active() {
+        return this._active
     }
-    set displayed(val) {
-        if (val === this._displayed) {
+    set active(val) {
+        if (val === this._active) {
             return
         }
-        this._displayed = val;
+        this._active = val;
         if (val) {
             this.element.style.display = ""
         } else {
@@ -272,10 +309,10 @@ class EventCurveEditor {
         const config = eventTypeMap[type]
         this.type = type
         this.parentEditorSet = parent
-        this._displayed = true;
+        this._active = true;
         this.$element = $("div")
         this.element = this.$element.element;
-        this.displayed = false;
+        this.active = false;
         this.state = EventCurveEditorState.select
 
 
@@ -366,6 +403,32 @@ class EventCurveEditor {
         parent.$pasteButton.onClick(() => {
             this.paste();
         });
+        parent.$encapsuleBtn.onClick(() => {
+            if (!this.active) {
+                return;
+            }
+            const $input = this.parentEditorSet.$templateNameInput
+            const name = $input.getValue();
+            if (name === "") {
+                Editor.notify("Please input template name")
+                return;
+            }
+            const lib = editor.chart.templateEasingLib;
+            if (name in lib.easings) {
+                Editor.notify("Template name already exists")
+                return;
+            }
+            const op = encapsule(lib, this.target, this.parentEditorSet.nodesSelection, name);
+            if (op === EncapsuleErrorType.NotBelongToSourceSequence) {
+                Editor.notify("Not belong to source sequence")
+            } else if (op === EncapsuleErrorType.NotContinuous) {
+                Editor.notify("Not continuous")
+            } else if (op === EncapsuleErrorType.ZeroDelta) {
+                Editor.notify("Selected first and last eventStartNode has zero delta");
+            } else {
+                editor.chart.operationList.do(op)
+            }
+        })
         
         window.addEventListener("keypress", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
             console.log("Key press:", e.key);
@@ -687,13 +750,20 @@ class EventCurveEditor {
             return;
         }
         line.eventLayers[index] = line.eventLayers[index] || {};
-        this.target = line.eventLayers[index][EventType[this.type]] || EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+        const seq = line.eventLayers[index][EventType[this.type]];
+        if (seq) {
+            this.target = seq;
+
+        } else {
+            this.target = EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+            this.target.id = `#${line.id}.${index}.${EventType[this.type]}`;
+        }
     }
 
     
 
     paste() {
-        if (!this.displayed) {
+        if (!this.active) {
             return;
         }
         const {lastBeats} = this;
@@ -705,21 +775,16 @@ class EventCurveEditor {
         if (!lastBeats) {
             Editor.notify("Have not rendered a frame")
         }
-        const nodes = [...clipboard];
-        nodes.sort((a: EventNode, b: EventNode) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
-        const startTime: TimeT = nodes[0].time;
-        // const portions: number = Math.round(timeDivisor * lastBeats);
         const dest: TimeT = [this.pointedBeats, this.beatFraction, timeDivisor];
-        const offset: TimeT = TimeCalculator.sub(dest, startTime);
 
         
-        const newNodes: EventStartNode[] = nodes.map(n => n.clonePair(offset));
+        const [_, newNodes] = EventNode.setToNewOrderedArray(dest, clipboard);
         editor.chart.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
         editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set<EventStartNode>(newNodes);
         editor.update();
     }
     copy(): void {
-        if (!this.displayed) {
+        if (!this.active) {
             return;
         }
         console.log(this.parentEditorSet.nodesSelection);

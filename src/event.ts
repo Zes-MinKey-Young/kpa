@@ -42,22 +42,18 @@ abstract class EventNode {
     next: EventNode | Tailer<EventNode>;
     /** 前一个事件节点 */
     previous: EventNode | Header<EventNode>;
-    /** 模板缓动如果钩定时采用的倍率，默认为1，不使用模板缓动则不起作用 */
-    ratio: number;
     abstract parentSeq: EventNodeSequence;
     constructor(time: TimeT, value: number) {
         this.time = time;
         this.value = value;
         this.previous = null;
         this.next = null;
-        this.ratio = 1;
         this.easing = linearEasing
     }
     clone(offset: TimeT): EventStartNode | EventEndNode {
         const ret = new (this.constructor as (typeof EventStartNode | typeof EventEndNode))
                         (TimeCalculator.add(this.time, offset), this.value);
         ret.easing = this.easing;
-        ret.ratio = this.ratio;
         return ret;
     }
     //#region 
@@ -76,8 +72,8 @@ abstract class EventNode {
         if (data.bezier) {
             let bp = data.bezierPoints
             let easing = new BezierEasing();
-            easing.cp1 = { x: bp[0], y: bp[1] };
-            easing.cp2 = { x: bp[2], y: bp[3] };
+            easing.cp1 = new Coordinate(bp[0], bp[1]);
+            easing.cp2 = new Coordinate(bp[2], bp[3]);
             return easing
         } else if (typeof data.easingType === "string") {
             return templates.get(data.easingType)
@@ -199,6 +195,38 @@ abstract class EventNode {
             throw new Error("Invalid node type")
         }
     }
+    static setToNewOrderedArray(dest: TimeT, set: Set<EventStartNode>): [EventStartNode[], EventStartNode[]] {
+        const nodes = [...set]
+        nodes.sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+        const offset = TimeCalculator.sub(dest, nodes[0].time)
+        return [nodes, nodes.map(node => node.clonePair(offset))]
+    }
+    static belongToSequence(nodes: Set<EventStartNode>, sequence: EventNodeSequence): boolean {
+        for (let each of nodes) {
+            if (each.parentSeq !== sequence) {
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
+     * 检验这些节点对是不是连续的
+     * 如果不是不能封装为模板缓动
+     * @param nodes 有序开始节点数组，必须都是带结束节点的（背靠背）（第一个除外）
+     * @returns 
+     */
+    static isContinuous(nodes: EventStartNode[]) {
+        const l = nodes.length;
+        let nextNode = nodes[0]
+        for (let i = 0; i < l - 1; i++) {
+            const node = nextNode;
+            nextNode = nodes[i + 1];
+            if (node.next !== nextNode.previous) {
+                return false;
+            }
+        }
+        return true;
+    }
     get innerEasing(): Easing {
         return this.easing instanceof SegmentedEasing ?
             (this.easing as SegmentedEasing).easing :
@@ -295,9 +323,8 @@ class EventStartNode extends EventNode {
             return this.easing.getValue(current / timeDelta);
         }
         let valueDelta = this.next.value - this.value
-        // 钩定模板缓动用ratio表示倍率
-        if (valueDelta === 0 && this.easing instanceof TemplateEasing) {
-            return this.value + this.easing.getValue(current / timeDelta) * this.ratio
+        if (valueDelta === 0) {
+            return this.value
         }
         if (!this.easing) {
             debugger
@@ -400,7 +427,7 @@ class EventNodeSequence {
     head: Header<EventStartNode>;
     /** has no time or value */
     tail: Tailer<EventStartNode>;
-    jump: JumpArray<EventStartNode>;
+    jump?: JumpArray<EventStartNode>;
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
@@ -430,7 +457,7 @@ class EventNodeSequence {
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
-        const seq = new EventNodeSequence(type, chart.effectiveBeats);
+        const seq = new EventNodeSequence(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
         let listLength = length;
         let lastEnd: EventEndNode | Header<EventStartNode> = seq.head
 
@@ -464,26 +491,27 @@ class EventNodeSequence {
             lastEnd = end;
             // seq.nodes.push(start, end);
         }
-        // let last = seq.endNodes[length - 1];
-        // let last = seq.endNodes[seq.endNodes.length - 1];
         const last = lastEnd;
         let tail;
-        if ("heading" in last) {
-            debugger // 这里事件层级里面一定有至少一个事件
-            throw new Error();
-        }
-        tail = new EventStartNode(last.time, endValue ?? last.value);
+        tail = new EventStartNode(last.time ?? [0, 0, 1], endValue ?? last.value);
         EventNode.connect(last, tail);
-        tail.easing = last.previous.easing;
+        // @ts-expect-error
+        // last can be a header, in which case easing is undefined.
+        // then we use the easing that initialized in the EventStartNode constructor.
+        tail.easing = last.previous?.easing ?? tail.easing;
         tail.cachedIntegral = lastIntegral
         EventNode.connect(tail, seq.tail)
         seq.listLength = listLength;
-        // seq.startNodes.push(tail);
-        // seq.update();
-        // seq.validate();
         seq.initJump();
         return seq;
     }
+    /**
+     * 生成一个新的事件节点序列，仅拥有一个节点。
+     * 需要分配ID！！！！！！
+     * @param type 
+     * @param effectiveBeats 
+     * @returns 
+     */
     static newSeq(type: EventType, effectiveBeats: number): EventNodeSequence {
         const sequence = new EventNodeSequence(type, effectiveBeats);
         const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
@@ -525,6 +553,9 @@ class EventNodeSequence {
     initJump() {
         const originalListLength = this.listLength;
         const effectiveBeats: number = this.effectiveBeats;
+        if (this.head.next === this.tail.previous) {
+            return;
+        }
         this.jump = new JumpArray<EventStartNode>(
             this.head,
             this.tail,
@@ -536,6 +567,9 @@ class EventNodeSequence {
                     return [null, null]
                 }
                 if ("heading" in node) {
+                    if ("tailing" in node.next.next) {
+                        return [0, node.next.next]
+                    }
                     return [0, node.next]
                 }
                 const endNode =  <EventEndNode>(<EventStartNode>node).next;
@@ -558,6 +592,13 @@ class EventNodeSequence {
                 return "heading" in prev ? node : prev.previous;
             }*/
             )
+    }
+    updateJump(from: TypeOrHeader<EventStartNode>, to: TypeOrTailer<EventStartNode>) {
+        if (!this.jump || this.effectiveBeats !== this.jump.effectiveBeats) {
+            this.initJump();
+
+        }
+        this.jump.updateRange(from, to);
     }
     insert() {
 
@@ -644,8 +685,6 @@ class EventNodeSequence {
             const endNode = currentNode.next;
             if (currentNode.easing instanceof TemplateEasing) {
                 const quoted: EventNodeSequence = currentNode.easing.eventNodeSequence.substitute(map);
-                /** 只对头尾数值相同的模板缓动有效 */
-                const ratio: number = currentNode.ratio;
                 const startTime: TimeT = currentNode.time;
                 const endTime: TimeT = endNode.time;
                 const start: number = currentNode.value;
@@ -653,9 +692,7 @@ class EventNodeSequence {
                 const delta = end - start;
                 const originalDelta = quoted.head.next.value - quoted.tail.previous.value;
                 const convert: (v: number) => number
-                    = delta === 0
-                    ? (value: number) => start + value * ratio
-                    : (value: number) => start + value * delta / originalDelta;
+                    = (value: number) => start + value * delta / originalDelta;
                 let node = quoted.head.next;
                 while (true) {
                     const newNode = new EventStartNode(node.time, convert(node.value))

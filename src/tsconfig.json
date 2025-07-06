@@ -7,6 +7,8 @@
         "outFile": "../dist/index.js",
         "sourceMap": true,
         "declaration": true
+        //"strictPropertyInitialization": true,
+        //"strictNullChecks": true
     },
     "include": ["set.ts", "chartTypes.d.ts", "easing.ts","ui.ts","util.ts","operation.ts","jumparray.ts","settings.ts","sideEditor.ts","selectionManager.ts","eventCurveEditor.ts","notesEditor.ts","editor.ts","note.ts","judgeline.ts","chart.ts", "rpeChartCompiler.ts","matrix.ts","event.ts","audio.ts","images.ts","player.ts","time.ts","server.ts", "main.ts"]
 }
