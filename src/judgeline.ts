@@ -82,7 +82,7 @@ class JudgeLine {
             if (events) {
                 const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
                 sequence.id = `#${id}.${index}.${EventType[type]}`;
-                chart.sequenceMap[sequence.id] = sequence;
+                chart.sequenceMap.set(sequence.id, sequence);
                 return sequence;
             }
         }
@@ -128,7 +128,7 @@ class JudgeLine {
             let eventLayer: EventLayer = {} as EventLayer;
             for (let key in eventLayerData) {
                 // use "fromRPEJSON" for they have the same logic
-                eventLayer[key] = chart.sequenceMap[eventLayerData[key]]
+                eventLayer[key] = chart.sequenceMap.get(eventLayerData[key]);
             }
             line.eventLayers.push(eventLayer);
         }

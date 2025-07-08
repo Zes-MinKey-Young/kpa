@@ -307,10 +307,8 @@ class TemplateEasingLib {
     easings: {
         [name: string]: TemplateEasing
     }
-    chart: Chart;
-    constructor(chart: Chart) {
+    constructor() {
         this.easings = {};
-        this.chart = chart;
     }
     getOrNew(name: string): TemplateEasing {
         if (this.easings[name]) {
@@ -328,6 +326,9 @@ class TemplateEasingLib {
     require(name: string) {
         this.easings[name] = new TemplateEasing(name, null);
     }
+    implement(name: string, sequence: EventNodeSequence) {
+        this.easings[name].eventNodeSequence = sequence;
+    }
     /**
      * 检查所有模板缓动是否实现
      * check if all easings are implemented
@@ -337,25 +338,9 @@ class TemplateEasingLib {
     check() {
         for (let key in this.easings) {
             if (!this.easings[key].eventNodeSequence) {
-                throw new Error(`未实现的缓动：${key}`);
+                console.warn(`未实现的缓动：${key}`);
             }
         }
-    }
-    /**
-     * @param customEasingData
-     */
-    add(customEasingData: CustomEasingData[]) {
-        for (let each of customEasingData) {
-            if (this.easings[each.name]) {
-                if (this.easings[each.name].eventNodeSequence) {
-                    throw new Error(`重复的缓动名：${each.name}`);
-                }
-                this.easings[each.name].eventNodeSequence = this.chart.sequenceMap[each.content]
-            }
-            this.easings[each.name] = new TemplateEasing(each.name, this.chart.sequenceMap[each.content])
-            
-        }
-        
     }
     get(key: string): TemplateEasing | undefined {
         return this.easings[key];

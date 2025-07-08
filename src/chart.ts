@@ -62,41 +62,28 @@ function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boole
 
 
 
-/**
- * 根据Note的速度存储在不同字段
-interface NoteSpeeds {
-    [key: number]: Note[]
-}
-
- */
-
-/*
-interface ComboMapping {
-    [beat: /*`${number}:${number}/${number}`* / string]: ComboInfoEntity
-}
-//*/
 
 class Chart {
-    judgeLines: JudgeLine[];
-    bpmList: BPMSegmentData[];
-    timeCalculator: TimeCalculator;
-    orphanLines: JudgeLine[];
+    judgeLines: JudgeLine[] = [];
+    bpmList: BPMSegmentData[] = [];
+    timeCalculator: TimeCalculator = new TimeCalculator();
+    orphanLines: JudgeLine[] = [];
     // comboMapping: ComboMapping;
-    name: string;
-    level: string;
-    offset: number;
+    name: string = "unknown";
+    level: string = "unknown";
+    offset: number = 0;
     
     /** initialized in constructor */
-    templateEasingLib: TemplateEasingLib;
+    templateEasingLib: TemplateEasingLib = new TemplateEasingLib;
     /** initialized in constructor */
-    operationList: OperationList;
+    operationList: OperationList = new OperationList(this);
     /** initialized in constructor */
-    sequenceMap: Plain<EventNodeSequence>;
+    sequenceMap: Map<string, EventNodeSequence> = new Map();
 
     effectiveBeats: number;
     nnnList: NNNList;
     /**  */
-    judgeLineGroups: JudgeLineGroup[];
+    judgeLineGroups: JudgeLineGroup[] = [];
     duration: number;
 
 
@@ -105,20 +92,7 @@ class Chart {
 
     
     modified: boolean = false;
-    constructor() {
-        this.timeCalculator = new TimeCalculator();
-        this.judgeLines = [];
-        this.orphanLines = [];
-        this.templateEasingLib = new TemplateEasingLib(this);
-        // this.comboMapping = {};
-        this.name = "uk";
-        this.level = "uk";
-        this.offset = 0;
-        this.sequenceMap = {}
-        this.judgeLineGroups = []
-
-        this.operationList = new OperationList(this);
-    }
+    constructor() {}
     getEffectiveBeats() {
         console.log(editor.player.audio.src)
         const effectiveBeats = this.timeCalculator.secondsToBeats(this.duration)
@@ -192,13 +166,25 @@ class Chart {
         chart.rpeChartingTime = data.rpeChartTime ?? 0;
         chart.updateCalculator()
         chart.nnnList = new NNNList(chart.getEffectiveBeats())
+        const envEasings = data.envEasings;
+        const len = envEasings.length
+        for (let i = 0; i < len; i++) {
+            const easingData = envEasings[i];
+            chart.templateEasingLib.require(easingData.name);
+        }
+
         const sequences = data.eventNodeSequences
         const length = data.eventNodeSequences.length
         for (let i = 0; i < length; i++) {
-            const sequence = sequences[i];
-            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart, sequence.endValue)).id = sequence.id;
+            const seqData = sequences[i];
+            const sequence = EventNodeSequence.fromRPEJSON(seqData.type, seqData.events, chart, seqData.endValue);
+            sequence.id = seqData.id;
+            chart.sequenceMap.set(sequence.id, sequence);
         }
-        chart.templateEasingLib.add(data.envEasings)
+        for (let i = 0; i < len; i++) {
+            const easingData = envEasings[i];
+            chart.templateEasingLib.implement(easingData.name, chart.sequenceMap.get(easingData.content));
+        }
         chart.templateEasingLib.check()
         for (let lineData of data.orphanLines) {
             const line: JudgeLine = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator)

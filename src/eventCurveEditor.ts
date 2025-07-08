@@ -126,6 +126,7 @@ class EventCurveEditors extends Z<"div"> {
             const easing = editor.chart.templateEasingLib.get(name)
             if (easing) {
                 this.easing.target = easing.eventNodeSequence;
+                this.easing.targetEasing = easing;
                 this.draw();
             } else {
                 this.easing.target = null;
@@ -231,6 +232,7 @@ enum EventCurveEditorState {
 class EventCurveEditor {
     type: EventType
     target: EventNodeSequence;
+    targetEasing?: TemplateEasing;
     parentEditorSet: EventCurveEditors;
 
     innerHeight: number;
@@ -501,7 +503,7 @@ class EventCurveEditor {
                 }
                 const endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue)
                 const node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
-                node.easing = this.easing;
+                node.easing = this.parentEditorSet.easing.targetEasing ?? this.easing;
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
