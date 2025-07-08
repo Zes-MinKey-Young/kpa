@@ -323,3 +323,16 @@ dialog[open] {
 .notification.fade-in {
     left: 50%
 }
+
+.tips-label {
+    width: 40%;
+    overflow: visible;
+    padding-inline: 0.5em;
+    line-height: 1em;
+    transition: 2s ease-in-out transform;
+    transform: translateY(0);
+}
+
+.tips-label:hover {
+    transform: translateY(-2em);
+}
