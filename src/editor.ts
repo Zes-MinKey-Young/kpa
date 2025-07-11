@@ -85,7 +85,7 @@ class JudgeLineEditor {
         this.$name
             .addClass("judgeline-info-name")
             .setValue(judgeLine.name)
-            .onChange((s) => judgeLine.name = s);
+            .whenValueChange((s) => judgeLine.name = s);
         this.$xSpan = $("span");
         this.$ySpan = $("span");
         this.$thetaSpan = $("span");
@@ -149,36 +149,44 @@ class SaveDialog extends ZDialog {
 
 const tips = [
     "奇谱发生器是Phigros自制谱界最好用的制谱器，每天不写30个奇谱就会有300条判定线在我身上爬",
+    "你说得对，但是奇谱发生器是由Zes Minkey Young自主研发的一款制谱器，后面的忘了",
+    "本制谱器没有使用lchzh3473的sim-phi制作",
+    "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
+    "[露出了6号缓动]",
+
+    "撤销重做、复制粘贴不需要Ctrl，直接按Z/Y/C/V即可",
+
     "天苍苍，野茫茫，风吹草低见牛羊",
-    "比起模板缓动，我更喜欢你！",
-    "十二年寒窗苦读，曾经那个弱不禁风的小男孩已经长成了一个弱不禁风的大男孩",
     "闊靛緥婧愮偣",
     "至此，，，，",
+    "国王的船员们说阿门",
+    "一觉醒来，全世界制谱水平下降1%，而你不变",
     "我-我-要-要-投-诉-你！",
+    "横眉冷对千夫指，俯首甘为孺子牛",
+
+    "比起模板缓动，我更喜欢你！",
+
+    "美食大赛是一款快速高效的JavaScript运行时",
+    "新的 可扩展标记语言超文本传输协议请求 括弧",
+    "Error: Cannot create an instance of abstract class 'Fruit' at line 3 '我不吃苹果和香蕉，医生让我吃水果'",
+    "讲个笑话：睡眠排序的时间复杂度是O(N)",
+
+    "玩诶喝沸诗俺会生辉",
+    "半罐水响叮当，一罐水响叮叮当当",
+    "十二年寒窗苦读，曾经那个弱不禁风的小男孩已经长成了一个弱不禁风的大男孩",
     "沉默是金，晚的康桥",
     "面包的价格是50万马克，所以你选择钝角，并将答案标在试卷上",
     "化学老师发出了尖锐的爆鸣声",
-    "美食大赛是一款快速高效的JavaScript运行时",
-    "新的 可扩展标记语言超文本传输协议请求 括弧",
-    "半罐水响叮当，一罐水响叮叮当当",
-    "玩诶喝沸诗俺会生辉",
-    "国王的船员们说阿门",
     "把你故事的参考文献讲出来，看看是不是在出版社里面。你昨天在这里输出日志，只有你猜中考题是二分查找",
     "好的菜会被下架吗？好的老师会被开除吗？好的话会被擦掉吗？会吗？会吗？",
     "20岁吃过砒霜，现在已经18岁了",
-    "本制谱器没有使用lchzh3473的sim-phi制作",
-    "一觉醒来，全世界制谱水平下降1%，而你不变",
     "对手使用了电石，你的启普发生器爆炸了",
-    "Error: Cannot create an instance of abstract class 'Fruit' at line 3 '我不吃苹果和香蕉，医生让我吃水果'",
-    "你说得对，但是奇谱发生器是由Zes Minkey Young自主研发的一款制谱器，后面的忘了",
-    "你说的对，但是《Air Ticket Extend》是由SWORDNEW...SWORDGAME.EXE自主研发的一款文字剧情冒险游戏，中间的忘了，揭开『科学』『魔法』的真相。",
     "从今天起，做一个幸福的人，劈马，喂柴，周游世界",
-    "横眉冷对千夫指，俯首甘为孺子牛",
-    "制谱器一定要有谱面",
     "不积极阅读乐学学术力作",
     "运动降低人到封建礼教的能量传递效率",
     "Taq酶会解决问题的",
-    "[露出了6号缓动]"
+
+    "你说的对，但是《Air Ticket Extend》是由SWORDNEW...SWORDGAME.EXE自主研发的一款文字剧情冒险游戏，中间的忘了，揭开『科学』『魔法』的真相。",
 ];
 
 const generateTipsLabel = (): Z<"div"> => {
@@ -344,7 +352,7 @@ class Editor extends EventTarget {
         });
         this.$saveDialog = new SaveDialog();
         this.$offsetInput = new ZInputBox()
-            .onChange(() => {
+            .whenValueChange(() => {
                 this.chart.offset = this.$offsetInput.getInt();
             });
         this.$tipsLabel = generateTipsLabel();
