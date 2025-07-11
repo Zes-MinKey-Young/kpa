@@ -16,6 +16,9 @@ class OperationList extends EventTarget {
             }
             this.undoneOperations.push(op)
             op.undo()
+            if (op.updatesEditor) {
+                editor.update()
+            }
         } else {
             this.dispatchEvent(new Event("noundo"))
         }
@@ -29,6 +32,9 @@ class OperationList extends EventTarget {
             }
             this.operations.push(op)
             op.do()
+            if (op.updatesEditor) {
+                editor.update()
+            }
         } else {
             this.dispatchEvent(new Event("noredo"))
         }
@@ -603,12 +609,49 @@ class EventNodeEasingChangeOperation extends Operation {
     }
 }
 
-class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation]> {
+
+/*
+
+class BPMNodeValueChangeOperation extends Operation {
+    updatesEditor = true
+    node: BPMStartNode;
+    value: number;
+    originalValue: number
+    constructor(node: BPMStartNode | BPMEndNode, val: number) {
+        super()
+        this.node = EventNode.getStartEnd(node)[0] as BPMStartNode;
+        this.value = val;
+        this.originalValue = node.value
+    }
+    do() {
+        this.node.value = this.value
+        this.node.parentSeq.initJump();
+    }
+    undo() {
+        this.node.value = this.originalValue;
+        this.node.parentSeq.initJump();
+    }
+
+}
+
+class BPMNodeInsertOperation extends Operation { 
+    updatesEditor = true;
+    node: BPMStartNode;
+    value: number;
+    originalValue: number;
+
+}
+*/
+
+class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation]> {
     updatesEditor = true;
     constructor(nodes: EventStartNode[], easing: TemplateEasing) {
+        const len = nodes.length;
         super(
             new MultiNodeDeleteOperation(nodes.slice(1, -1)),
-            new EventNodeEasingChangeOperation(nodes[0], easing)
+            new EventNodeEasingChangeOperation(nodes[0], easing),
+            // 这里nodes至少都有两个，最后一个node不可能是第一个StartNode
+            new EventNodeValueChangeOperation(<EventEndNode>nodes[len - 1].previous, nodes[len - 1].value)
         )
     }
 }

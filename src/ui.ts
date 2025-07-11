@@ -173,7 +173,7 @@ class ZSwitch extends ZButton {
             this.dispatchEvent(new Event("clickChange"))
         })
     }
-    onClickChange(callback: (checked: boolean, e: Event) => any) {
+    whenClickChange(callback: (checked: boolean, e: Event) => any) {
         this.addEventListener("clickChange", (event) => {
             callback(this.checked, event);
         })
@@ -193,13 +193,15 @@ class ZInputBox extends Z<"input"> {
     set disabled(val) {
                 this.element.disabled = val
     }
-    constructor() {
+    constructor(defaultValue?: string) {
         super("input")
         this.addClass("input-box")
         this.attr("type", "text")
         this.element.addEventListener("focusout", () => {
             this.dispatchEvent(new ZValueChangeEvent())
-        })
+        });
+        if (defaultValue)
+        this.element.value = defaultValue;
     }
     getValue() {
         return this.element.value
@@ -225,7 +227,7 @@ class ZInputBox extends Z<"input"> {
         this.element.value = val
         return this;
     }
-    onChange(callback: (content: string, e: Event) => any) {
+    whenValueChange(callback: (content: string, e: Event) => any) {
         this.addEventListener("valueChange", (event) => {
             callback(this.getValue(), event);
         })
@@ -263,7 +265,7 @@ class ZArrowInputBox extends Z<"div"> {
             this.$down,
             this.$input
             )
-        this.$input.onChange(() => {
+        this.$input.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent())
         })
     }
@@ -292,16 +294,16 @@ class ZFractionInput extends Z<"span"> {
         this.$int = new ZInputBox().addClass("integer");
         this.$nume = new ZInputBox().addClass("nume");
         this.$deno = new ZInputBox().addClass("deno");
-        this.$deno.onChange(() => {
+        this.$deno.whenValueChange(() => {
             if (this.$deno.getValue() == "0") {
                 this.$deno.setValue("1");
             }
             this.dispatchEvent(new ZValueChangeEvent())
         });
-        this.$int.onChange(() => {
+        this.$int.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent()) 
         });
-        this.$nume.onChange(() => {
+        this.$nume.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent())
         })
 

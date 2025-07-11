@@ -86,13 +86,13 @@ class BPMSequence extends EventNodeSequence {
     updateSecondJump(): void {
         let integral = 0;
         // 计算积分并缓存到BPMNode
-        let node: TypeOrHeader<BPMStartNode> = this.head.next;
+        let node: BPMStartNode = this.head.next;
         while (true) {
+            node.cachedStartIntegral = integral;
             if ("tailing" in node.next) {
                 break;
             }
             const endNode = <BPMEndNode>(<BPMStartNode>node).next;
-            node.cachedStartIntegral = integral;
             integral += node.getFullIntegral();
             node.cachedIntegral = integral;
 
@@ -129,6 +129,10 @@ class BPMSequence extends EventNodeSequence {
             }
         );
     }
+    updateJump(from: TypeOrHeader<EventStartNode>, to: TypeOrTailer<EventStartNode>): void {
+        super.updateJump(from, to);
+        this.updateSecondJump();
+    }
 
     getNodeBySeconds(seconds: number): BPMStartNode {
         if (this.effectiveBeats === 0) {
@@ -139,6 +143,22 @@ class BPMSequence extends EventNodeSequence {
             return node.previous;
         }
         return node;
+    }
+    dumpBPM(): BPMSegmentData[] {
+        let cur = this.head.next;
+        const ret: BPMSegmentData[] = [];
+        while (true) {
+            ret.push({
+                bpm: cur.value,
+                startTime: cur.time
+            })
+            const end = cur.next;
+            if ("tailing" in end) {
+                break;
+            }
+            cur = end.next;
+        } 
+        return ret;
     }
 }
 
@@ -159,8 +179,6 @@ class TimeCalculator {
     }
     toSeconds(beats: number) {
         const node: BPMStartNode = this.bpmSequence.getNodeAt(beats);
-        // console.log(node)
-        const pre = !("heading" in node.previous) ? node.previous.previous.cachedIntegral : 0;
         return node.cachedStartIntegral + node.getIntegral(beats)
     }
     segmentToSeconds(beats1: number, beats2: number): number {
@@ -259,7 +277,7 @@ class TimeCalculator {
         return a;
     }
     dump(): BPMSegmentData[] {
-        return this.bpmList;
+        return this.bpmSequence.dumpBPM();
     }
 }
 

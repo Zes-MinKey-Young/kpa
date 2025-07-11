@@ -47,11 +47,20 @@ enum NewNodeState {
 
 class EventCurveEditors extends Z<"div"> {
     element: HTMLDivElement;
-    $bar: Z<"div">;
-    $typeSelect: ZDropdownOptionBox;
-    $layerSelect: ZDropdownOptionBox;
-    $editSwitch: ZSwitch;
-    $easingBox: ZEasingBox;
+    $bar: Z<"div"> = $("div").addClass("flex-row");
+    $typeSelect = new ZDropdownOptionBox([
+            "moveX",
+            "moveY",
+            "alpha",
+            "rotate",
+            "speed",
+            "easing",
+            "bpm"
+        ].map((s) => new BoxOption(s)), true);;
+    $layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
+    $timeSpanInput = new ZInputBox("4");
+    $editSwitch = new ZSwitch("Edit");
+    $easingBox = new ZEasingBox(true);
     $newNodeStateSelect: ZDropdownOptionBox;
     $encapsuleBtn: ZButton;
     $templateNameInput: ZInputBox;
@@ -79,31 +88,21 @@ class EventCurveEditors extends Z<"div"> {
         super("div")
         this.addClass("event-curve-editors")
 
-        this.$bar = $("div").addClass("flex-row")
-        this.$typeSelect = new ZDropdownOptionBox([
-            "moveX",
-            "moveY",
-            "alpha",
-            "rotate",
-            "speed",
-            "easing",
-            "bpm"
-        ].map((s) => new BoxOption(s)), true);
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
         })
-
-        this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
         this.$layerSelect.onChange((val) => {
+            if (!(["0", "1", "2", "3", "ex"]).includes(val)) {
+                throw new Error("Invalid layer");
+            }
+            // @ts-expect-error 上面已经排除（我也不知道什么时候会出这种）
             this.selectedLayer = val;
         });
-        this.$editSwitch = new ZSwitch("Edit");
-        this.$easingBox = new ZEasingBox(true)
-            .onChange(id => {
-                for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
-                    this[type].easing = rpeEasingArray[id];
-                }
-            });
+        this.$easingBox.onChange(id => {
+            for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
+                this[type].easing = rpeEasingArray[id];
+            }
+        });
         this.$easingBox.setValue(easingMap.linear.in);
         this.$newNodeStateSelect = new ZDropdownOptionBox([
             "Both",
@@ -122,7 +121,7 @@ class EventCurveEditors extends Z<"div"> {
         this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
         this.$templateNameInput = new ZInputBox();
-        this.$templateNameInput.onChange((name) => {
+        this.$templateNameInput.whenValueChange((name) => {
             const easing = editor.chart.templateEasingLib.get(name)
             if (easing) {
                 this.easing.target = easing.eventNodeSequence;
@@ -151,6 +150,7 @@ class EventCurveEditors extends Z<"div"> {
         this.$bar.append(
             this.$typeSelect,
             this.$layerSelect,
+            this.$timeSpanInput,
             this.$selectOption,
             this.$editSwitch,
             this.$copyButton,
@@ -345,9 +345,14 @@ class EventCurveEditor {
 
         this.easing = easingMap.linear.in;
 
-        parent.$editSwitch.onClickChange((checked) => {
+        parent.$editSwitch.whenClickChange((checked) => {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
         })
+        parent.$timeSpanInput.whenValueChange((val) => {
+            this.timeRange = parent.$timeSpanInput.getNum();
+            this.draw();
+        })
+        
 
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
@@ -428,7 +433,8 @@ class EventCurveEditor {
             } else if (op === EncapsuleErrorType.ZeroDelta) {
                 Editor.notify("Selected first and last eventStartNode has zero delta");
             } else {
-                editor.chart.operationList.do(op)
+                editor.chart.operationList.do(op);
+                parent.$templateNameInput.dispatchEvent(new ZValueChangeEvent());
             }
         })
         
@@ -501,12 +507,21 @@ class EventCurveEditor {
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
                 }
-                const endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue)
-                const node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
+                let node, endNode;
+                if (this.type === EventType.bpm) {
+                    node = new BPMStartNode(time, this.pointedValue);
+                    endNode = new BPMEndNode(time);
+                } else {
+                    endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue)
+                    node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
+                }
                 node.easing = this.parentEditorSet.easing.targetEasing ?? this.easing;
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
+                if (this.type === EventType.bpm) {
+                    editor.player.audio.currentTime = editor.chart.timeCalculator.toSeconds(this.lastBeats);
+                }
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
                 this.parentEditorSet.$editSwitch.checked = false;

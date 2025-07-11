@@ -77,16 +77,16 @@ class NoteEditor extends SideEditor<Note> {
             editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
         })
         // 这里缺保卫函数
-        this.$position.onChange(() => {
+        this.$position.whenValueChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()))
         })
-        this.$speed.onChange(() => {
+        this.$speed.whenValueChange(() => {
             editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine))
         })
-        this.$alpha.onChange(() => {
+        this.$alpha.whenValueChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
         })
-        this.$size.onChange(() => {
+        this.$size.whenValueChange(() => {
             editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()))
         })
         this.$delete.onClick(() => {
@@ -195,11 +195,11 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         this.$time.onChange((t) => {
             editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t))
         })
-        this.$value.onChange(() => {
+        this.$value.whenValueChange(() => {
             editor.chart.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
         })
         this.$easing.onChange((id) => this.setNormalEasing(id))
-        this.$templateEasing.onChange((name) => this.setTemplateEasing(name))
+        this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name))
         this.$radioTabs.$radioBox.onChange((id) => {
             if (id === 0) {
                 this.setNormalEasing(this.$easing.value)

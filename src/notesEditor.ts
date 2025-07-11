@@ -184,7 +184,7 @@ class NotesEditor extends Z<"div"> {
                 this.paste()
             });
         this.$editButton = new ZSwitch("Edit")
-            .onClickChange((checked) => {
+            .whenClickChange((checked) => {
                 this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
             });
         this.$statusBar.append(
