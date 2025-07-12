@@ -235,7 +235,7 @@ class Player {
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
         const lineColor = settings.get("lineColor")
-        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as const) : lineColor), alpha / 255)
+        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as RGB) : lineColor), alpha / 255)
         drawLine(context, -1350, 0, 1350, 0)
         context.drawImage(ANCHOR, -10, -10)
 
@@ -268,20 +268,19 @@ class Player {
         const holdTrees = judgeLine.hnLists;
         const noteTrees = judgeLine.nnLists;
         const soundQueue = this.soundQueue
-        if (Object.keys(holdTrees).length || Object.keys(noteTrees). length) {
+        if (holdTrees.size || noteTrees.size) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
         }
         
         for (let trees of [holdTrees, noteTrees]) {
-            for (let name in trees) {
-                const tree = trees[name];
-                const speedVal: number = tree.speed;
+            for (const [_, list] of trees) {
+                const speedVal: number = list.speed;
                 if (DRAWS_NOTES) {
                         
                     // debugger
                     // 渲染音符
                     const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
-                    tree.timeRanges = timeRanges
+                    list.timeRanges = timeRanges
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
                         const start = range[0];
@@ -289,7 +288,7 @@ class Player {
                         // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
                         // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
                         
-                        let noteNode: TypeOrTailer<NoteNode> = tree.getNodeAt(start, true);
+                        let noteNode: TypeOrTailer<NoteNode> = list.getNodeAt(start, true);
                         // console.log(noteNode)
                         let startBeats;
                         
@@ -307,13 +306,13 @@ class Player {
                     }
                 }
                 // 处理音效
-                this.renderSounds(tree, beats, soundQueue, timeCalculator)
+                this.renderSounds(list, beats, soundQueue, timeCalculator)
                 // 打击特效
                 if (beats > 0) {
-                    if (tree instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, tree, beats, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                    if (list instanceof HNList) {
+                        this.renderHoldHitEffects(judgeLine, list, beats, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     } else {
-                        this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                        this.renderHitEffects(judgeLine, list, hitRenderLimit, beats, this.hitContext, timeCalculator)
                     }
                 }
 

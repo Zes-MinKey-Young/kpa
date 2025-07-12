@@ -103,17 +103,16 @@ class NotesEditor extends Z<"div"> {
         this._target = line;
         // update the OptionBox options
         const options = [this.allOption]
-        for (let trees of [line.nnLists, line.hnLists]) {
-            for (let name in trees) {
-                const tree = trees[name];
+        for (let lists of [line.nnLists, line.hnLists]) {
+            for (let [name, list] of lists) {
                 const option = new EditableBoxOption(
                     name,
                     (_, t) => {
-                        trees[name] = null;
+                        lists[name] = null;
                         name = t
-                        trees[name] = tree
+                        lists[name] = list
                     },
-                    () => this.targetTree = tree
+                    () => this.targetTree = list
                     )
                 options.push(option)
             }
@@ -128,15 +127,15 @@ class NotesEditor extends Z<"div"> {
                 }
             })
             if (this.targetTree instanceof HNList) {
-                if (name in line.hnLists) {
-                    this.targetTree = line.hnLists[name]
+                if (line.hnLists.has(name)) {
+                    this.targetTree = line.hnLists.get(name)
                 } else {
                     this.targetTree = null;
                     this.$optionBox.value = this.allOption
                 }
             } else {
-                if (name in line.nnLists) {
-                    this.targetTree = line.nnLists[name]
+                if (line.nnLists.has(name)) {
+                    this.targetTree = line.nnLists.get(name);
                 } else {
                     this.targetTree = null;
                     this.$optionBox.value = this.allOption
@@ -243,11 +242,11 @@ class NotesEditor extends Z<"div"> {
                         break;
                     }
                     const timeT: TimeT = [this.pointedBeats, this.beatFraction, editor.timeDivisor]
-                    editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
+                    editor.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX))
                     if (this.selectingTail) {
-                        editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT))
+                        editor.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT))
                     } else {
-                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)))
+                        editor.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)))
                     }
                     
 
@@ -302,7 +301,7 @@ class NotesEditor extends Z<"div"> {
                         yOffset: 0
                     });
                     // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                    this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                    this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                     break;
             }
         });
@@ -360,7 +359,7 @@ class NotesEditor extends Z<"div"> {
                     yOffset: 0
                 });
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
                 if (note.type === NoteType.hold) {
                     this.selectingTail = true;
@@ -550,10 +549,9 @@ class NotesEditor extends Z<"div"> {
             this.drawNNList(this.targetTree, beats)
         } else {
             // Hold first, so that drag/flicks can be seen
-            for (let trees of [this.target.hnLists, this.target.nnLists]) {
-                for (let speed in trees) {
-                    let tree = trees[speed];
-                    this.drawNNList(tree, beats)
+            for (const lists of [this.target.hnLists, this.target.nnLists]) {
+                for (const [_, list] of lists) {
+                    this.drawNNList(list, beats)
                 }
             }
         }
@@ -768,7 +766,7 @@ class NotesEditor extends Z<"div"> {
 
         
         const newNotes: Note[] = notes.map(n => n.clone(offset));
-        this.editor.chart.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
+        this.editor.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
         this.editor.multiNoteEditor.target = this.notesSelection = new Set<Note>(newNotes);
         this.editor.update();
     }

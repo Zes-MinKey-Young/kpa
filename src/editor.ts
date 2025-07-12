@@ -9,7 +9,6 @@ const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
 
 
-
 class JudgeLinesEditor {
     editor: Editor;
     chart: Chart;
@@ -222,12 +221,10 @@ class Editor extends EventTarget {
     notesEditor: NotesEditor;
     eventEditor: EventEditor
     chart: Chart;
+    operationList?: OperationList;
     chartType: "rpejson" | "kpajson";
     chartData: ChartDataRPE | ChartDataKPA;
     progressBar: ZProgressBar;
-    fileInput: HTMLInputElement
-    musicInput: HTMLInputElement
-    backgroundInput: HTMLInputElement
     eventCurveEditors: EventCurveEditors
 
     
@@ -239,7 +236,8 @@ class Editor extends EventTarget {
     playButton: HTMLButtonElement;
     $timeDivisor: ZArrowInputBox;
     timeDivisor: number
-    $saveButton: ZButton;
+    $saveButton = new ZButton("保存");
+    $compileButton = new ZButton("编译");
     $playbackRate: ZDropdownOptionBox;
     $offsetInput: ZInputBox;
     $tipsLabel: Z<"div">;
@@ -274,10 +272,6 @@ class Editor extends EventTarget {
             this.player.render();
         });
         this.progressBar.appendTo(this.$topbar)
-        // load file inputs
-        this.fileInput = <HTMLInputElement>document.getElementById("fileInput")
-        this.musicInput = <HTMLInputElement>document.getElementById("musicInput")
-        this.backgroundInput = <HTMLInputElement>document.getElementById("backgroundInput")
 
         
         this.eventCurveEditors = new EventCurveEditors(this.$eventSequence.clientWidth, this.$eventSequence.clientHeight);
@@ -293,18 +287,6 @@ class Editor extends EventTarget {
             }
         })
 
-        this.fileInput.addEventListener("change", () => {
-            this.readChart(this.fileInput.files[0])
-        })
-
-        this.musicInput.addEventListener("change", () => {
-            this.readAudio(this.musicInput.files[0])
-        })
-
-
-        this.backgroundInput.addEventListener("change", () => {
-            this.readImage(this.backgroundInput.files[0])
-        });
         this.$preview.on("wheel", (event: WheelEvent) => {
             if (!this.initialized) {
                 return;
@@ -334,7 +316,6 @@ class Editor extends EventTarget {
                 this.player.audio.playbackRate = parseFloat(rateStr)
             })
         // Save Button
-        this.$saveButton = new ZButton("保存")
         this.$saveButton.disabled = true;
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA()
@@ -351,6 +332,11 @@ class Editor extends EventTarget {
             this.chart.modified = false;
         });
         this.$saveDialog = new SaveDialog();
+        this.$compileButton.onClick(() => {
+            const compiler = new RPEChartCompiler(this.chart);
+            const json = compiler.compileChart();
+            saveTextToFile(JSON.stringify(json), this.chart.name + ".rpe.json")
+        })
         this.$offsetInput = new ZInputBox()
             .whenValueChange(() => {
                 this.chart.offset = this.$offsetInput.getInt();
@@ -361,6 +347,7 @@ class Editor extends EventTarget {
             this.$playbackRate,
             this.$saveButton,
             this.$saveDialog,
+            this.$compileButton,
             this.$offsetInput,
             this.$tipsLabel
         )
@@ -368,13 +355,13 @@ class Editor extends EventTarget {
         this.addEventListener("chartloaded", (e) => { 
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
             this.$offsetInput.setValue(this.chart.offset.toString());
-            this.chart.operationList.addEventListener("firstmodified", () => {
+            this.operationList.addEventListener("firstmodified", () => {
                 this.$saveButton.disabled = false;
             })
-            this.chart.operationList.addEventListener("noundo", () => {
+            this.operationList.addEventListener("noundo", () => {
                 Editor.notify("Nothing to undo");
             });
-            this.chart.operationList.addEventListener("noredo", () => {
+            this.operationList.addEventListener("noredo", () => {
                 Editor.notify("Nothing to redo");
             });
         });
@@ -386,9 +373,9 @@ class Editor extends EventTarget {
         })
         window.addEventListener("keypress", (e: KeyboardEvent) => {
             if (e.key === "z") {
-                this.chart?.operationList.undo();
+                this.operationList?.undo();
             } else if (e.key === "y") {
-                this.chart?.operationList.redo();
+                this.operationList?.redo();
             }
         })
     }
@@ -439,6 +426,7 @@ class Editor extends EventTarget {
         const assignChart = (chart: Chart) => {
             this.player.chart = chart;
             this.chart = chart;
+            this.operationList = new OperationList(chart);
             this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
             this.dispatchEvent(new Event("chartloaded"))
         }

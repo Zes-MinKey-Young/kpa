@@ -373,8 +373,8 @@ class EventCurveEditor {
             switch (this.state) {
                 case EventCurveEditorState.selecting:
                     // console.log("det")
-                    editor.chart.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue))
-                    editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]))
+                    editor.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue))
+                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]))
 
             }
             this.draw()
@@ -433,7 +433,7 @@ class EventCurveEditor {
             } else if (op === EncapsuleErrorType.ZeroDelta) {
                 Editor.notify("Selected first and last eventStartNode has zero delta");
             } else {
-                editor.chart.operationList.do(op);
+                editor.operationList.do(op);
                 parent.$templateNameInput.dispatchEvent(new ZValueChangeEvent());
             }
         })
@@ -518,7 +518,7 @@ class EventCurveEditor {
                 node.easing = this.parentEditorSet.easing.targetEasing ?? this.easing;
                 EventNode.connect(endNode, node)
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
+                editor.operationList.do(new EventNodePairInsertOperation(node, prev));
                 if (this.type === EventType.bpm) {
                     editor.player.audio.currentTime = editor.chart.timeCalculator.toSeconds(this.lastBeats);
                 }
@@ -796,7 +796,7 @@ class EventCurveEditor {
 
         
         const [_, newNodes] = EventNode.setToNewOrderedArray(dest, clipboard);
-        editor.chart.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
+        editor.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
         editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set<EventStartNode>(newNodes);
         editor.update();
     }

@@ -52,7 +52,7 @@ abstract class EventNode {
     }
     clone(offset: TimeT): EventStartNode | EventEndNode {
         const ret = new (this.constructor as (typeof EventStartNode | typeof EventEndNode))
-                        (TimeCalculator.add(this.time, offset), this.value);
+                        (offset ? TimeCalculator.add(this.time, offset) : this.time, this.value);
         ret.easing = this.easing;
         return ret;
     }
@@ -307,6 +307,34 @@ class EventStartNode extends EventNode {
             startTime: this.time,
         }
     }
+    /**
+     * 仅用于编译至RPE时解决最后一个StartNode的问题
+     * 限最后一个StartNode使用
+     * @returns 
+     */
+    dumpAsLast(): EventDataRPE {
+        const isSegmented = this.easingIsSegmented
+        const easing = isSegmented ? (this.easing as SegmentedEasing).easing : this.easing;
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: isSegmented ? (this.easing as SegmentedEasing).left : 0.0,
+            easingRight: isSegmented ? (this.easing as SegmentedEasing).right : 1.0,
+            // @ts-expect-error
+            easingType: easing instanceof TemplateEasing ?
+                (easing.name) :
+                easing instanceof NormalEasing ?
+                    easing.rpeId :
+                    null,
+            end: this.value,
+            endTime: TimeCalculator.add(this.time, [1, 0, 1]),
+            linkgroup: 0, // 假设默认值为 0
+            start: this.value,
+            startTime: this.time,
+        }
+    }
     getValueAt(beats: number) {
         // 除了尾部的开始节点，其他都有下个节点
         // 钩定型缓动也有
@@ -368,7 +396,7 @@ class EventStartNode extends EventNode {
     isLastStart() {
         return this.next && "tailing" in this.next
     }
-    clone(offset: TimeT): EventStartNode {
+    clone(offset?: TimeT): EventStartNode {
         return super.clone(offset) as EventStartNode;
     };
     clonePair(offset: TimeT): EventStartNode {
@@ -394,7 +422,7 @@ class EventEndNode extends EventNode {
     getValueAt(beats: number) {
         return this.previous.getValueAt(beats);
     }
-    clone(offset: TimeT): EventEndNode {
+    clone(offset?: TimeT): EventEndNode {
         return super.clone(offset) as EventEndNode;
     }
 }
@@ -661,52 +689,6 @@ class EventNodeSequence {
             id: this.id,
             endValue: currentNode.value
         };
-    }
-    /**
-     * 将当前序列中所有通过模板缓动引用了其他序列的事件直接展开为被引用的序列内容
-     * transform all events that reference other sequences by template easing
-     * into the content of the referenced sequence
-     * 有点类似于MediaWiki的{{subst:templateName}}
-     * @param map 由TemplateEasingLib提供
-     * @returns 
-     */
-    substitute(map: Map<EventNodeSequence, EventNodeSequence>) {
-        if (map.has(this)) {
-            return map.get(this);
-        }
-        let currentNode: EventStartNode = this.head.next;
-        const newSeq = new EventNodeSequence(this.type, this.effectiveBeats);
-        map.set(this, newSeq);
-        let currentPos: Header<EventStartNode> | EventEndNode = newSeq.head;
-        while (true) {
-            if (!currentNode || ("tailing" in currentNode.next)) {
-                break;
-            }
-            const endNode = currentNode.next;
-            if (currentNode.easing instanceof TemplateEasing) {
-                const quoted: EventNodeSequence = currentNode.easing.eventNodeSequence.substitute(map);
-                const startTime: TimeT = currentNode.time;
-                const endTime: TimeT = endNode.time;
-                const start: number = currentNode.value;
-                const end: number = endNode.value;
-                const delta = end - start;
-                const originalDelta = quoted.head.next.value - quoted.tail.previous.value;
-                const convert: (v: number) => number
-                    = (value: number) => start + value * delta / originalDelta;
-                let node = quoted.head.next;
-                while (true) {
-                    const newNode = new EventStartNode(node.time, convert(node.value))
-                    
-                }
-            } else {
-                const newStartNode = currentNode.clone();
-                const newEndNode = endNode.clone();
-                EventNode.connect(currentPos, newStartNode)
-                EventNode.connect(newStartNode, newEndNode);
-                currentPos = newEndNode;
-            }
-            currentNode = endNode.next;
-        }
     }
 }
 

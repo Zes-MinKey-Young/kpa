@@ -42,7 +42,7 @@ class NoteEditor extends SideEditor<Note> {
         this.noteTypeOptions = arrayForIn([
             "tap", "hold", "flick", "drag"
         ], (v) => new BoxOption(v, () => {
-            editor.chart.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
+            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
         }))
         this.aboveOption = new BoxOption("above", () => this.target.above = true)
         this.belowOption = new BoxOption("below", () => this.target.above = false)
@@ -68,29 +68,29 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)))
+            editor.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)))
             if (this.target.type !== NoteType.hold) {
                 this.$endTime.setValue(t)
             }
         })
         this.$endTime.onChange((t) => {
-            editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
+            editor.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
         })
         // 这里缺保卫函数
         this.$position.whenValueChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()))
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()))
         })
         this.$speed.whenValueChange(() => {
-            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine))
+            editor.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine))
         })
         this.$alpha.whenValueChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()))
         })
         this.$size.whenValueChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()))
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()))
         })
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new NoteDeleteOperation(this.target));
+            editor.operationList.do(new NoteDeleteOperation(this.target));
         })
     }
     update() {
@@ -128,10 +128,10 @@ class MultiNoteEditor extends SideEditor<Set<Note>> {
             this.$reverse
         );
         this.$reverse.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))))
+            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))))
         })
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new MultiNoteDeleteOperation(this.target))
+            editor.operationList.do(new MultiNoteDeleteOperation(this.target))
         })
     }
     update(): void {
@@ -153,10 +153,10 @@ class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
         );
         
         this.$reverse.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))))
+            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))))
         })
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new MultiNodeDeleteOperation(Array.from(this.target)));
+            editor.operationList.do(new MultiNodeDeleteOperation(Array.from(this.target)));
         })
     }
     update(): void {
@@ -185,7 +185,7 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
             "Template": this.$templateEasing
         });
         this.$delete = new ZButton("delete").addClass("destructive")
-            .onClick(() => editor.chart.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
+            .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
         this.$body.append(
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
@@ -193,10 +193,10 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t))
+            editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t))
         })
         this.$value.whenValueChange(() => {
-            editor.chart.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
+            editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
         })
         this.$easing.onChange((id) => this.setNormalEasing(id))
         this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name))
@@ -210,13 +210,13 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         })
     }
     setNormalEasing(id: number): void {
-        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]))
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]))
         this.target.innerEasing = easingArray[id]
     }
     setTemplateEasing(name: string): void {
         const chart = editor.chart;
         const easing = chart.templateEasingLib.getOrNew(name);
-        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing))
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing))
     }
     update(): void {
         const eventNode = this.target;

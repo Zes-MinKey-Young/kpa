@@ -66,19 +66,15 @@ function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) => boole
 class Chart {
     judgeLines: JudgeLine[] = [];
     bpmList: BPMSegmentData[] = [];
-    timeCalculator: TimeCalculator = new TimeCalculator();
+    timeCalculator = new TimeCalculator();
     orphanLines: JudgeLine[] = [];
     // comboMapping: ComboMapping;
     name: string = "unknown";
     level: string = "unknown";
     offset: number = 0;
     
-    /** initialized in constructor */
-    templateEasingLib: TemplateEasingLib = new TemplateEasingLib;
-    /** initialized in constructor */
-    operationList: OperationList = new OperationList(this);
-    /** initialized in constructor */
-    sequenceMap: Map<string, EventNodeSequence> = new Map();
+    templateEasingLib = new TemplateEasingLib;
+    sequenceMap = new Map<string, EventNodeSequence>();
 
     effectiveBeats: number;
     nnnList: NNNList;

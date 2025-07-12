@@ -120,11 +120,11 @@ interface EventDataRPE<T = number> {
 
 /** 每条判定线的前四个事件层级。第五个是特殊事件，这里没有列入 */
 interface EventLayerDataRPE {
-    moveXEvents: EventDataRPE[];
-    moveYEvents: EventDataRPE[];
-    rotateEvents: EventDataRPE[];
-    alphaEvents: EventDataRPE[];
-    speedEvents: EventDataRPE[];
+    moveXEvents?: EventDataRPE[];
+    moveYEvents?: EventDataRPE[];
+    rotateEvents?: EventDataRPE[];
+    alphaEvents?: EventDataRPE[];
+    speedEvents?: EventDataRPE[];
 }
 
 
@@ -168,7 +168,7 @@ interface JudgeLineDataRPE {
     /** BPM因数 */
     bpmfactor: 1.0;
     /** 事件层级，这里没有介绍第五个 */
-    eventLayers: [EventLayerDataRPE, EventLayerDataRPE, EventLayerDataRPE, EventLayerDataRPE];
+    eventLayers: (EventLayerDataRPE | null)[];
     /** 扩展事件 */
     extended: {
         colorEvents: EventDataRPE<RGB>[];
@@ -193,17 +193,17 @@ interface JudgeLineDataRPE {
 
     /** 背景是否为GIF */
     isGif: Bool;
-    attachUI: "combonumber" | "pause";
+    attachUI?: "pause" | "combonumber" | "combo" | "score" | "bar" | "name" | "level";
 
     /** Decides how scaleX events affect notes. Defaults to 0.
      * 0: none; 1: scale; 2: clip
     */
-    scaleOnNotes: 0 | 1 | 2;
+    scaleOnNotes?: 0 | 1 | 2;
     /** Decides how the line will be displayed when a UI component or any video is attached to it.
      * Color events will override the color defined by these options. Defaults to 0.
      * 0: hidden; 1: white colored; 2: FC/AP colored
      */
-    appearanceOnAttach: 0 | 1 | 2;
+    appearanceOnAttach?: 0 | 1 | 2;
     /** Sets the Z index for the object.
      * For a judgeline, this property, if set, overrides the zOrder property,
      * allowing for more control over on which layer the line should be displayed. */

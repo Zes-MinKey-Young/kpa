@@ -364,15 +364,6 @@ class TemplateEasingLib {
         }
         return customEasingDataList;
     }
-    expandTemplates() {
-        const map = new Map<EventNodeSequence, EventNodeSequence>();
-        for (let key in this.easings) {
-            const templateEasing = this.easings[key];
-            const eventNodeSequence = templateEasing.eventNodeSequence;
-            const newEventNodeSequence = eventNodeSequence.substitute(map);
-            map.set(eventNodeSequence, newEventNodeSequence);
-        }
-    }
 }
 
 const linearEasing = new NormalEasing(linear, linearLine);

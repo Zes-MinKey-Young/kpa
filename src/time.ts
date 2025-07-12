@@ -163,7 +163,7 @@ class BPMSequence extends EventNodeSequence {
 }
 
 /**
- * TimeT是用带分数表示的拍数，该元组的第一个元素表示整数部分，第二个元素表示分子，第三个元素表示分母。
+ * @alias TC
  */
 class TimeCalculator {
     bpmList: BPMSegmentData[];
@@ -239,7 +239,7 @@ class TimeCalculator {
      * validate TimeT in place
      * @param beaT 
      */
-    static validate(beaT: TimeT): TimeT {
+    static validateIp(beaT: TimeT): TimeT {
         if (beaT === undefined || beaT[2] === 0) {
             throw new Error("Invalid time" + beaT.valueOf());
         }

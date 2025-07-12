@@ -2,8 +2,8 @@ class JudgeLine {
     texture: string;
     group: JudgeLineGroup;
     cover: boolean;
-    hnLists: {[key: string]: HNList};
-    nnLists: {[key: string]: NNList};
+    hnLists = new Map<string, HNList>();
+    nnLists = new Map<string, NNList>();
     eventLayers: EventLayer[];
     // notePosition: Float64Array;
     // noteSpeeds: NoteSpeeds;
@@ -23,8 +23,6 @@ class JudgeLine {
         this.chart = chart;
         this.eventLayers = [];
         this.children = [];
-        this.hnLists = {};
-        this.nnLists = {};
         this.texture = "line.png";
         this.cover = true;
         // this.noteSpeeds = {};
@@ -38,8 +36,8 @@ class JudgeLine {
 
         const noteNodeTree = chart.nnnList;
         if (data.notes) {
-            const holdTrees = line.hnLists;
-            const noteTrees = line.nnLists;
+            const holdLists = line.hnLists;
+            const noteLists = line.nnLists;
             let notes = data.notes;
             notes.sort((n1: NoteDataRPE, n2: NoteDataRPE) => {
                 if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
@@ -67,11 +65,10 @@ class JudgeLine {
                 }
                 tree.timesWithNotes++
             }
-            for (let trees of [holdTrees, noteTrees]) {
-                for (let speed in trees) {
-                    const tree: NNList = trees[speed];
-                    NoteNode.connect(tree.currentPoint, tree.tail)
-                    tree.initJump();
+            for (let trees of [holdLists, noteLists]) {
+                for (const [_, list] of trees) {
+                    NoteNode.connect(list.currentPoint, list.tail)
+                    list.initJump();
                     // tree.initPointers()
                 }
             }
@@ -118,7 +115,7 @@ class JudgeLine {
                 const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
                 list.parentLine = line;
                 list.id = name
-                line[key][name] = list;
+                line[key].set(name, list);
             }
         }
         for (let child of data.children) {
@@ -341,11 +338,10 @@ class JudgeLine {
      * 获取对应速度和类型的Note树,没有则创建
      */
     getNNList(speed: number, isHold: boolean, initsJump: boolean) {
-        const trees = isHold ? this.hnLists : this.nnLists;
-        for (let treename in trees) {
-            const tree = trees[treename]
-            if (tree.speed == speed) {
-                return tree
+        const lists = isHold ? this.hnLists : this.nnLists;
+        for (const [_, list] of lists) {
+            if (list.speed == speed) {
+                return list
             }
         }
         const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
@@ -353,7 +349,8 @@ class JudgeLine {
         NoteNode.connect(list.head, list.tail)
         if (initsJump) list.initJump();
         const id = (isHold ? "$" : "#") + speed;
-        (trees[id] = list).id = id;
+        lists.set(id, list);
+        list.id = id;
         return list;
     }
     getNode(note: Note, initsJump: boolean) {
@@ -385,6 +382,14 @@ class JudgeLine {
             }
             eventLayers.push(layerData as EventLayerDataKPA);
         }
+        const hnListsData = {};
+        const nnListsData = {};
+        for (let [id, list] of this.hnLists) {
+            hnListsData[id] = list.dumpKPA();
+        }
+        for (let [id, list] of this.nnLists) {
+            nnListsData[id] = list.dumpKPA();
+        }
         return {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
@@ -392,8 +397,8 @@ class JudgeLine {
             Texture: "line.png",
             children: children,
             eventLayers: eventLayers,
-            hnLists: dictForIn(this.hnLists, (t) => t.dumpKPA()),
-            nnLists: dictForIn(this.nnLists, (t) => t.dumpKPA())
+            hnLists: hnListsData,
+            nnLists: nnListsData
         }
     }
 
@@ -416,8 +421,8 @@ class JudgeLine {
             }
         }
         for (let lists of [this.nnLists, this.hnLists]) {
-            for (let name in lists) {
-                lists[name as keyof typeof lists].effectiveBeats = EB;
+            for (let [_, list] of lists) {
+                list.effectiveBeats = EB;
             }
         }
     }
