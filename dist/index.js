@@ -22,6 +22,7 @@ Set.prototype.intersection = (_b = Set.prototype.intersection) !== null && _b !=
 Set.prototype.difference = (_c = Set.prototype.difference) !== null && _c !== void 0 ? _c : function (other) {
     return new Set([...this].filter(x => !other.has(x)));
 };
+const DEFAULT_TEMPLATE_LENGTH = 16;
 const easeOutElastic = (x) => {
     const c4 = (2 * Math.PI) / 3;
     return x === 0
@@ -207,20 +208,23 @@ class BezierEasing extends Easing {
  * This is inspired by the "template" concept in wikitext.
  */
 class TemplateEasing extends Easing {
-    constructor(name, nodes) {
+    constructor(name, sequence) {
         super();
-        this.eventNodeSequence = nodes;
+        this.eventNodeSequence = sequence;
         this.name = name;
     }
     getValue(t) {
-        let seq = this.eventNodeSequence;
+        const seq = this.eventNodeSequence;
         let delta = this.valueDelta;
-        let frac = seq.getValueAt(t * this.eventNodeSequence.effectiveBeats);
+        const frac = seq.getValueAt(t * seq.effectiveBeats) - this.headValue;
         return delta === 0 ? frac : frac / delta;
     }
     get valueDelta() {
         let seq = this.eventNodeSequence;
         return seq.tail.previous.value - seq.head.next.value;
+    }
+    get headValue() {
+        return this.eventNodeSequence.head.next.value;
     }
 }
 /**
@@ -258,16 +262,16 @@ class ParametricEquationEasing extends Easing {
  *
  */
 class TemplateEasingLib {
-    constructor(chart) {
+    constructor() {
         this.easings = {};
-        this.chart = chart;
     }
     getOrNew(name) {
         if (this.easings[name]) {
             return this.easings[name];
         }
         else {
-            const easing = new TemplateEasing(name, EventNodeSequence.newSeq(EventType.easing));
+            const easing = new TemplateEasing(name, EventNodeSequence.newSeq(EventType.easing, DEFAULT_TEMPLATE_LENGTH));
+            easing.eventNodeSequence.id = "*" + name;
             return this.easings[name] = easing;
         }
     }
@@ -278,6 +282,9 @@ class TemplateEasingLib {
     require(name) {
         this.easings[name] = new TemplateEasing(name, null);
     }
+    implement(name, sequence) {
+        this.easings[name].eventNodeSequence = sequence;
+    }
     /**
      * 检查所有模板缓动是否实现
      * check if all easings are implemented
@@ -287,22 +294,8 @@ class TemplateEasingLib {
     check() {
         for (let key in this.easings) {
             if (!this.easings[key].eventNodeSequence) {
-                throw new Error(`未实现的缓动：${key}`);
+                console.warn(`未实现的缓动：${key}`);
             }
-        }
-    }
-    /**
-     * @param customEasingData
-     */
-    add(customEasingData) {
-        for (let each of customEasingData) {
-            if (this.easings[each.name]) {
-                if (this.easings[each.name].eventNodeSequence) {
-                    throw new Error(`重复的缓动名：${each.name}`);
-                }
-                this.easings[each.name].eventNodeSequence = this.chart.sequenceMap[each.content];
-            }
-            this.easings[each.name] = new TemplateEasing(each.name, this.chart.sequenceMap[each.content]);
         }
     }
     get(key) {
@@ -325,15 +318,6 @@ class TemplateEasingLib {
             });
         }
         return customEasingDataList;
-    }
-    expandTemplates() {
-        const map = new Map();
-        for (let key in this.easings) {
-            const templateEasing = this.easings[key];
-            const eventNodeSequence = templateEasing.eventNodeSequence;
-            const newEventNodeSequence = eventNodeSequence.substitute(map);
-            map.set(eventNodeSequence, newEventNodeSequence);
-        }
     }
 }
 const linearEasing = new NormalEasing(linear, linearLine);
@@ -441,6 +425,2469 @@ rpeEasingArray.forEach((easing, index) => {
     }
     easing.rpeId = index;
 });
+// type EndBeats = number;
+const MIN_LENGTH = 128;
+const MAX_LENGTH = 1024;
+const MINOR_PARTS = 16;
+const breakpoint = () => { debugger; };
+class JumpArray {
+    /**
+     *
+     * @param head 链表头
+     * @param tail 链表尾
+     * @param originalListLength
+     * @param effectiveBeats 有效拍数（等同于音乐拍数）
+     * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]（停止遍历的条件是抵达尾部而不是得到null）
+     * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
+     */
+    constructor(head, tail, originalListLength, effectiveBeats, endNextFn, nextFn, resolveLastNode = (node) => node
+    // goPrev: (node: T) => T
+    ) {
+        this.endNextFn = endNextFn;
+        this.nextFn = nextFn;
+        this.resolveLastNode = resolveLastNode;
+        this.header = head;
+        this.tailer = tail;
+        // const originalListLength = this.listLength
+        const listLength = Math.max(MIN_LENGTH, Math.min(originalListLength * 4, MAX_LENGTH));
+        const averageBeats = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
+        const exactLength = Math.ceil(effectiveBeats / averageBeats);
+        // console.log(exactLength, listLength, averageBeats, exactLength)
+        // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
+        const jumpArray = new Array(exactLength);
+        this.array = jumpArray;
+        this.averageBeats = averageBeats;
+        this.effectiveBeats = exactLength * averageBeats;
+        this.updateRange(head, tail);
+    }
+    updateEffectiveBeats(val) {
+        this.effectiveBeats = val;
+        const averageBeats = this.averageBeats;
+        const exactLength = Math.ceil(val / averageBeats);
+        const currentLength = this.array.length;
+        if (exactLength < currentLength) {
+            this.array.splice(exactLength, currentLength - exactLength);
+        }
+    }
+    updateAverageBeats() {
+        const length = this.array.length;
+        if (length >= 1024) {
+            return;
+        }
+        let crowded = 0;
+        for (let i = 0; i < 50; i++) {
+            const index = Math.floor(Math.random() * length);
+            if (Array.isArray(this.array[index])) {
+                crowded++;
+            }
+        }
+        if (crowded > 30) {
+            this.averageBeats /= 2;
+            this.updateRange(this.header, this.tailer);
+        }
+    }
+    /**
+     *
+     * @param firstNode 不含
+     * @param lastNode 含
+     */
+    updateRange(firstNode, lastNode) {
+        const { endNextFn, effectiveBeats, resolveLastNode } = this;
+        lastNode = resolveLastNode(lastNode);
+        console.log(firstNode, lastNode);
+        /**
+         *
+         * @param startTime
+         * @param endTime 就是节点管辖范围的终止点，可以超过该刻度的最大值
+         */
+        const fillMinor = (startTime, endTime) => {
+            const minorArray = jumpArray[jumpIndex];
+            const currentJumpBeats = jumpIndex * averageBeats;
+            const startsFrom = startTime < currentJumpBeats ? 0 : Math.ceil((startTime - currentJumpBeats) / minorBeats);
+            const endsBefore = endTime > currentJumpBeats + averageBeats ? MINOR_PARTS : Math.ceil((endTime - currentJumpBeats) / minorBeats);
+            for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
+                minorArray[minorIndex] = currentNode;
+            }
+            // console.log(jumpIndex, arrayForIn(minorArray, (n) => node2string(n)).join("]["))
+            // console.log("cur:", currentNode)
+        };
+        const jumpArray = this.array;
+        const averageBeats = this.averageBeats;
+        const minorBeats = averageBeats / MINOR_PARTS;
+        let [previousEndTime, currentNode] = endNextFn(firstNode);
+        let jumpIndex = Math.floor(previousEndTime / averageBeats); // 这里写漏了特此留念
+        for (;;) {
+            let [endTime, nextNode] = endNextFn(currentNode);
+            // console.log("----Node:", currentNode, "next:", nextNode, "endTime:", endTime, "previousEndTime:", previousEndTime )
+            if (endTime === null) {
+                endTime = effectiveBeats;
+            }
+            // Hold树可能会不出现这种情况，故需特别考虑
+            if (endTime >= previousEndTime) {
+                while (endTime >= (jumpIndex + 1) * averageBeats) {
+                    if (Array.isArray(jumpArray[jumpIndex])) {
+                        fillMinor(previousEndTime, endTime);
+                    }
+                    else {
+                        try {
+                            // console.log(jumpIndex, currentNode)
+                            jumpArray[jumpIndex] = currentNode;
+                        }
+                        catch (E) {
+                            console.log(jumpIndex, jumpArray);
+                            debugger;
+                        }
+                    }
+                    jumpIndex++;
+                }
+                const currentJumpBeats = jumpIndex * averageBeats; // 放错了
+                if (endTime > currentJumpBeats) {
+                    let minor = jumpArray[jumpIndex];
+                    if (!Array.isArray(minor)) {
+                        jumpArray[jumpIndex] = new Array(MINOR_PARTS);
+                    }
+                    fillMinor(previousEndTime, endTime);
+                }
+                previousEndTime = endTime;
+            }
+            if (currentNode === lastNode) {
+                currentNode = nextNode; // 为了后续可能的填充，防止刻度不满引发错误
+                break;
+            }
+            currentNode = nextNode;
+        }
+        const minor = jumpArray[jumpIndex];
+        if (Array.isArray(minor)) {
+            // console.log("minor", arrayForIn(minor, (n) => node2string(n)))
+            if (!minor[MINOR_PARTS - 1]) {
+                if (!currentNode) {
+                    currentNode = this.tailer;
+                    fillMinor(previousEndTime, effectiveBeats);
+                    return;
+                }
+                do {
+                    let [endTime, nextNode] = endNextFn(currentNode);
+                    if (endTime === null) {
+                        endTime = this.effectiveBeats;
+                    }
+                    if (endTime > previousEndTime) {
+                        fillMinor(previousEndTime, endTime);
+                        previousEndTime = endTime;
+                    }
+                    currentNode = nextNode;
+                } while (previousEndTime < (jumpIndex + 1) * averageBeats);
+            }
+        }
+    }
+    getPreviousOf(node, beats) {
+        const jumpAverageBeats = this.averageBeats;
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        const nextFn = this.nextFn;
+        for (let i = jumpPos; i >= 0; i--) {
+            let canBeNodeOrArray = this.array[i];
+            if (Array.isArray(canBeNodeOrArray)) {
+                const minorIndex = Math.floor(rest / (jumpAverageBeats / MINOR_PARTS)) - 1;
+                for (let j = minorIndex; j >= 0; j--) {
+                    const minorNode = canBeNodeOrArray[j];
+                    if (minorNode !== node) {
+                        return minorNode;
+                    }
+                }
+            }
+        }
+        return this.header;
+    }
+    /**
+     *
+     * @param beats 拍数
+     * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
+     * @returns 时间索引链表的节点
+     */
+    getNodeAt(beats) {
+        var _a, _b;
+        if (beats < 0) {
+            return (_a = this.header.next) !== null && _a !== void 0 ? _a : breakpoint();
+        }
+        if (beats >= this.effectiveBeats) {
+            return (_b = this.tailer) !== null && _b !== void 0 ? _b : breakpoint();
+        }
+        const jumpAverageBeats = this.averageBeats;
+        const jumpPos = Math.floor(beats / jumpAverageBeats);
+        const rest = beats - jumpPos * jumpAverageBeats;
+        const nextFn = this.nextFn;
+        let canBeNodeOrArray = this.array[jumpPos];
+        let node = Array.isArray(canBeNodeOrArray)
+            ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
+            : canBeNodeOrArray;
+        if ("tailing" in node) {
+            return node !== null && node !== void 0 ? node : breakpoint();
+        }
+        // console.log(this, node, jumpPos, beats)
+        if (!node) {
+            console.warn("No node:", node, beats);
+            debugger;
+        }
+        let next;
+        // console.log(this)
+        while (next = nextFn(node, beats)) {
+            node = next;
+            if ("tailing" in node) {
+                break;
+            }
+        }
+        return node !== null && node !== void 0 ? node : breakpoint();
+    }
+}
+/**
+ * @deprecated
+ */
+class Pointer {
+    constructor() {
+        this.node = null;
+        this.beats = null;
+        this.before = 0;
+    }
+    pointTo(node, beats, counts = false) {
+        if (!node) {
+            debugger;
+        }
+        this.node = node;
+        this.beats = beats;
+    }
+}
+/**
+ * @author Zes M Young
+ */
+const node2string = (node) => {
+    if (!node) {
+        return "" + node;
+    }
+    if ("heading" in node || "tailing" in node) {
+        return "heading" in node ? "H" : "tailing" in node ? "T" : "???";
+    }
+    if (!node.notes) {
+        return "EventNode";
+    }
+    return `NN(${node.notes.length}) at ${node.startTime}`;
+};
+/**
+ * 音符
+ * Basic element in music game.
+ * Has 4 types: tap, drag, flick and hold.
+ * Only hold has endTime; others' endTime is equal to startTime.
+ * For this reason, holds are store in a special list (HNList),
+ * which is sorted by both startTime and endTime,
+ * so that they are accessed correctly and rapidly in the renderer.
+ * Note that Hold and HoldNode are not individually-declared classes.
+ * Hold is a note with type being NoteType.hold,
+ * while HoldNode is a node that contains holds.
+ */
+class Note {
+    // readonly chart: Chart;
+    // readonly judgeLine: JudgeLine
+    // posPrevious?: Note;
+    // posNext?: Note;
+    // posPreviousSibling?: Note;
+    // posNextSibling: Note;
+    constructor(data) {
+        this.above = data.above === 1;
+        this.alpha = data.alpha || 255;
+        this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
+        this.isFake = Boolean(data.isFake);
+        this.positionX = data.positionX;
+        this.size = data.size || 1.0;
+        this.speed = data.speed || 1.0;
+        this.startTime = data.startTime;
+        this.type = data.type;
+        this.visibleTime = data.visibleTime;
+        this.yOffset = data.yOffset;
+        /*
+        this.previous = null;
+        this.next = null;
+        this.previousSibling = null;
+        this.nextSibling = null;
+        */
+    }
+    /**
+     *
+     * @param offset
+     * @returns
+     */
+    clone(offset) {
+        const data = this.dumpRPE();
+        data.startTime = TimeCalculator.add(data.startTime, offset);
+        data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
+        return new Note(data);
+    }
+    /*
+    static connectPosSibling(note1: Note, note2: Note) {
+        note1.posNextSibling = note2;
+        note2.posPreviousSibling = note1;
+    }
+    static connectPos(note1: Note, note2: Note) {
+        note1.posNext = note2;
+        note2.posPrevious = note1;
+    }
+    */
+    dumpRPE() {
+        return {
+            above: this.above ? 1 : 0,
+            alpha: this.alpha,
+            endTime: this.endTime,
+            isFake: this.isFake ? 1 : 0,
+            positionX: this.positionX,
+            size: this.size,
+            startTime: this.startTime,
+            type: this.type,
+            visibleTime: this.visibleTime,
+            yOffset: this.yOffset,
+            speed: this.speed
+        };
+    }
+    dumpKPA() {
+    }
+}
+class NoteNode {
+    get previous() {
+        if (!this._previous)
+            return null;
+        return this._previous.deref();
+    }
+    set previous(val) {
+        if (!val) {
+            this._previous = null;
+            return;
+        }
+        this._previous = new WeakRef(val);
+    }
+    constructor(time) {
+        this.startTime = [...time];
+        this.notes = [];
+        this.id = NoteNode.count++;
+    }
+    static fromKPAJSON(data) {
+        const node = new NoteNode(data.startTime);
+        for (let noteData of data.notes) {
+            const note = new Note(noteData);
+            node.add(note);
+        }
+        return node;
+    }
+    get isHold() {
+        return this.parentSeq instanceof HNList;
+    }
+    get endTime() {
+        if (this.notes.length === 0) {
+            return this.startTime; // 改了半天这个逻辑本来就是对的()
+        }
+        return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime;
+    }
+    add(note) {
+        if (!TimeCalculator.eq(note.startTime, this.startTime)) {
+            console.warn("Wrong addition!");
+        }
+        this.notes.push(note);
+        note.parentNode = this;
+        this.sort(this.notes.length - 1);
+    }
+    sort(index) {
+        if (typeof index !== "number") {
+            index = this.notes.indexOf(index);
+            if (index === -1) {
+                return;
+            }
+        }
+        if (!this.isHold) {
+            return;
+        }
+        const { notes } = this;
+        const note = notes[index];
+        for (let i = index; i > 0; i--) {
+            const prev = notes[i - 1];
+            if (TimeCalculator.lt(prev.endTime, note.endTime)) {
+                // swap
+                notes[i] = prev;
+                notes[i - 1] = note;
+            }
+            else {
+                break;
+            }
+        }
+        for (let i = index; i < notes.length - 1; i++) {
+            const next = notes[i + 1];
+            if (TimeCalculator.gt(next.endTime, note.endTime)) {
+                // swap
+                notes[i] = next;
+                notes[i + 1] = note;
+            }
+            else {
+                break;
+            }
+        }
+    }
+    remove(note) {
+        this.notes.splice(this.notes.indexOf(note), 1);
+        note.parentNode = null;
+    }
+    static disconnect(note1, note2) {
+        if (note1) {
+            note1.next = null;
+        }
+        if (note2) {
+            note2.previous = null;
+        }
+    }
+    static connect(note1, note2) {
+        if (note1) {
+            // @ts-expect-error
+            note1.next = note2;
+        }
+        if (note2) {
+            // @ts-expect-error
+            note2.previous = note1;
+        }
+        if (note1 && note2) {
+            note2.parentSeq = note1.parentSeq;
+        }
+    }
+    static insert(note1, inserted, note2) {
+        this.connect(note1, inserted);
+        this.connect(inserted, note2);
+    }
+    dump() {
+        return {
+            notes: this.notes.map(note => note.dumpRPE()),
+            startTime: this.startTime
+        };
+    }
+}
+NoteNode.count = 0;
+class NNList {
+    constructor(speed, effectiveBeats) {
+        this.speed = speed;
+        this.head = {
+            heading: true,
+            next: null,
+            parentSeq: this
+        };
+        this.currentPoint = this.head;
+        // this.currentBranchPoint = <NoteNode>{startTime: [-1, 0, 1]}
+        this.tail = {
+            tailing: true,
+            previous: null,
+            parentSeq: this
+        };
+        this.timesWithNotes = 0;
+        /*
+        this.renderPointer = new Pointer();
+        this.hitPointer = new Pointer();
+        this.editorPointer = new Pointer()
+        */
+        this.effectiveBeats = effectiveBeats;
+    }
+    static fromKPAJSON(isHold, effectiveBeats, data, nnnList) {
+        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats);
+        const nnlength = data.noteNodes.length;
+        let cur = list.head;
+        for (let i = 0; i < nnlength; i++) {
+            const nnData = data.noteNodes[i];
+            const nn = NoteNode.fromKPAJSON(nnData);
+            NoteNode.connect(cur, nn);
+            cur = nn;
+            nnnList.addNoteNode(nn);
+        }
+        NoteNode.connect(cur, list.tail);
+        list.initJump();
+        return list;
+    }
+    initJump() {
+        const originalListLength = this.timesWithNotes;
+        if (!this.effectiveBeats) {
+            this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.endTime);
+        }
+        const effectiveBeats = this.effectiveBeats;
+        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
+            if ("tailing" in node) {
+                return [null, null];
+            }
+            const nextNode = node.next;
+            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
+            return [startTime, nextNode];
+        }, (note, beats) => {
+            return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
+        }
+        /*,
+        (note: Note) => {
+            const prev = note.previous;
+            return "heading" in prev ? note : prev
+        })*/ );
+    }
+    initPointer(pointer) {
+        pointer.pointTo(this.head.next, 0);
+    }
+    //initPointers() {
+    /*
+    this.initPointer(this.hitPointer);
+    this.initPointer(this.renderPointer)
+    this.initPointer(this.editorPointer);
+    */
+    //}
+    /**
+     *
+     * @param beats 目标位置
+     * @param beforeEnd 指定选取该时刻之前还是之后第一个Node，对于非Hold无影响
+     * @param pointer 指针，实现查询位置缓存
+     * @returns
+     */
+    getNodeAt(beats, beforeEnd = false, pointer) {
+        /*
+        if (pointer) {
+            if (beats !== pointer.beats) {
+                if (beforeEnd) {
+                    this.movePointerBeforeEnd(pointer, beats)
+                } else {
+                    this.movePointerBeforeStart(pointer, beats)
+                }
+            }
+            if (!pointer.node) {
+                debugger
+            }
+            return pointer.node
+        }
+        */
+        return this.jump.getNodeAt(beats);
+    }
+    /**
+     * Get or create a node of given time
+     * @param time
+     * @returns
+     */
+    getNodeOf(time) {
+        var _a;
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false)
+            .previous;
+        const isEqual = !("heading" in node) && TimeCalculator.eq(node.startTime, time);
+        if (!isEqual) {
+            const newNode = new NoteNode(time);
+            const next = node.next;
+            NoteNode.insert(node, newNode, next);
+            // console.log("created:", node2string(newNode))
+            this.jump.updateRange(node, next);
+            // console.log("pl", this.parentLine)
+            if ((_a = this.parentLine) === null || _a === void 0 ? void 0 : _a.chart) {
+                this.parentLine.chart.nnnList.getNode(time).add(newNode);
+            }
+            return newNode;
+        }
+        else {
+            return node;
+        }
+    }
+    /**
+     * @deprecated
+     * @param pointer
+     * @param beats
+     * @param jump
+     * @param useEnd
+     * @returns
+     * /
+    movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
+        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
+        const original = pointer.node;
+        beats >= 4 && console.log(pointer, beats, distance, jump, this)
+        if (distance === 0) {
+            pointer.beats = beats;
+            return [original, original, 0]
+        }
+        const delta = beats - pointer.beats;
+        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
+            const end = jump.getNodeAt(beats);
+            console.log("end, beats", end, beats)
+            if (!end) {
+                debugger;
+            }
+            pointer.pointTo(end, beats)
+            return [original, end, distance]
+        }
+        let end: TypeOrTailer<NoteNode>;
+        if (distance === 1) {
+            end = (<NoteNode>original).next // 多谢了个let，特此留念
+        } else if (distance === -1) {
+            end = "heading" in original.previous ? original : original.previous;
+        }
+        if (!end) {
+            debugger;
+        }
+        pointer.pointTo(end, beats)
+        return [original, end, distance]
+    }
+    // */
+    /**
+     * @deprecated
+     * /
+    movePointerBeforeStart(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
+        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump)
+    }
+    /**
+     * @deprecated
+     * /
+    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
+        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
+    }
+    // */
+    /**
+     * @deprecated
+     */
+    static distanceFromPointer(beats, pointer, useEnd = false) {
+        const note = pointer.node;
+        if (!note) {
+            debugger;
+        }
+        if ("tailing" in note) {
+            if ("heading" in note.previous) {
+                return 0;
+            }
+            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? -1 : 0;
+        }
+        const previous = note.previous;
+        if (!previous)
+            debugger;
+        const previousBeats = "heading" in previous ? -Infinity : TimeCalculator.toBeats(useEnd ? previous.endTime : previous.startTime);
+        const thisBeats = TimeCalculator.toBeats(useEnd ? note.endTime : note.startTime);
+        console.log("tpb", thisBeats, previousBeats, beats);
+        if (beats < previousBeats) {
+            return -1;
+        }
+        else if (beats > thisBeats) {
+            return 1;
+        }
+        return 0;
+    }
+    /*
+    insertNoteJumpUpdater(note: Note) {
+        const {previous, next} = note
+        return () => {
+            this.jump.updateRange(previous, next)
+        }
+    }
+    */
+    /**
+     * To find the note's previous(Sibling) if it is to be inserted into the tree
+     * @param note
+     */
+    /*
+    findPrev(note: Note): TypeOrHeader<NoteNode> {
+        const beats = TimeCalculator.toBeats(note.startTime)
+        const destNote = this.getNoteAt(beats, false, this.editorPointer)
+        if ("tailing" in destNote) {
+            return destNote.previous
+        }
+        if (TimeCalculator.eq(destNote.startTime, note.startTime)) {
+            if (!(this instanceof HoldTree)) {
+                return destNote
+            }
+            let cur = destNote
+            while (1) {
+                const next = destNote.nextSibling
+                if (!next) {
+                    break
+                }
+                if (TimeCalculator.lt(note.endTime, next.endTime)) {
+                    return cur
+                }
+                cur = next
+            }
+        }
+        return destNote.previous
+    }
+    */
+    dumpKPA() {
+        const nodes = [];
+        let node = this.head.next;
+        while (!("tailing" in node)) {
+            nodes.push(node.dump());
+            node = node.next;
+        }
+        return {
+            speed: this.speed,
+            noteNodes: nodes
+        };
+    }
+}
+/**
+ * HoldNode的链表
+ * HN is the abbreviation of HoldNode, which is not individually declared.
+ * A NN that contains holds (a type of note) is a HN.
+ */
+class HNList extends NNList {
+    constructor(speed, effectiveBeats) {
+        super(speed, effectiveBeats);
+    }
+    initJump() {
+        super.initJump();
+        const originalListLength = this.timesWithNotes;
+        const effectiveBeats = this.effectiveBeats;
+        this.holdTailJump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
+            if ("tailing" in node) {
+                return [null, null];
+            }
+            if (!node)
+                debugger;
+            const nextNode = node.next;
+            const endTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.endTime);
+            return [endTime, nextNode];
+        }, (node, beats) => {
+            return TimeCalculator.toBeats(node.endTime) >= beats ? false : node.next; // getNodeAt有guard
+        });
+    }
+    /**
+     *
+     * @param pointer
+     * @param beats
+     * @returns
+     * /
+    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
+        return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
+    }
+    //*/
+    getNodeAt(beats, beforeEnd = false) {
+        return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
+    }
+    // unused
+    insertNoteJumpUpdater(note) {
+        const { previous, next } = note;
+        return () => {
+            this.jump.updateRange(previous, next);
+            this.holdTailJump.updateRange(previous, next);
+        };
+    }
+}
+class NNNode {
+    constructor(time) {
+        this.noteNodes = [];
+        this.holdNodes = [];
+        this.startTime = time;
+    }
+    get endTime() {
+        let latest = this.startTime;
+        for (let index = 0; index < this.holdNodes.length; index++) {
+            const element = this.holdNodes[index];
+            if (TC.gt(element.endTime, latest)) {
+                latest = element.endTime;
+            }
+        }
+        return latest;
+    }
+    add(node) {
+        if (node.isHold) {
+            this.holdNodes.push(node);
+        }
+        else {
+            this.noteNodes.push(node);
+        }
+        node.totalNode = this;
+    }
+}
+/**
+ * 二级音符节点链表
+ * contains NNNs
+ * NNN is the abbreviation of NoteNodeNode, which store note (an element in music game) nodes with same startTime
+ * NN is the abbreviation of NoteNode, which stores the notes with the same startTime.
+ */
+class NNNList {
+    constructor(effectiveBeats) {
+        this.effectiveBeats = effectiveBeats;
+        this.head = {
+            "heading": true,
+            "next": null,
+            "parentSeq": this
+        };
+        this.tail = {
+            "tailing": true,
+            "previous": null,
+            "parentSeq": this
+        };
+        this.editorPointer = new Pointer();
+        this.editorPointer.pointTo(this.tail, 0);
+        NoteNode.connect(this.head, this.tail);
+        this.initJump();
+    }
+    initJump() {
+        const originalListLength = this.timesWithNotes || 512;
+        /*
+        if (!this.effectiveBeats) {
+            this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.endTime)
+        }
+        */
+        const effectiveBeats = this.effectiveBeats;
+        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
+            if ("tailing" in node) {
+                return [null, null];
+            }
+            const nextNode = node.next;
+            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
+            return [startTime, nextNode];
+        }, (note, beats) => {
+            return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
+        }
+        /*,
+        (note: Note) => {
+            const prev = note.previous;
+            return "heading" in prev ? note : prev
+        })*/ );
+    }
+    movePointerBeforeStart(pointer, beats) {
+        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump);
+    }
+    movePointerBeforeEnd(pointer, beats) {
+        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true);
+    }
+    movePointerWithGivenJumpArray(pointer, beats, jump, useEnd = false) {
+        const distance = NNList.distanceFromPointer(beats, pointer, useEnd);
+        const original = pointer.node;
+        if (distance === 0) {
+            pointer.beats = beats;
+            return [original, original, 0];
+        }
+        const delta = beats - pointer.beats;
+        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
+            const end = jump.getNodeAt(beats);
+            if (!end) {
+                debugger;
+            }
+            pointer.pointTo(end, beats);
+            return [original, end, distance];
+        }
+        let end;
+        if (distance === 1) {
+            end = original.next; // 多谢了个let，特此留念
+        }
+        else if (distance === -1) {
+            end = "heading" in original.previous ? original : original.previous;
+        }
+        if (!end) {
+            debugger;
+        }
+        pointer.pointTo(end, beats);
+        return [original, end, distance];
+    }
+    getNodeAt(beats, beforeEnd = false, pointer) {
+        if (pointer) {
+            if (beats !== pointer.beats) {
+                if (beforeEnd) {
+                    this.movePointerBeforeEnd(pointer, beats);
+                }
+                else {
+                    this.movePointerBeforeStart(pointer, beats);
+                }
+            }
+            if (!pointer.node) {
+                debugger;
+            }
+            return pointer.node;
+        }
+        return this.jump.getNodeAt(beats);
+    }
+    getNode(time) {
+        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
+        if ("heading" in node || TimeCalculator.ne(node.startTime, time)) {
+            const newNode = new NNNode(time);
+            const next = node.next;
+            NoteNode.insert(node, newNode, next);
+            this.jump.updateRange(node, next);
+            return newNode;
+        }
+        else {
+            return node;
+        }
+    }
+    addNoteNode(noteNode) {
+        this.getNode(noteNode.startTime).add(noteNode);
+    }
+}
+class JudgeLine {
+    constructor(chart) {
+        this.hnLists = new Map();
+        this.nnLists = new Map();
+        //this.notes = [];
+        this.chart = chart;
+        this.eventLayers = [];
+        this.children = [];
+        this.texture = "line.png";
+        this.cover = true;
+        // this.noteSpeeds = {};
+    }
+    static fromRPEJSON(chart, id, data, templates, timeCalculator) {
+        let line = new JudgeLine(chart);
+        line.id = id;
+        line.name = data.Name;
+        chart.judgeLineGroups[data.Group].addJudgeLine(line);
+        line.cover = Boolean(data.isCover);
+        const noteNodeTree = chart.nnnList;
+        if (data.notes) {
+            const holdLists = line.hnLists;
+            const noteLists = line.nnLists;
+            let notes = data.notes;
+            notes.sort((n1, n2) => {
+                if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
+                    return TimeCalculator.gt(n1.startTime, n2.startTime) ? 1 : -1;
+                }
+                return TimeCalculator.gt(n1.endTime, n2.endTime) ? -1 : 1; // 这里曾经排反了（
+            });
+            const len = notes.length;
+            let lastTime = [-1, 0, 1];
+            // let comboInfoEntity: ComboInfoEntity;
+            for (let i = 0; i < len; i++) {
+                const note = new Note(notes[i]);
+                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false);
+                const cur = tree.currentPoint;
+                const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
+                if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
+                    tree.currentPoint.add(note);
+                }
+                else {
+                    const node = new NoteNode(note.startTime);
+                    node.add(note); // 这里之前没写，特此留念！
+                    NoteNode.connect(tree.currentPoint, node);
+                    tree.currentPoint = node;
+                    noteNodeTree.addNoteNode(node);
+                }
+                tree.timesWithNotes++;
+            }
+            for (let trees of [holdLists, noteLists]) {
+                for (const [_, list] of trees) {
+                    NoteNode.connect(list.currentPoint, list.tail);
+                    list.initJump();
+                    // tree.initPointers()
+                }
+            }
+        }
+        const eventLayers = data.eventLayers;
+        const length = eventLayers.length;
+        const createSequence = (type, events, index) => {
+            if (events) {
+                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
+                sequence.id = `#${id}.${index}.${EventType[type]}`;
+                chart.sequenceMap.set(sequence.id, sequence);
+                return sequence;
+            }
+        };
+        for (let index = 0; index < length; index++) {
+            const layerData = eventLayers[index];
+            if (!layerData) {
+                continue;
+            }
+            const layer = {
+                moveX: createSequence(EventType.moveX, layerData.moveXEvents, index),
+                moveY: createSequence(EventType.moveY, layerData.moveYEvents, index),
+                rotate: createSequence(EventType.rotate, layerData.rotateEvents, index),
+                alpha: createSequence(EventType.alpha, layerData.alphaEvents, index),
+                speed: createSequence(EventType.speed, layerData.speedEvents, index)
+            };
+            line.eventLayers[index] = layer;
+        }
+        // line.updateNoteSpeeds();
+        // line.computeNotePositionY(timeCalculator);
+        return line;
+    }
+    static fromKPAJSON(chart, id, data, templates, timeCalculator) {
+        let line = new JudgeLine(chart);
+        line.id = id;
+        line.name = data.Name;
+        chart.judgeLineGroups[data.group].addJudgeLine(line);
+        const nnnList = chart.nnnList;
+        for (let isHold of [false, true]) {
+            const key = `${isHold ? "hn" : "nn"}Lists`;
+            const lists = data[key];
+            for (let name in lists) {
+                const listData = lists[name];
+                const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
+                list.parentLine = line;
+                list.id = name;
+                line[key].set(name, list);
+            }
+        }
+        for (let child of data.children) {
+            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
+        }
+        for (let eventLayerData of data.eventLayers) {
+            let eventLayer = {};
+            for (let key in eventLayerData) {
+                // use "fromRPEJSON" for they have the same logic
+                eventLayer[key] = chart.sequenceMap.get(eventLayerData[key]);
+            }
+            line.eventLayers.push(eventLayer);
+        }
+        chart.judgeLines.push(line);
+        return line;
+    }
+    updateSpeedIntegralFrom(beats, timeCalculator) {
+        var _a;
+        for (let eventLayer of this.eventLayers) {
+            (_a = eventLayer === null || eventLayer === void 0 ? void 0 : eventLayer.speed) === null || _a === void 0 ? void 0 : _a.updateNodesIntegralFrom(beats, timeCalculator);
+        }
+    }
+    /**
+     * startY and endY must not be negative
+     * @param beats
+     * @param timeCalculator
+     * @param startY
+     * @param endY
+     * @returns
+     */
+    computeTimeRange(beats, timeCalculator, startY, endY) {
+        console.log("invoked");
+        //return [[0, Infinity]]
+        //*
+        // 提取所有有变化的时间点
+        let times = [];
+        let result = [];
+        for (let eventLayer of this.eventLayers) {
+            const sequence = eventLayer === null || eventLayer === void 0 ? void 0 : eventLayer.speed;
+            if (!sequence) {
+                continue;
+            }
+            let node = sequence.getNodeAt(beats);
+            let endNode;
+            while (true) {
+                times.push(TimeCalculator.toBeats(node.time));
+                if ("tailing" in (endNode = node.next)) {
+                    break;
+                }
+                node = endNode.next;
+            }
+        }
+        times = [...new Set(times)].sort((a, b) => a - b);
+        const len = times.length;
+        let nextTime = times[0];
+        let nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+        let nextSpeed = this.getStackedValue("speed", nextTime, true);
+        let range = [undefined, undefined];
+        // console.log(times)
+        const computeTime = (speed, currentPos, fore) => timeCalculator.secondsToBeats(currentPos / (speed * 120) + timeCalculator.toSeconds(fore));
+        for (let i = 0; i < len - 1;) {
+            const thisTime = nextTime;
+            const thisPosY = nextPosY;
+            let thisSpeed = this.getStackedValue("speed", thisTime);
+            if (Math.abs(thisSpeed) < 1e-8) {
+                thisSpeed = 0; // 不这样做可能导致下面异号判断为真从而死循环
+            }
+            nextTime = times[i + 1];
+            nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+            nextSpeed = this.getStackedValue("speed", nextTime, true);
+            // console.log(thisSpeed, nextSpeed, thisSpeed * nextSpeed < 0, i, [...result])
+            if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
+                //debugger;
+                nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
+                nextSpeed = 0;
+                nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
+                //debugger
+            }
+            else {
+                // console.log("i++")
+                i++;
+            }
+            if (range[0] === undefined) {
+                // 变速区间直接全部囊括，匀速要算一下，因为好算
+                /*
+                设两个时间点的位置为a,b
+                开始结束点为s,e
+                选中小段一部分在区间内：
+                a < s <= b
+                或a > e >= b
+                全部在区间内
+                s <= a <= b
+                */
+                if (thisPosY < startY && startY <= nextPosY
+                    || thisPosY > endY && endY >= nextPosY) {
+                    range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(thisSpeed, (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime);
+                }
+                else if (startY <= thisPosY && thisPosY <= endY) {
+                    range[0] = thisTime;
+                }
+            }
+            // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
+            if (range[0] !== undefined) {
+                if (thisPosY < endY && endY <= nextPosY || thisPosY > startY && startY >= nextPosY) {
+                    range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(thisSpeed, (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime);
+                    if (range[0] > range[1]) {
+                        console.error("range start should be smaller than range end.");
+                        console.log("\nRange is:", range, "thisTime:", thisTime, "thisSpeed:", thisSpeed, "thisPosY:", thisPosY, "\nstartY:", startY, "endY:", endY, "nextTime:", nextTime, "nextPosY:", nextPosY, "nextSpeed:", nextSpeed, "\njudgeLine:", this);
+                    }
+                    result.push(range);
+                    range = [undefined, undefined];
+                }
+            }
+        }
+        const thisPosY = nextPosY;
+        const thisTime = nextTime;
+        const thisSpeed = this.getStackedValue("speed", thisTime);
+        const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY);
+        if (range[0] === undefined) {
+            // 变速区间直接全部囊括，匀速要算一下，因为好算
+            if (thisPosY < startY && startY <= inf || thisPosY >= endY && endY > inf) {
+                range[0] = computeTime(thisSpeed, (thisPosY < inf ? startY : endY) - thisPosY, thisTime);
+            }
+            else if (thisSpeed === 0) {
+                range[0] = 0;
+            }
+        }
+        // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
+        if (range[0] !== undefined) {
+            if (thisPosY < endY && endY <= inf || thisPosY >= startY && startY > inf) {
+                range[1] = computeTime(thisSpeed, (thisPosY > inf ? startY : endY) - thisPosY, thisTime);
+                result.push(range);
+            }
+            else if (thisSpeed === 0) {
+                range[1] = Infinity;
+                result.push(range);
+            }
+        }
+        return result;
+        //*/
+    }
+    /*
+    computeLinePositionY(beats: number, timeCalculator: TimeCalculator)  {
+        return this.getStackedIntegral(beats, timeCalculator)
+    }
+    */
+    /**
+     *
+     * @param beats
+     * @param usePrev 如果取到节点，将使用EndNode的值。默认为FALSE
+     * @returns
+     */
+    getValues(beats, usePrev = false) {
+        return [
+            this.getStackedValue("moveX", beats, usePrev),
+            this.getStackedValue("moveY", beats, usePrev),
+            this.getStackedValue("rotate", beats, usePrev) / 180 * Math.PI, // 转换为弧度制
+            this.getStackedValue("alpha", beats, usePrev),
+        ];
+    }
+    /**
+     * 求该时刻坐标，不考虑父线
+     * @param beats
+     * @param usePrev
+     * @returns
+     */
+    getThisCoordinate(beats, usePrev = false) {
+        return [this.getStackedValue("moveX", beats, usePrev),
+            this.getStackedValue("moveY", beats, usePrev)];
+    }
+    /**
+     * 求父线锚点坐标，无父线返回原点
+     * @param beats
+     * @param usePrev
+     * @returns
+     */
+    getBaseCoordinate(beats, usePrev = false) {
+        if (!this.father) {
+            return [0, 0];
+        }
+        const baseBase = this.father.getBaseCoordinate(beats, usePrev);
+        const base = this.father.getThisCoordinate(beats, usePrev);
+        return [baseBase[0] + base[0], baseBase[1] + base[1]];
+    }
+    getStackedValue(type, beats, usePrev = false) {
+        const length = this.eventLayers.length;
+        let current = 0;
+        for (let index = 0; index < length; index++) {
+            const layer = this.eventLayers[index];
+            if (!layer || !layer[type]) {
+                break;
+            }
+            current += layer[type].getValueAt(beats, usePrev);
+        }
+        return current;
+    }
+    getStackedIntegral(beats, timeCalculator) {
+        const length = this.eventLayers.length;
+        let current = 0;
+        for (let index = 0; index < length; index++) {
+            const layer = this.eventLayers[index];
+            if (!layer || !layer.speed) {
+                break;
+            }
+            current += layer.speed.getIntegral(beats, timeCalculator);
+        }
+        // console.log("integral", current)
+        return current;
+    }
+    /**
+     * 获取对应速度和类型的Note树,没有则创建
+     */
+    getNNList(speed, isHold, initsJump) {
+        const lists = isHold ? this.hnLists : this.nnLists;
+        for (const [_, list] of lists) {
+            if (list.speed == speed) {
+                return list;
+            }
+        }
+        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
+        list.parentLine = this;
+        NoteNode.connect(list.head, list.tail);
+        if (initsJump)
+            list.initJump();
+        const id = (isHold ? "$" : "#") + speed;
+        lists.set(id, list);
+        list.id = id;
+        return list;
+    }
+    getNode(note, initsJump) {
+        const speed = note.speed;
+        const isHold = note.type === NoteType.hold;
+        const tree = this.getNNList(speed, isHold, initsJump);
+        return tree.getNodeOf(note.startTime);
+    }
+    /**
+     *
+     * @param eventNodeSequences To Collect the sequences used in this line
+     * @returns
+     */
+    dumpKPA(eventNodeSequences, judgeLineGroups) {
+        const children = [];
+        for (let line of this.children) {
+            children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups));
+        }
+        const eventLayers = [];
+        for (let i = 0; i < this.eventLayers.length; i++) {
+            const layer = this.eventLayers[i];
+            if (!layer)
+                continue;
+            let layerData = {};
+            for (let type in layer) {
+                const sequence = layer[type];
+                if (!sequence)
+                    continue;
+                eventNodeSequences.add(sequence);
+                layerData[type] = sequence.id;
+            }
+            eventLayers.push(layerData);
+        }
+        const hnListsData = {};
+        const nnListsData = {};
+        for (let [id, list] of this.hnLists) {
+            hnListsData[id] = list.dumpKPA();
+        }
+        for (let [id, list] of this.nnLists) {
+            nnListsData[id] = list.dumpKPA();
+        }
+        return {
+            group: judgeLineGroups.indexOf(this.group),
+            id: this.id,
+            Name: this.name,
+            Texture: "line.png",
+            children: children,
+            eventLayers: eventLayers,
+            hnLists: hnListsData,
+            nnLists: nnListsData
+        };
+    }
+    dumpControlEvent(event) {
+        return {
+            startTime: event.startTime,
+            endTime: event.endTime,
+            startValue: event.startValue,
+            endValue: event.endValue,
+            easing: templateLib.resolveEasing(event.easing)
+        };
+    }
+    updateEffectiveBeats(EB) {
+        for (let i = 0; i < this.eventLayers.length; i++) {
+            const layer = this.eventLayers[i];
+            for (let type in layer) {
+                const sequence = layer[type];
+                sequence.effectiveBeats = EB;
+            }
+        }
+        for (let lists of [this.nnLists, this.hnLists]) {
+            for (let [_, list] of lists) {
+                list.effectiveBeats = EB;
+            }
+        }
+    }
+}
+var EventType;
+(function (EventType) {
+    EventType[EventType["moveX"] = 0] = "moveX";
+    EventType[EventType["moveY"] = 1] = "moveY";
+    EventType[EventType["rotate"] = 2] = "rotate";
+    EventType[EventType["alpha"] = 3] = "alpha";
+    EventType[EventType["speed"] = 4] = "speed";
+    EventType[EventType["easing"] = 5] = "easing";
+    EventType[EventType["bpm"] = 6] = "bpm";
+})(EventType || (EventType = {}));
+var NoteType;
+(function (NoteType) {
+    NoteType[NoteType["tap"] = 1] = "tap";
+    NoteType[NoteType["drag"] = 4] = "drag";
+    NoteType[NoteType["flick"] = 3] = "flick";
+    NoteType[NoteType["hold"] = 2] = "hold";
+})(NoteType || (NoteType = {}));
+/**
+ * 相当于 Python 推导式
+ * @param arr
+ * @param expr
+ * @param guard
+ * @returns
+ */
+function arrayForIn(arr, expr, guard) {
+    let ret = [];
+    for (let each of arr) {
+        if (!guard || guard && guard(each)) {
+            ret.push(expr(each));
+        }
+    }
+    return ret;
+}
+/**
+ * 相当于 Python 推导式
+ * @param obj
+ * @param expr
+ * @param guard
+ * @returns
+ */
+function dictForIn(obj, expr, guard) {
+    let ret = {};
+    for (let key in obj) {
+        const each = obj[key];
+        if (!guard || guard && guard(each)) {
+            ret[key] = expr(each);
+        }
+    }
+    return ret;
+}
+class Chart {
+    constructor() {
+        this.judgeLines = [];
+        this.bpmList = [];
+        this.timeCalculator = new TimeCalculator();
+        this.orphanLines = [];
+        // comboMapping: ComboMapping;
+        this.name = "unknown";
+        this.level = "unknown";
+        this.offset = 0;
+        this.templateEasingLib = new TemplateEasingLib;
+        this.sequenceMap = new Map();
+        /**  */
+        this.judgeLineGroups = [];
+        this.modified = false;
+    }
+    getEffectiveBeats() {
+        console.log(editor.player.audio.src);
+        const effectiveBeats = this.timeCalculator.secondsToBeats(this.duration);
+        console.log(effectiveBeats);
+        this.effectiveBeats = effectiveBeats;
+        return this.effectiveBeats;
+    }
+    static fromRPEJSON(data, duration) {
+        let chart = new Chart();
+        chart.judgeLineGroups = data.judgeLineGroup.map(group => new JudgeLineGroup(group));
+        chart.bpmList = data.BPMList;
+        chart.name = data.META.name;
+        chart.level = data.META.level;
+        chart.offset = data.META.offset;
+        chart.duration = duration;
+        chart.rpeChartingTime = data.chartTime ? Math.round(data.chartTime / 60) : 0;
+        chart.chartingTime = 0;
+        chart.updateCalculator();
+        console.log(chart, chart.getEffectiveBeats());
+        chart.nnnList = new NNNList(chart.getEffectiveBeats());
+        /*
+        if (data.envEasings) {
+            chart.templateEasingLib.add(...data.envEasings)
+
+        }
+        */
+        // let line = data.judgeLineList[0];
+        const judgeLineList = data.judgeLineList;
+        const length = judgeLineList.length;
+        const orphanLines = [];
+        for (let i = 0; i < length; i++) {
+            const lineData = data.judgeLineList[i];
+            lineData._id = i;
+            if (lineData.father === -1) {
+                orphanLines.push(lineData);
+                continue;
+            }
+            const father = data.judgeLineList[lineData.father];
+            const children = father.children || (father.children = []);
+            children.push(i);
+        }
+        const readOne = (lineData) => {
+            const line = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator);
+            chart.judgeLines.push(line);
+            if (lineData.children) {
+                for (let each of lineData.children) {
+                    const child = readOne(judgeLineList[each]);
+                    child.father = line;
+                    line.children.push(child);
+                }
+            }
+            return line;
+        };
+        for (let lineData of judgeLineList) {
+            const line = readOne(lineData);
+            chart.orphanLines.push(line);
+        }
+        return chart;
+    }
+    static fromKPAJSON(data) {
+        var _a, _b;
+        const chart = new Chart();
+        chart.bpmList = data.bpmList;
+        chart.duration = data.duration;
+        chart.name = data.info.name;
+        chart.level = data.info.level;
+        chart.offset = data.offset;
+        chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
+        chart.chartingTime = (_a = data.chartTime) !== null && _a !== void 0 ? _a : 0;
+        chart.rpeChartingTime = (_b = data.rpeChartTime) !== null && _b !== void 0 ? _b : 0;
+        chart.updateCalculator();
+        chart.nnnList = new NNNList(chart.getEffectiveBeats());
+        const envEasings = data.envEasings;
+        const len = envEasings.length;
+        for (let i = 0; i < len; i++) {
+            const easingData = envEasings[i];
+            chart.templateEasingLib.require(easingData.name);
+        }
+        const sequences = data.eventNodeSequences;
+        const length = data.eventNodeSequences.length;
+        for (let i = 0; i < length; i++) {
+            const seqData = sequences[i];
+            const sequence = EventNodeSequence.fromRPEJSON(seqData.type, seqData.events, chart, seqData.endValue);
+            sequence.id = seqData.id;
+            chart.sequenceMap.set(sequence.id, sequence);
+        }
+        for (let i = 0; i < len; i++) {
+            const easingData = envEasings[i];
+            chart.templateEasingLib.implement(easingData.name, chart.sequenceMap.get(easingData.content));
+        }
+        chart.templateEasingLib.check();
+        for (let lineData of data.orphanLines) {
+            const line = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
+            chart.orphanLines.push(line);
+        }
+        return chart;
+    }
+    updateCalculator() {
+        this.timeCalculator.bpmList = this.bpmList;
+        this.timeCalculator.duration = this.duration;
+        this.timeCalculator.update();
+    }
+    updateEffectiveBeats(duration) {
+        const EB = this.timeCalculator.secondsToBeats(duration);
+        for (let i = 0; i < this.judgeLines.length; i++) {
+            const judgeLine = this.judgeLines[i];
+            judgeLine.updateEffectiveBeats(EB);
+        }
+    }
+    dumpKPA() {
+        const eventNodeSequences = new Set();
+        const orphanLines = [];
+        for (let line of this.orphanLines) {
+            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
+        }
+        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
+        const eventNodeSequenceData = [];
+        for (let sequence of eventNodeSequences) {
+            eventNodeSequenceData.push(sequence.dump());
+        }
+        return {
+            duration: this.duration,
+            bpmList: this.timeCalculator.dump(),
+            envEasings: envEasings,
+            eventNodeSequences: eventNodeSequenceData,
+            info: {
+                level: this.level,
+                name: this.name
+            },
+            offset: this.offset,
+            orphanLines: orphanLines,
+            judgeLineGroups: this.judgeLineGroups.map(g => g.name),
+            chartTime: this.chartingTime,
+            rpeChartTime: this.rpeChartingTime
+        };
+    }
+    getJudgeLineGroups() {
+        // 实现分组逻辑（示例实现）
+        return Array.from(new Set(this.judgeLines.map(line => line.groupId.toString())));
+    }
+    /*
+    getComboInfoEntity(time: TimeT) {
+        const key = toTimeString(time);
+        if (key in this.comboMapping) {
+            return this.comboMapping[key]
+        } else {
+            return this.comboMapping[key] = new ComboInfoEntity()
+        }
+    }
+    */
+    createNNNode(time) {
+        return new NNNode(time);
+    }
+}
+class JudgeLineGroup {
+    constructor(name) {
+        this.name = name;
+        this.judgeLines = [];
+    }
+    addJudgeLine(judgeLine) {
+        this.judgeLines.push(judgeLine);
+        judgeLine.group = this;
+    }
+}
+/*
+class ComboInfoEntity {
+    tap: number;
+    drag: number;
+    holdHead: number;
+    flick: number;
+    hold: number;
+    real: number;
+    fake: number;
+    realEnd: number;
+    previous: TypeOrHeader<ComboInfoEntity>;
+    next: TypeOrTailer<ComboInfoEntity>;
+    constructor() {
+        this.tap = 0;
+        this.drag = 0;
+        this.holdHead = 0;
+        this.hold = 0;
+        this.flick = 0;
+        this.real = 0;
+        this.fake = 0;
+        this.realEnd = 0;
+    }
+    add(note: Note) {
+        if (note.isFake) {
+            this.fake++
+        } else {
+            this.real++
+        }
+        this[NoteType[note.type]]++
+    }
+    remove(note: Note) {
+        if (note.isFake) {
+            this.fake--
+        } else {
+            this.real--
+        }
+        
+        this[NoteType[note.type]]--
+    }
+}
+*/ 
+// interface TemplateEasingLib {[name: string]: TemplateEasing}
+/**
+ * To compare two arrays
+ * @param arr1
+ * @param arr2
+ * @returns
+ */
+function arrEq(arr1, arr2) {
+    let length;
+    if ((length = arr1.length) !== arr2.length) {
+        return false;
+    }
+    for (let i = 0; i < length; i++) {
+        if (arr1[i] !== arr2[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+/**
+ * 事件节点基类
+ * event node.
+ * 用于代表事件的开始和结束。（EventStartNode表开始，EventEndNode表结束）
+ * Used to represent the starts (EventStartNode) and ends (EventEndNode) of events.
+ * 事件指的是判定线在某个时间段上的状态变化。
+ * Events is the changing of judge line's state in a certain time.
+ * 五种事件类型：移动X，移动Y，旋转，透明度，速度。
+ * 5 basic types of events: moveX, moveY, rotate, alpha, speed.
+ * 事件节点没有类型，类型由它所属的序列决定。
+ * Type is not event nodes' property; it is the property of EventNodeSequence.
+ * Events' type is determined by which sequence it belongs to.
+ * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
+ * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
+ */
+class EventNode {
+    constructor(time, value) {
+        this.time = time;
+        this.value = value;
+        this.previous = null;
+        this.next = null;
+        this.easing = linearEasing;
+    }
+    clone(offset) {
+        const ret = new this.constructor(offset ? TimeCalculator.add(this.time, offset) : this.time, this.value);
+        ret.easing = this.easing;
+        return ret;
+    }
+    //#region 
+    /**
+     * gets the easing object from RPEEventData
+     * @param data
+     * @param left
+     * @param right
+     * @param templates
+     * @returns
+     */
+    static getEasing(data, left, right, templates) {
+        if ((left && right) && (left !== 0.0 || right !== 1.0)) {
+            return new SegmentedEasing(EventNode.getEasing(data, 0.0, 1.0, templates), left, right);
+        }
+        if (data.bezier) {
+            let bp = data.bezierPoints;
+            let easing = new BezierEasing();
+            easing.cp1 = new Coordinate(bp[0], bp[1]);
+            easing.cp2 = new Coordinate(bp[2], bp[3]);
+            return easing;
+        }
+        else if (typeof data.easingType === "string") {
+            return templates.get(data.easingType);
+        }
+        else if (typeof data.easingType === "number" && data.easingType !== 0) {
+            return rpeEasingArray[data.easingType];
+        }
+        else if (data.start === data.end) {
+            return fixedEasing;
+        }
+        else {
+            return linearEasing;
+        }
+    }
+    /**
+     * constructs EventStartNode and EventEndNode from EventDataRPE
+     * @param data
+     * @param templates
+     * @returns
+     */
+    static fromEvent(data, templates) {
+        let start = new EventStartNode(data.startTime, data.start);
+        let end = new EventEndNode(data.endTime, data.end);
+        start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
+        EventNode.connect(start, end);
+        if (!start.easing) {
+            start.easing = linearEasing;
+            console.error("No easing found for event:", data, start, "will use linear by default");
+        }
+        return [start, end];
+    }
+    static connect(node1, node2) {
+        node1.next = node2;
+        node2.previous = node1;
+        if (node1 && node2) {
+            node2.parentSeq = node1.parentSeq;
+        }
+    }
+    /*
+    static disconnectStart(node: EventStartNode) {
+        (node.previous.previous).next = node.next;
+        node.previous.previous = null;
+        node.next = null;
+    }
+    */
+    static removeNodePair(endNode, startNode) {
+        const prev = endNode.previous;
+        const next = startNode.next;
+        prev.next = next;
+        next.previous = prev;
+        endNode.previous = null;
+        startNode.next = null;
+        return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)];
+    }
+    static insert(node, tarPrev) {
+        const tarNext = tarPrev.next;
+        if ("heading" in node.previous) {
+            throw new Error("Cannot insert a head node before any node");
+        }
+        this.connect(tarPrev, node.previous);
+        node.parentSeq = node.previous.parentSeq;
+        this.connect(node, tarNext);
+        return [this.previousStartOfStart(tarPrev), this.nextStartOfEnd(tarNext)];
+    }
+    /**
+     *
+     * @param node
+     * @returns the next node if it is a tailer, otherwise the next start node
+     */
+    static nextStartOfStart(node) {
+        return "tailing" in node.next ? node.next : node.next.next;
+    }
+    /**
+     *
+     * @param node
+     * @returns itself if node is a tailer, otherwise the next start node
+     */
+    static nextStartOfEnd(node) {
+        return "tailing" in node ? node : node.next;
+    }
+    static previousStartOfStart(node) {
+        return "heading" in node.previous ? node.previous : node.previous.previous;
+    }
+    /**
+     * It does not return the start node which form an event with it.
+     * @param node
+     * @returns
+     */
+    static secondPreviousStartOfEnd(node) {
+        return this.previousStartOfStart(node.previous);
+    }
+    static nextStartInJumpArray(node) {
+        if (node.next.next.isLastStart()) {
+            return node.next.next.next;
+        }
+        else {
+            return node.next.next;
+        }
+    }
+    /**
+     * 获得一对背靠背的节点。不适用于第一个StartNode
+     * @param node
+     * @returns
+     */
+    static getEndStart(node) {
+        if (node instanceof EventStartNode) {
+            if (node.isFirstStart()) {
+                throw new Error("Cannot get previous start node of the first start node");
+            }
+            return [node.previous, node];
+        }
+        else if (node instanceof EventEndNode) {
+            return [node, node.next];
+        }
+    }
+    static getStartEnd(node) {
+        if (node instanceof EventStartNode) {
+            return [node, node.next];
+        }
+        else if (node instanceof EventEndNode) {
+            return [node.previous, node];
+        }
+        else {
+            throw new Error("Invalid node type");
+        }
+    }
+    static setToNewOrderedArray(dest, set) {
+        const nodes = [...set];
+        nodes.sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+        const offset = TimeCalculator.sub(dest, nodes[0].time);
+        return [nodes, nodes.map(node => node.clonePair(offset))];
+    }
+    static belongToSequence(nodes, sequence) {
+        for (let each of nodes) {
+            if (each.parentSeq !== sequence) {
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
+     * 检验这些节点对是不是连续的
+     * 如果不是不能封装为模板缓动
+     * @param nodes 有序开始节点数组，必须都是带结束节点的（背靠背）（第一个除外）
+     * @returns
+     */
+    static isContinuous(nodes) {
+        const l = nodes.length;
+        let nextNode = nodes[0];
+        for (let i = 0; i < l - 1; i++) {
+            const node = nextNode;
+            nextNode = nodes[i + 1];
+            if (node.next !== nextNode.previous) {
+                return false;
+            }
+        }
+        return true;
+    }
+    get innerEasing() {
+        return this.easing instanceof SegmentedEasing ?
+            this.easing.easing :
+            this.easing;
+    }
+    /**
+     * 设置easing，如果easing是分段缓动，则将分段缓动中的easing设置为innerEasing
+     * 不可传入分段缓动，否则会出错
+     */
+    set innerEasing(easing) {
+        if (this.easing instanceof SegmentedEasing) {
+            this.easing.easing = easing;
+        }
+        else {
+            this.easing = easing;
+        }
+    }
+}
+/*
+enum EventNodeType {
+    first,
+    middle,
+    last
+}
+
+
+interface StartNextMap {
+    [EventNodeType.first]: EventEndNode;
+    [EventNodeType.middle]: EventEndNode;
+    [EventNodeType.last]: Tailer<EventStartNode<EventNodeType.last>>;
+}
+interface StartPreviousMap {
+    [EventNodeType.first]: Header<EventStartNode<EventNodeType.first>>;
+    [EventNodeType.middle]: EventEndNode;
+    [EventNodeType.last]: EventEndNode;
+}
+*/
+class EventStartNode extends EventNode {
+    constructor(time, value) {
+        super(time, value);
+    }
+    get easingIsSegmented() {
+        return this.easing instanceof SegmentedEasing;
+    }
+    /**
+     * 因为是RPE和KPA共用的方法所以easingType可以为字符串
+     * @returns
+     */
+    dump() {
+        const endNode = this.next;
+        const isSegmented = this.easingIsSegmented;
+        const easing = isSegmented ? this.easing.easing : this.easing;
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: isSegmented ? this.easing.left : 0.0,
+            easingRight: isSegmented ? this.easing.right : 1.0,
+            // @ts-expect-error
+            easingType: easing instanceof TemplateEasing ?
+                (easing.name) :
+                easing instanceof NormalEasing ?
+                    easing.rpeId :
+                    null,
+            end: endNode.value,
+            endTime: endNode.time,
+            linkgroup: 0, // 假设默认值为 0
+            start: this.value,
+            startTime: this.time,
+        };
+    }
+    /**
+     * 仅用于编译至RPE时解决最后一个StartNode的问题
+     * 限最后一个StartNode使用
+     * @returns
+     */
+    dumpAsLast() {
+        const isSegmented = this.easingIsSegmented;
+        const easing = isSegmented ? this.easing.easing : this.easing;
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: isSegmented ? this.easing.left : 0.0,
+            easingRight: isSegmented ? this.easing.right : 1.0,
+            // @ts-expect-error
+            easingType: easing instanceof TemplateEasing ?
+                (easing.name) :
+                easing instanceof NormalEasing ?
+                    easing.rpeId :
+                    null,
+            end: this.value,
+            endTime: TimeCalculator.add(this.time, [1, 0, 1]),
+            linkgroup: 0, // 假设默认值为 0
+            start: this.value,
+            startTime: this.time,
+        };
+    }
+    getValueAt(beats) {
+        // 除了尾部的开始节点，其他都有下个节点
+        // 钩定型缓动也有
+        if ("tailing" in this.next) {
+            return this.value;
+        }
+        let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
+        let current = beats - TimeCalculator.toBeats(this.time);
+        if (current > timeDelta || current < 0) {
+            console.warn("超过事件时间范围！", this, beats);
+        }
+        // 参数方程型缓动无需指定首尾数值
+        if (this.easing instanceof ParametricEquationEasing) {
+            return this.easing.getValue(current / timeDelta);
+        }
+        let valueDelta = this.next.value - this.value;
+        if (valueDelta === 0) {
+            return this.value;
+        }
+        if (!this.easing) {
+            debugger;
+        }
+        // 其他类型，包括普通缓动和非钩定模板缓动
+        return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
+    }
+    getSpeedValueAt(beats) {
+        if ("tailing" in this.next) {
+            return this.value;
+        }
+        let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
+        let valueDelta = this.next.value - this.value;
+        let current = beats - TimeCalculator.toBeats(this.time);
+        if (current > timeDelta || current < 0) {
+            console.warn("超过事件时间范围！", this, beats);
+            // debugger
+        }
+        return this.value + linearEasing.getValue(current / timeDelta) * valueDelta;
+    }
+    /**
+     * 积分获取位移
+     */
+    getIntegral(beats, timeCalculator) {
+        return timeCalculator.segmentToSeconds(TimeCalculator.toBeats(this.time), beats) * (this.value + this.getSpeedValueAt(beats)) / 2 * 120; // 每单位120px
+    }
+    getFullIntegral(timeCalculator) {
+        if ("tailing" in this.next) {
+            console.log(this);
+            throw new Error("getFullIntegral不可用于尾部节点");
+        }
+        let end = this.next;
+        let endBeats = TimeCalculator.toBeats(end.time);
+        let startBeats = TimeCalculator.toBeats(this.time);
+        // 原来这里写反了，气死偶咧！
+        return timeCalculator.segmentToSeconds(startBeats, endBeats) * (this.value + end.value) / 2 * 120;
+    }
+    isFirstStart() {
+        return this.previous && "heading" in this.previous;
+    }
+    isLastStart() {
+        return this.next && "tailing" in this.next;
+    }
+    clone(offset) {
+        return super.clone(offset);
+    }
+    ;
+    clonePair(offset) {
+        const endNode = !("heading" in this.previous) ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
+        const startNode = this.clone(offset);
+        EventNode.connect(endNode, startNode);
+        return startNode;
+    }
+    ;
+}
+/*
+type AnyStartNode = EventStartNode<EventNodeType.first>
+                  | EventStartNode<EventNodeType.middle>
+                  | EventStartNode<EventNodeType.last>
+                  */
+class EventEndNode extends EventNode {
+    get parentSeq() { var _a; return (_a = this.previous) === null || _a === void 0 ? void 0 : _a.parentSeq; }
+    set parentSeq(_parent) { }
+    constructor(time, value) {
+        super(time, value);
+    }
+    getValueAt(beats) {
+        return this.previous.getValueAt(beats);
+    }
+    clone(offset) {
+        return super.clone(offset);
+    }
+}
+/**
+ * 为一个链表结构。会有一个数组进行快跳。
+ * is the list of event nodes, but not purely start nodes.
+ * 结构如下：Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
+ * The structure is like this: Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
+ * 用括号标出的两个节点是一个事件，用方括号标出的两个节点是同一时间点的节点。
+ * The each 2 nodes marked by parentheses is an event; the each 2 nodes marked by brackets have the same time.
+ * 注意尾节点之前的节点不是一个结束节点，而是一个开始节点，其缓动无效。
+ * Note that the node before the tailer is not an end node, but a start node whose easing is meaningless.
+ * 就是说最后一个节点后取值，显然会取得这个节点的值，与缓动无关。
+ * (i. e. the value after the last event node is its value, not subject to easing, obviously.)
+ * 如果尾之前的节点是一个结束节点，那么取值会返回undefined，这是不期望的。
+ * If so, the value after that will be undefined, which is not expected.
+ * ("so" refers to the assumption that the node before the tailer is an end node)
+ * 和NNList和NNNList一样，有跳数组以加速随机读取。
+ * Like NNList and NNNList, it has a jump array to speed up random reading.
+ * 插入或删除节点时，需要更新跳数组。
+ * Remember to update the jump array when inserting or deleting nodes.
+ */
+class EventNodeSequence {
+    // nodes: EventNode[];
+    // startNodes: EventStartNode[];
+    // endNodes: EventEndNode[];
+    // eventTime: Float64Array;
+    constructor(type, effectiveBeats) {
+        this.type = type;
+        this.effectiveBeats = effectiveBeats;
+        this.head = {
+            heading: true,
+            next: null,
+            parentSeq: this
+        };
+        this.tail = {
+            tailing: true,
+            previous: null,
+            parentSeq: this
+        };
+        this.listLength = 1;
+        // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
+        // this.nodes = [];
+        // this.startNodes = [];
+        // this.endNodes = [];
+    }
+    static fromRPEJSON(type, data, chart, endValue) {
+        var _a, _b, _c;
+        const { templateEasingLib: templates, timeCalculator } = chart;
+        const length = data.length;
+        // const isSpeed = type === EventType.Speed;
+        // console.log(isSpeed)
+        const seq = new EventNodeSequence(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
+        let listLength = length;
+        let lastEnd = seq.head;
+        let lastIntegral = 0;
+        for (let index = 0; index < length; index++) {
+            const event = data[index];
+            let [start, end] = EventNode.fromEvent(event, templates);
+            if ("heading" in lastEnd) {
+                EventNode.connect(lastEnd, start);
+            }
+            else if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
+                lastEnd.time = start.time;
+                EventNode.connect(lastEnd, start);
+            }
+            else if (TimeCalculator.toBeats(lastEnd.time) !== TimeCalculator.toBeats(start.time)) {
+                let val = lastEnd.value;
+                let midStart = new EventStartNode(lastEnd.time, val);
+                let midEnd = new EventEndNode(start.time, val);
+                midStart.easing = lastEnd.previous.easing;
+                EventNode.connect(lastEnd, midStart);
+                EventNode.connect(midStart, midEnd);
+                EventNode.connect(midEnd, start);
+                // seq.startNodes.push(midStart);
+                // seq.endNodes.push(midEnd);
+                listLength++;
+            }
+            else {
+                EventNode.connect(lastEnd, start);
+            }
+            // seq.startNodes.push(start);
+            // seq.endNodes.push(end);
+            lastEnd = end;
+            // seq.nodes.push(start, end);
+        }
+        const last = lastEnd;
+        let tail;
+        tail = new EventStartNode((_a = last.time) !== null && _a !== void 0 ? _a : [0, 0, 1], endValue !== null && endValue !== void 0 ? endValue : last.value);
+        EventNode.connect(last, tail);
+        // @ts-expect-error
+        // last can be a header, in which case easing is undefined.
+        // then we use the easing that initialized in the EventStartNode constructor.
+        tail.easing = (_c = (_b = last.previous) === null || _b === void 0 ? void 0 : _b.easing) !== null && _c !== void 0 ? _c : tail.easing;
+        tail.cachedIntegral = lastIntegral;
+        EventNode.connect(tail, seq.tail);
+        seq.listLength = listLength;
+        seq.initJump();
+        return seq;
+    }
+    /**
+     * 生成一个新的事件节点序列，仅拥有一个节点。
+     * 需要分配ID！！！！！！
+     * @param type
+     * @param effectiveBeats
+     * @returns
+     */
+    static newSeq(type, effectiveBeats) {
+        const sequence = new EventNodeSequence(type, effectiveBeats);
+        const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
+        EventNode.connect(sequence.head, node);
+        EventNode.connect(node, sequence.tail);
+        sequence.initJump();
+        return sequence;
+    }
+    /** validate() {
+        /*
+         * 奇谱发生器中事件都是首尾相连的
+         //
+        const length = this.endNodes.length;
+        for (let index = 0; index < length; index++) {
+            let end = this.endNodes[index];
+            let start = this.startNodes[index + 1]
+            if (!arrEq(end.time, start.time)) {
+                start.time = end.time
+            }
+            start.previous = end;
+            end.next = start;
+            // 这个就是真的该这么写了（
+        }
+    }
+    **/
+    /*update() {
+        let {startNodes, endNodes} = this;
+        startNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
+        endNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
+        const length = this.endNodes.length;
+        // this.nodes = new Array(length * 2 + 1);
+        let eventTime: Float64Array;
+        this.eventTime = eventTime = new Float64Array(length);
+        for (let i = 0; i < length; i++) {
+            eventTime[i] = TimeCalculator.getDelta(endNodes[i].time, startNodes[i].time);
+        }
+    }*/
+    initJump() {
+        const originalListLength = this.listLength;
+        const effectiveBeats = this.effectiveBeats;
+        if (this.head.next === this.tail.previous) {
+            return;
+        }
+        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
+            // console.log(node)
+            if ("tailing" in node) {
+                return [null, null];
+            }
+            if ("heading" in node) {
+                if ("tailing" in node.next.next) {
+                    return [0, node.next.next];
+                }
+                return [0, node.next];
+            }
+            const endNode = node.next;
+            const time = TimeCalculator.toBeats(endNode.time);
+            const nextNode = endNode.next;
+            if ("tailing" in nextNode.next) {
+                return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
+            }
+            else {
+                return [time, nextNode];
+            }
+        }, (node, beats) => {
+            return TimeCalculator.toBeats(node.next.time) > beats ? false : EventNode.nextStartInJumpArray(node);
+        }, (node) => {
+            return node.next && "tailing" in node.next ? node.next : node;
+        }
+        /*(node: EventStartNode) => {
+            const prev = node.previous;
+            return "heading" in prev ? node : prev.previous;
+        }*/
+        );
+    }
+    updateJump(from, to) {
+        if (!this.jump || this.effectiveBeats !== this.jump.effectiveBeats) {
+            this.initJump();
+        }
+        this.jump.updateRange(from, to);
+    }
+    insert() {
+    }
+    getNodeAt(beats, usePrev = false) {
+        var _a;
+        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
+        if ("tailing" in node) {
+            if (usePrev) {
+                return node.previous.previous.previous;
+            }
+            // 最后一个事件节点本身具有无限延伸的特性
+            return node.previous;
+        }
+        if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
+            const prev = node.previous;
+            if (!("heading" in prev)) {
+                node = prev.previous;
+            }
+        }
+        if (TimeCalculator.toBeats(node.time) > beats && beats >= 0) {
+            console.warn("Got a node after the given beats. This would only happen when the given beats is negative. Beats and Node:", beats, node);
+        }
+        return node;
+    }
+    getValueAt(beats, usePrev = false) {
+        return this.getNodeAt(beats, usePrev).getValueAt(beats);
+    }
+    getIntegral(beats, timeCalculator) {
+        const node = this.getNodeAt(beats);
+        return node.getIntegral(beats, timeCalculator) + node.cachedIntegral;
+    }
+    updateNodesIntegralFrom(beats, timeCalculator) {
+        let previousStartNode = this.getNodeAt(beats);
+        previousStartNode.cachedIntegral = -previousStartNode.getIntegral(beats, timeCalculator);
+        let totalIntegral = previousStartNode.cachedIntegral;
+        let endNode;
+        while (!("tailing" in (endNode = previousStartNode.next))) {
+            const currentStartNode = endNode.next;
+            totalIntegral += previousStartNode.getFullIntegral(timeCalculator);
+            currentStartNode.cachedIntegral = totalIntegral;
+            previousStartNode = currentStartNode;
+        }
+    }
+    dump() {
+        const nodes = [];
+        let currentNode = this.head.next;
+        while (currentNode && !("tailing" in currentNode.next)) {
+            const eventData = currentNode.dump();
+            nodes.push(eventData);
+            currentNode = currentNode.next.next;
+        }
+        return {
+            type: this.type,
+            events: nodes,
+            id: this.id,
+            endValue: currentNode.value
+        };
+    }
+}
+/**
+ *
+ */
+class BPMStartNode extends EventStartNode {
+    constructor(startTime, bpm) {
+        super(startTime, bpm);
+        this.spb = 60 / bpm;
+    }
+    getIntegral(beats) {
+        return (beats - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+    }
+    /**
+     * may only used with a startnode whose next is not tail
+     * @returns
+     */
+    getFullIntegral() {
+        return (TimeCalculator.toBeats(this.next.time) - TimeCalculator.toBeats(this.time)) * 60 / this.value;
+    }
+}
+class BPMEndNode extends EventEndNode {
+    constructor(endTime) {
+        super(endTime, null);
+    }
+    // @ts-expect-error
+    get value() {
+        return this.previous.value;
+    }
+    set value(val) { }
+}
+/**
+ * 拥有与事件类似的逻辑
+ * 每对节点之间代表一个BPM相同的片段
+ * 片段之间BPM可以发生改变
+ */
+class BPMSequence extends EventNodeSequence {
+    constructor(bpmList, duration) {
+        super(EventType.bpm, null);
+        this.duration = duration;
+        let curPos = this.head;
+        let next = bpmList[0];
+        this.listLength = bpmList.length;
+        for (let i = 1; i < bpmList.length; i++) {
+            const each = next;
+            next = bpmList[i];
+            const startNode = new BPMStartNode(each.startTime, each.bpm);
+            const endNode = new BPMEndNode(next.startTime);
+            BPMStartNode.connect(startNode, endNode);
+            BPMStartNode.connect(curPos, startNode);
+            curPos = endNode;
+        }
+        const last = new BPMStartNode(next.startTime, next.bpm);
+        BPMStartNode.connect(curPos, last);
+        BPMStartNode.connect(last, this.tail);
+        this.initJump();
+    }
+    initJump() {
+        console.log(this);
+        this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.time);
+        if (this.effectiveBeats !== 0) {
+            super.initJump(); // 为0可以跳过jumpArray，用不到
+            // 只有一个BPM片段就会这样
+        }
+        this.updateSecondJump();
+    }
+    updateSecondJump() {
+        let integral = 0;
+        // 计算积分并缓存到BPMNode
+        let node = this.head.next;
+        while (true) {
+            node.cachedStartIntegral = integral;
+            if ("tailing" in node.next) {
+                break;
+            }
+            const endNode = node.next;
+            integral += node.getFullIntegral();
+            node.cachedIntegral = integral;
+            node = endNode.next;
+        }
+        node.cachedStartIntegral = integral;
+        if (this.effectiveBeats === 0) {
+            return;
+        }
+        const originalListLength = this.listLength;
+        this.secondJump = new JumpArray(this.head, this.tail, originalListLength, this.duration, (node) => {
+            if ("tailing" in node) {
+                return [null, null];
+            }
+            if ("heading" in node) {
+                return [0, node.next];
+            }
+            const endNode = node.next;
+            const time = node.cachedIntegral;
+            const nextNode = endNode.next;
+            if ("tailing" in nextNode.next) {
+                return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
+            }
+            else {
+                return [time, nextNode];
+            }
+        }, (node, seconds) => {
+            return node.cachedIntegral > seconds ? false : node.next.next;
+        });
+    }
+    updateJump(from, to) {
+        super.updateJump(from, to);
+        this.updateSecondJump();
+    }
+    getNodeBySeconds(seconds) {
+        if (this.effectiveBeats === 0) {
+            return this.tail.previous;
+        }
+        const node = this.secondJump.getNodeAt(seconds);
+        if ("tailing" in node) {
+            return node.previous;
+        }
+        return node;
+    }
+    dumpBPM() {
+        let cur = this.head.next;
+        const ret = [];
+        while (true) {
+            ret.push({
+                bpm: cur.value,
+                startTime: cur.time
+            });
+            const end = cur.next;
+            if ("tailing" in end) {
+                break;
+            }
+            cur = end.next;
+        }
+        return ret;
+    }
+}
+/**
+ * @alias TC
+ */
+class TimeCalculator {
+    constructor() {
+    }
+    update() {
+        let bpmList = this.bpmList;
+        this.bpmSequence = new BPMSequence(bpmList, this.duration);
+    }
+    toSeconds(beats) {
+        const node = this.bpmSequence.getNodeAt(beats);
+        return node.cachedStartIntegral + node.getIntegral(beats);
+    }
+    segmentToSeconds(beats1, beats2) {
+        let ret = this.toSeconds(beats2) - this.toSeconds(beats1);
+        if (ret < 0) {
+            console.warn("segmentToSeconds的第二个参数需大于第一个！", "得到的参数：", arguments);
+        }
+        return ret;
+    }
+    secondsToBeats(seconds) {
+        const node = this.bpmSequence.getNodeBySeconds(seconds);
+        // console.log("node:", node)
+        const beats = (seconds - node.cachedStartIntegral) / node.spb;
+        return TimeCalculator.toBeats(node.time) + beats;
+    }
+    static toBeats(beaT) {
+        if (!beaT)
+            debugger;
+        return beaT[0] + beaT[1] / beaT[2];
+    }
+    static getDelta(beaT1, beaT2) {
+        return this.toBeats(beaT1) - this.toBeats(beaT2);
+    }
+    static eq(beaT1, beaT2) {
+        return beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] === beaT1[2] * beaT2[1]; // 这里曾经把两个都写成beaT1，特此留念（
+    }
+    static gt(beaT1, beaT2) {
+        return beaT1[0] > beaT2[0] || beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] > beaT1[2] * beaT2[1];
+    }
+    static lt(beaT1, beaT2) {
+        return beaT1[0] < beaT2[0] || beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] < beaT1[2] * beaT2[1];
+    }
+    static ne(beaT1, beaT2) {
+        return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1];
+    }
+    static add(beaT1, beaT2) {
+        return [beaT1[0] + beaT2[0], beaT1[1] * beaT2[2] + beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
+    }
+    static sub(beaT1, beaT2) {
+        return [beaT1[0] - beaT2[0], beaT1[1] * beaT2[2] - beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
+    }
+    static div(beaT1, beaT2) {
+        return [(beaT1[0] * beaT1[2] + beaT1[1]) * beaT2[2], (beaT2[0] * beaT2[2] + beaT2[1]) * beaT1[2]];
+    }
+    static mul(beaT, ratio) {
+        // 将带分数beaT: TimeT乘一个分数[number, number]得到一个新的带分数returnval: TimeT，不要求这个带分数分子不超过分母，但所有的数都是整数
+        // （输入的两个元组都是整数元组）
+        const [numerator, denominator] = ratio;
+        const b0nume = beaT[0] * numerator;
+        const remainder = b0nume % denominator;
+        if (remainder === 0) {
+            return [b0nume / denominator, beaT[1] * numerator, beaT[2] * denominator];
+        }
+        else {
+            return [Math.floor(b0nume / denominator), beaT[1] * numerator + remainder * beaT[2], beaT[2] * denominator];
+        }
+    }
+    /**
+     * 原地规范化时间元组，但仍然返回这个元组，方便使用
+     * validate TimeT in place
+     * @param beaT
+     */
+    static validateIp(beaT) {
+        if (beaT === undefined || beaT[2] === 0) {
+            throw new Error("Invalid time" + beaT.valueOf());
+        }
+        if (beaT[1] >= beaT[2]) {
+            const quotient = Math.floor(beaT[1] / beaT[2]);
+            const remainder = beaT[1] % beaT[2];
+            beaT[0] += quotient;
+            beaT[1] = remainder;
+        }
+        else if (beaT[1] < 0) {
+            const quotient = Math.floor(beaT[1] / beaT[2]);
+            const remainder = beaT[2] + beaT[1] % beaT[2];
+            beaT[0] += quotient;
+            beaT[1] = remainder;
+        }
+        if (beaT[1] === 0) {
+            beaT[2] = 1;
+            return beaT;
+        }
+        const gcd = this.gcd(beaT[2], beaT[1]);
+        if (gcd > 1) {
+            beaT[1] /= gcd;
+            beaT[2] /= gcd;
+        }
+        return beaT;
+    }
+    static gcd(a, b) {
+        if (a === 0 || b === 0) {
+            return 0;
+        }
+        while (b !== 0) {
+            const r = a % b;
+            a = b;
+            b = r;
+        }
+        return a;
+    }
+    dump() {
+        return this.bpmSequence.dumpBPM();
+    }
+}
+const TC = TimeCalculator;
 /**
  * Z is just like jQuery, but it's much simpler.
  * It only contains one element, which is enough in most cases.
@@ -594,7 +3041,7 @@ class ZSwitch extends ZButton {
             this.dispatchEvent(new Event("clickChange"));
         });
     }
-    onClickChange(callback) {
+    whenClickChange(callback) {
         this.addEventListener("clickChange", (event) => {
             callback(this.checked, event);
         });
@@ -611,13 +3058,15 @@ class ZInputBox extends Z {
     set disabled(val) {
         this.element.disabled = val;
     }
-    constructor() {
+    constructor(defaultValue) {
         super("input");
         this.addClass("input-box");
         this.attr("type", "text");
         this.element.addEventListener("focusout", () => {
             this.dispatchEvent(new ZValueChangeEvent());
         });
+        if (defaultValue)
+            this.element.value = defaultValue;
     }
     getValue() {
         return this.element.value;
@@ -640,7 +3089,7 @@ class ZInputBox extends Z {
         this.element.value = val;
         return this;
     }
-    onChange(callback) {
+    whenValueChange(callback) {
         this.addEventListener("valueChange", (event) => {
             callback(this.getValue(), event);
         });
@@ -670,7 +3119,7 @@ class ZArrowInputBox extends Z {
         });
         this.addClass("arrow-input-box");
         this.append(this.$up, this.$down, this.$input);
-        this.$input.onChange(() => {
+        this.$input.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent());
         });
     }
@@ -696,16 +3145,16 @@ class ZFractionInput extends Z {
         this.$int = new ZInputBox().addClass("integer");
         this.$nume = new ZInputBox().addClass("nume");
         this.$deno = new ZInputBox().addClass("deno");
-        this.$deno.onChange(() => {
+        this.$deno.whenValueChange(() => {
             if (this.$deno.getValue() == "0") {
                 this.$deno.setValue("1");
             }
             this.dispatchEvent(new ZValueChangeEvent());
         });
-        this.$int.onChange(() => {
+        this.$int.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent());
         });
-        this.$nume.onChange(() => {
+        this.$nume.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent());
         });
         this.append(this.$int, this.$nume, $("div").addClass("line"), this.$deno);
@@ -1064,6 +3513,7 @@ class ZRadioTabs extends Z {
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
             this.append(pages[key]);
+            this.$pages.push(pages[key]);
             if (i !== defaultIndex) {
                 pages[key].hide();
             }
@@ -1240,6 +3690,18 @@ function shortenFloat(num, decimalPlaces) {
     const multiplier = Math.pow(10, decimalPlaces);
     return Math.round(num * multiplier) / multiplier;
 }
+function changeAudioTime(audio, delta) {
+    const time = audio.currentTime + delta;
+    if (time < 0) {
+        audio.currentTime = 0;
+    }
+    else if (time > audio.duration) {
+        audio.currentTime = audio.duration;
+    }
+    else {
+        audio.currentTime = time;
+    }
+}
 class OperationList extends EventTarget {
     constructor(parentChart) {
         super();
@@ -1256,6 +3718,12 @@ class OperationList extends EventTarget {
             }
             this.undoneOperations.push(op);
             op.undo();
+            if (op.updatesEditor) {
+                editor.update();
+            }
+        }
+        else {
+            this.dispatchEvent(new Event("noundo"));
         }
     }
     redo() {
@@ -1267,6 +3735,12 @@ class OperationList extends EventTarget {
             }
             this.operations.push(op);
             op.do();
+            if (op.updatesEditor) {
+                editor.update();
+            }
+        }
+        else {
+            this.dispatchEvent(new Event("noredo"));
         }
     }
     do(operation) {
@@ -1579,27 +4053,52 @@ class EventNodePairRemoveOperation extends Operation {
         this.originalPrev = node.previous.previous;
     }
     do() {
-        this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode));
+        this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode));
     }
     undo() {
-        this.sequence.jump.updateRange(...EventNode.insert(this.startNode, this.originalPrev));
+        this.sequence.updateJump(...EventNode.insert(this.startNode, this.originalPrev));
     }
 }
+/**
+ * 将一对孤立的节点对插入到一个开始节点之后的操作。
+ * 如果这个节点对的时刻与节点对的时刻相同，那么该节点对将不会被插入。
+ * 而是把原来开始节点的值修改。
+ */
 class EventNodePairInsertOperation extends Operation {
+    /**
+     *
+     * @param node the node to insert
+     * @param targetPrevious The node to insert before, accessed through EventNodeSequence.getNodeAt(TC.toBeats(node))
+     * If the targetPrevious's time is the same as node's time, the node will not be inserted,
+     * and the targetPrevious' value will be replaced with the node's value.
+     */
     constructor(node, targetPrevious) {
         super();
         this.updatesEditor = true;
         this.node = node;
         this.tarPrev = targetPrevious;
         this.originalSequence = targetPrevious.parentSeq;
+        if (TimeCalculator.eq(node.time, targetPrevious.time)) {
+            this.overlapped = true;
+            this.value = node.value;
+            this.originalValue = targetPrevious.value;
+        }
     }
     do() {
+        if (this.overlapped) {
+            this.tarPrev.value = this.value;
+            return;
+        }
         const [endNode, startNode] = EventNode.insert(this.node, this.tarPrev);
-        this.node.parentSeq.jump.updateRange(endNode, startNode);
+        this.node.parentSeq.updateJump(endNode, startNode);
     }
     undo() {
         var _a;
-        (_a = this.originalSequence) === null || _a === void 0 ? void 0 : _a.jump.updateRange(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)));
+        if (this.overlapped) {
+            this.tarPrev.value = this.originalValue;
+            return;
+        }
+        (_a = this.originalSequence) === null || _a === void 0 ? void 0 : _a.updateJump(...EventNode.removeNodePair(...EventNode.getEndStart(this.node)));
     }
 }
 /**
@@ -1622,11 +4121,18 @@ class MultiNodeAddOperation extends ComplexOperation {
         let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
         super(...nodes.map(node => {
             const op = new EventNodePairInsertOperation(node, prev);
-            prev = node; // 有种reduce的感觉
+            if (!op.overlapped)
+                prev = node; // 有种reduce的感觉
             return op;
         }));
         this.updatesEditor = true;
         this.nodes = nodes;
+    }
+}
+class MultiNodeDeleteOperation extends ComplexOperation {
+    constructor(nodes) {
+        super(...nodes.map(node => new EventNodePairRemoveOperation(node)));
+        this.updatesEditor = true;
     }
 }
 class EventNodeValueChangeOperation extends Operation {
@@ -1680,18 +4186,18 @@ class EventNodeTimeChangeOperation extends Operation {
     do() {
         this.startNode.time = this.endNode.time = this.value;
         if (this.newPrevious !== this.originalPrevious) {
-            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode));
+            this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode));
             EventNode.insert(this.startNode, this.newPrevious);
         }
-        this.sequence.jump.updateRange(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode));
+        this.sequence.updateJump(EventNode.previousStartOfStart(this.endNode.previous), EventNode.nextStartOfStart(this.startNode));
     }
     undo() {
         this.endNode.time = this.startNode.time = this.originalValue;
         if (this.newPrevious !== this.originalPrevious) {
-            this.sequence.jump.updateRange(...EventNode.removeNodePair(this.endNode, this.startNode));
+            this.sequence.updateJump(...EventNode.removeNodePair(this.endNode, this.startNode));
             EventNode.insert(this.startNode, this.originalPrevious);
         }
-        this.sequence.jump.updateRange(this.endNode.previous, EventNode.nextStartOfStart(this.startNode));
+        this.sequence.updateJump(this.endNode.previous, EventNode.nextStartOfStart(this.startNode));
     }
 }
 class EventNodeInnerEasingChangeOperation extends Operation {
@@ -1710,257 +4216,92 @@ class EventNodeInnerEasingChangeOperation extends Operation {
         this.startNode.innerEasing = this.originalValue;
     }
 }
-// type EndBeats = number;
-const MIN_LENGTH = 128;
-const MAX_LENGTH = 1024;
-const MINOR_PARTS = 16;
-const breakpoint = () => { debugger; };
-class JumpArray {
-    /**
-     *
-     * @param head 链表头
-     * @param tail 链表尾
-     * @param originalListLength
-     * @param effectiveBeats 有效拍数（等同于音乐拍数）
-     * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]（停止遍历的条件是抵达尾部而不是得到null）
-     * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
-     */
-    constructor(head, tail, originalListLength, effectiveBeats, endNextFn, nextFn, resolveLastNode = (node) => node
-    // goPrev: (node: T) => T
-    ) {
-        this.endNextFn = endNextFn;
-        this.nextFn = nextFn;
-        this.resolveLastNode = resolveLastNode;
-        this.header = head;
-        this.tailer = tail;
-        // const originalListLength = this.listLength
-        const listLength = Math.max(MIN_LENGTH, Math.min(originalListLength * 4, MAX_LENGTH));
-        const averageBeats = Math.pow(2, Math.ceil(Math.log2(effectiveBeats / listLength)));
-        const exactLength = Math.ceil(effectiveBeats / averageBeats);
-        // console.log(exactLength, listLength, averageBeats, exactLength)
-        // console.log(originalListLength, effectiveBeats, averageBeats, minorBeats, exactLength)
-        const jumpArray = new Array(exactLength);
-        this.array = jumpArray;
-        this.averageBeats = averageBeats;
-        this.effectiveBeats = exactLength * averageBeats;
-        this.updateRange(head, tail);
+class EventNodeEasingChangeOperation extends Operation {
+    constructor(node, val) {
+        super();
+        this.updatesEditor = true;
+        let _;
+        [this.startNode, _] = EventNode.getStartEnd(node);
+        this.value = val;
+        this.originalValue = node.easing;
     }
-    updateEffectiveBeats(val) {
-        this.effectiveBeats = val;
-        const averageBeats = this.averageBeats;
-        const exactLength = Math.ceil(val / averageBeats);
-        const currentLength = this.array.length;
-        if (exactLength < currentLength) {
-            this.array.splice(exactLength, currentLength - exactLength);
-        }
+    do() {
+        this.startNode.easing = this.value;
     }
-    updateAverageBeats() {
-        const length = this.array.length;
-        if (length >= 1024) {
-            return;
-        }
-        let crowded = 0;
-        for (let i = 0; i < 50; i++) {
-            const index = Math.floor(Math.random() * length);
-            if (Array.isArray(this.array[index])) {
-                crowded++;
-            }
-        }
-        if (crowded > 30) {
-            this.averageBeats /= 2;
-            this.updateRange(this.header, this.tailer);
-        }
-    }
-    /**
-     *
-     * @param firstNode 不含
-     * @param lastNode 含
-     */
-    updateRange(firstNode, lastNode) {
-        const { endNextFn, effectiveBeats, resolveLastNode } = this;
-        lastNode = resolveLastNode(lastNode);
-        console.log(firstNode, lastNode);
-        /**
-         *
-         * @param startTime
-         * @param endTime 就是节点管辖范围的终止点，可以超过该刻度的最大值
-         */
-        const fillMinor = (startTime, endTime) => {
-            const minorArray = jumpArray[jumpIndex];
-            const currentJumpBeats = jumpIndex * averageBeats;
-            const startsFrom = startTime < currentJumpBeats ? 0 : Math.ceil((startTime - currentJumpBeats) / minorBeats);
-            const endsBefore = endTime > currentJumpBeats + averageBeats ? MINOR_PARTS : Math.ceil((endTime - currentJumpBeats) / minorBeats);
-            for (let minorIndex = startsFrom; minorIndex < endsBefore; minorIndex++) {
-                minorArray[minorIndex] = currentNode;
-            }
-            // console.log(jumpIndex, arrayForIn(minorArray, (n) => node2string(n)).join("]["))
-            // console.log("cur:", currentNode)
-        };
-        const jumpArray = this.array;
-        const averageBeats = this.averageBeats;
-        const minorBeats = averageBeats / MINOR_PARTS;
-        let [previousEndTime, currentNode] = endNextFn(firstNode);
-        let jumpIndex = Math.floor(previousEndTime / averageBeats); // 这里写漏了特此留念
-        for (;;) {
-            let [endTime, nextNode] = endNextFn(currentNode);
-            // console.log("----Node:", currentNode, "next:", nextNode, "endTime:", endTime, "previousEndTime:", previousEndTime )
-            if (endTime === null) {
-                endTime = effectiveBeats;
-            }
-            // Hold树可能会不出现这种情况，故需特别考虑
-            if (endTime > previousEndTime) {
-                while (endTime >= (jumpIndex + 1) * averageBeats) {
-                    if (Array.isArray(jumpArray[jumpIndex])) {
-                        fillMinor(previousEndTime, endTime);
-                    }
-                    else {
-                        try {
-                            // console.log(jumpIndex, currentNode)
-                            jumpArray[jumpIndex] = currentNode;
-                        }
-                        catch (E) {
-                            console.log(jumpIndex, jumpArray);
-                            debugger;
-                        }
-                    }
-                    jumpIndex++;
-                }
-                const currentJumpBeats = jumpIndex * averageBeats; // 放错了
-                if (endTime > currentJumpBeats) {
-                    let minor = jumpArray[jumpIndex];
-                    if (!Array.isArray(minor)) {
-                        jumpArray[jumpIndex] = new Array(MINOR_PARTS);
-                    }
-                    fillMinor(previousEndTime, endTime);
-                }
-                previousEndTime = endTime;
-            }
-            if (currentNode === lastNode) {
-                currentNode = nextNode; // 为了后续可能的填充，防止刻度不满引发错误
-                break;
-            }
-            currentNode = nextNode;
-        }
-        const minor = jumpArray[jumpIndex];
-        if (Array.isArray(minor)) {
-            // console.log("minor", arrayForIn(minor, (n) => node2string(n)))
-            if (!minor[MINOR_PARTS - 1]) {
-                if (!currentNode) {
-                    currentNode = this.tailer;
-                    fillMinor(previousEndTime, effectiveBeats);
-                    return;
-                }
-                do {
-                    let [endTime, nextNode] = endNextFn(currentNode);
-                    if (endTime === null) {
-                        endTime = this.effectiveBeats;
-                    }
-                    if (endTime > previousEndTime) {
-                        fillMinor(previousEndTime, endTime);
-                        previousEndTime = endTime;
-                    }
-                    currentNode = nextNode;
-                } while (previousEndTime < (jumpIndex + 1) * averageBeats);
-            }
-        }
-    }
-    getPreviousOf(node, beats) {
-        const jumpAverageBeats = this.averageBeats;
-        const jumpPos = Math.floor(beats / jumpAverageBeats);
-        const rest = beats - jumpPos * jumpAverageBeats;
-        const nextFn = this.nextFn;
-        for (let i = jumpPos; i >= 0; i--) {
-            let canBeNodeOrArray = this.array[i];
-            if (Array.isArray(canBeNodeOrArray)) {
-                const minorIndex = Math.floor(rest / (jumpAverageBeats / MINOR_PARTS)) - 1;
-                for (let j = minorIndex; j >= 0; j--) {
-                    const minorNode = canBeNodeOrArray[j];
-                    if (minorNode !== node) {
-                        return minorNode;
-                    }
-                }
-            }
-        }
-        return this.header;
-    }
-    /**
-     *
-     * @param beats 拍数
-     * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
-     * @returns 时间索引链表的节点
-     */
-    getNodeAt(beats) {
-        var _a, _b;
-        if (beats < 0) {
-            return (_a = this.header.next) !== null && _a !== void 0 ? _a : breakpoint();
-        }
-        if (beats >= this.effectiveBeats) {
-            return (_b = this.tailer) !== null && _b !== void 0 ? _b : breakpoint();
-        }
-        const jumpAverageBeats = this.averageBeats;
-        const jumpPos = Math.floor(beats / jumpAverageBeats);
-        const rest = beats - jumpPos * jumpAverageBeats;
-        const nextFn = this.nextFn;
-        let canBeNodeOrArray = this.array[jumpPos];
-        let node = Array.isArray(canBeNodeOrArray)
-            ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
-            : canBeNodeOrArray;
-        if ("tailing" in node) {
-            return node !== null && node !== void 0 ? node : breakpoint();
-        }
-        // console.log(this, node, jumpPos, beats)
-        if (!node) {
-            console.warn("No node:", node, beats);
-            debugger;
-        }
-        let next;
-        // console.log(this)
-        while (next = nextFn(node, beats)) {
-            node = next;
-            if ("tailing" in node) {
-                break;
-            }
-        }
-        return node !== null && node !== void 0 ? node : breakpoint();
+    undo() {
+        this.startNode.easing = this.originalValue;
     }
 }
+/*
+
+class BPMNodeValueChangeOperation extends Operation {
+    updatesEditor = true
+    node: BPMStartNode;
+    value: number;
+    originalValue: number
+    constructor(node: BPMStartNode | BPMEndNode, val: number) {
+        super()
+        this.node = EventNode.getStartEnd(node)[0] as BPMStartNode;
+        this.value = val;
+        this.originalValue = node.value
+    }
+    do() {
+        this.node.value = this.value
+        this.node.parentSeq.initJump();
+    }
+    undo() {
+        this.node.value = this.originalValue;
+        this.node.parentSeq.initJump();
+    }
+
+}
+
+class BPMNodeInsertOperation extends Operation {
+    updatesEditor = true;
+    node: BPMStartNode;
+    value: number;
+    originalValue: number;
+
+}
+*/
+class EncapsuleOperation extends ComplexOperation {
+    constructor(nodes, easing) {
+        const len = nodes.length;
+        super(new MultiNodeDeleteOperation(nodes.slice(1, -1)), new EventNodeEasingChangeOperation(nodes[0], easing), 
+        // 这里nodes至少都有两个，最后一个node不可能是第一个StartNode
+        new EventNodeValueChangeOperation(nodes[len - 1].previous, nodes[len - 1].value));
+        this.updatesEditor = true;
+    }
+}
+var EncapsuleErrorType;
+(function (EncapsuleErrorType) {
+    EncapsuleErrorType[EncapsuleErrorType["NotBelongToSourceSequence"] = 1] = "NotBelongToSourceSequence";
+    EncapsuleErrorType[EncapsuleErrorType["NotContinuous"] = 2] = "NotContinuous";
+    EncapsuleErrorType[EncapsuleErrorType["ZeroDelta"] = 3] = "ZeroDelta";
+})(EncapsuleErrorType || (EncapsuleErrorType = {}));
 /**
- * @deprecated
+ * 将一些来自sourceSequence的节点打包为一个用于模板缓动的事件序列
+ * 然后把sourceSequence中的源节点集合替换为单个使用了该模板的事件
+ * @param sourceSequence
+ * @param sourceNodes
  */
-class Pointer {
-    constructor() {
-        this.node = null;
-        this.beats = null;
-        this.before = 0;
+function encapsule(templateEasingLib, sourceSequence, sourceNodes, name) {
+    if (!EventNode.belongToSequence(sourceNodes, sourceSequence)) {
+        return EncapsuleErrorType.NotBelongToSourceSequence;
     }
-    pointTo(node, beats, counts = false) {
-        if (!node) {
-            debugger;
-        }
-        this.node = node;
-        this.beats = beats;
+    const [oldArray, nodeArray] = EventNode.setToNewOrderedArray([0, 0, 1], sourceNodes);
+    if (Math.abs(nodeArray[0].value - nodeArray[nodeArray.length - 1].value) < 1e-10) {
+        return EncapsuleErrorType.ZeroDelta;
     }
-}
-class Settings {
-    constructor() {
-        let json;
-        if (json = localStorage.getItem("settings")) {
-            this.cache = JSON.parse(json);
-        }
-        else {
-            this.cache = {
-                lineColor: [200, 200, 120],
-                playerShowInfo: true
-            };
-        }
+    if (!EventNode.isContinuous(oldArray)) {
+        return EncapsuleErrorType.NotContinuous;
     }
-    get(item) {
-        return this.cache[item];
-    }
-    set(item, val) {
-        this.cache[item] = val;
-        localStorage.setItem("settings", JSON.stringify(this.cache));
-    }
+    const easing = templateEasingLib.getOrNew(name);
+    const sequence = easing.eventNodeSequence;
+    sequence.effectiveBeats = TimeCalculator.toBeats(nodeArray[nodeArray.length - 1].time);
+    // 直接do，这个不需要做成可撤销的
+    new MultiNodeAddOperation(nodeArray, sequence).do();
+    return new EncapsuleOperation(oldArray, easing);
 }
 class SideEditor extends Z {
     get target() {
@@ -1985,7 +4326,7 @@ class NoteEditor extends SideEditor {
         this.noteTypeOptions = arrayForIn([
             "tap", "hold", "flick", "drag"
         ], (v) => new BoxOption(v, () => {
-            editor.chart.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]));
+            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]));
         }));
         this.aboveOption = new BoxOption("above", () => this.target.above = true);
         this.belowOption = new BoxOption("below", () => this.target.above = false);
@@ -2001,29 +4342,29 @@ class NoteEditor extends SideEditor {
         this.$delete = new ZButton("Delete").addClass("destructive");
         this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)));
+            editor.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)));
             if (this.target.type !== NoteType.hold) {
                 this.$endTime.setValue(t);
             }
         });
         this.$endTime.onChange((t) => {
-            editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
+            editor.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
         });
         // 这里缺保卫函数
-        this.$position.onChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()));
+        this.$position.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()));
         });
-        this.$speed.onChange(() => {
-            editor.chart.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine));
+        this.$speed.whenValueChange(() => {
+            editor.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine));
         });
-        this.$alpha.onChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()));
+        this.$alpha.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()));
         });
-        this.$size.onChange(() => {
-            editor.chart.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()));
+        this.$size.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()));
         });
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new NoteDeleteOperation(this.target));
+            editor.operationList.do(new NoteDeleteOperation(this.target));
         });
     }
     update() {
@@ -2056,10 +4397,10 @@ class MultiNoteEditor extends SideEditor {
         this.$reverse = new ZButton("Reverse");
         this.$body.append(this.$delete, this.$reverse);
         this.$reverse.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))));
+            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))));
         });
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new MultiNoteDeleteOperation(this.target));
+            editor.operationList.do(new MultiNoteDeleteOperation(this.target));
         });
     }
     update() {
@@ -2073,10 +4414,10 @@ class MultiNodeEditor extends SideEditor {
         this.$reverse = new ZButton("Reverse");
         this.$body.append(this.$delete, this.$reverse);
         this.$reverse.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))));
+            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))));
         });
         this.$delete.onClick(() => {
-            editor.chart.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodePairRemoveOperation(n))));
+            editor.operationList.do(new MultiNodeDeleteOperation(Array.from(this.target)));
         });
     }
     update() {
@@ -2096,16 +4437,16 @@ class EventEditor extends SideEditor {
             "Template": this.$templateEasing
         });
         this.$delete = new ZButton("delete").addClass("destructive")
-            .onClick(() => editor.chart.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
+            .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
         this.$body.append($("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
-            editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
+            editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
         });
-        this.$value.onChange(() => {
-            editor.chart.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()));
+        this.$value.whenValueChange(() => {
+            editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()));
         });
         this.$easing.onChange((id) => this.setNormalEasing(id));
-        this.$templateEasing.onChange((name) => this.setTemplateEasing(name));
+        this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name));
         this.$radioTabs.$radioBox.onChange((id) => {
             if (id === 0) {
                 this.setNormalEasing(this.$easing.value);
@@ -2119,13 +4460,13 @@ class EventEditor extends SideEditor {
         });
     }
     setNormalEasing(id) {
-        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]));
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]));
         this.target.innerEasing = easingArray[id];
     }
     setTemplateEasing(name) {
         const chart = editor.chart;
         const easing = chart.templateEasingLib.getOrNew(name);
-        editor.chart.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing));
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing));
     }
     update() {
         const eventNode = this.target;
@@ -2135,11 +4476,11 @@ class EventEditor extends SideEditor {
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
         if (eventNode.innerEasing instanceof NormalEasing) {
-            this.$radioTabs.$radioBox.switchTo(0);
+            this.$radioTabs.switchTo(0);
             this.$easing.setValue(eventNode.innerEasing);
         }
         else if (eventNode.innerEasing instanceof TemplateEasing) {
-            this.$radioTabs.$radioBox.switchTo(1);
+            this.$radioTabs.switchTo(1);
         }
     }
 }
@@ -2264,10 +4605,9 @@ var NewNodeState;
     NewNodeState[NewNodeState["controlsBoth"] = 2] = "controlsBoth";
 })(NewNodeState || (NewNodeState = {}));
 class EventCurveEditors extends Z {
+    ;
     constructor(width, height) {
         super("div");
-        this._selectedLayer = "0";
-        this.addClass("event-curve-editors");
         this.$bar = $("div").addClass("flex-row");
         this.$typeSelect = new ZDropdownOptionBox([
             "moveX",
@@ -2278,16 +4618,24 @@ class EventCurveEditors extends Z {
             "easing",
             "bpm"
         ].map((s) => new BoxOption(s)), true);
+        this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
+        this.$timeSpanInput = new ZInputBox("4");
+        this.$editSwitch = new ZSwitch("Edit");
+        this.$easingBox = new ZEasingBox(true);
+        this.easingBeats = 0;
+        this._selectedLayer = "0";
+        this.addClass("event-curve-editors");
         this.$typeSelect.onChange((val) => {
             this.selectedEditor = this[val];
         });
-        this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
         this.$layerSelect.onChange((val) => {
+            if (!(["0", "1", "2", "3", "ex"]).includes(val)) {
+                throw new Error("Invalid layer");
+            }
+            // @ts-expect-error 上面已经排除（我也不知道什么时候会出这种）
             this.selectedLayer = val;
         });
-        this.$editSwitch = new ZSwitch("Edit");
-        this.$easingBox = new ZEasingBox(true)
-            .onChange(id => {
+        this.$easingBox.onChange(id => {
             for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
                 this[type].easing = rpeEasingArray[id];
             }
@@ -2306,11 +4654,38 @@ class EventCurveEditors extends Z {
         this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true);
         this.$copyButton = new ZButton("Copy");
         this.$pasteButton = new ZButton("Paste");
-        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect);
+        this.$encapsuleBtn = new ZButton("Encapsule");
+        this.$templateNameInput = new ZInputBox();
+        this.$templateNameInput.whenValueChange((name) => {
+            const easing = editor.chart.templateEasingLib.get(name);
+            if (easing) {
+                this.easing.target = easing.eventNodeSequence;
+                this.easing.targetEasing = easing;
+                this.draw();
+            }
+            else {
+                this.easing.target = null;
+            }
+        });
+        this.on("wheel", (ev) => {
+            const delta = ev.deltaY / 500;
+            if (editor.player.playing) {
+                editor.pause();
+            }
+            if (this.selectedEditor === this.easing) {
+                this.easingBeats = Math.min(Math.max(this.easingBeats + delta, 0), this.easing.target.effectiveBeats);
+                this.easing.draw(this.easingBeats);
+            }
+            else {
+                changeAudioTime(editor.player.audio, delta);
+                editor.update();
+            }
+        });
+        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$timeSpanInput, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect, this.$templateNameInput, this.$encapsuleBtn);
         this.append(this.$bar);
         for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
             this[type] = new EventCurveEditor(EventType[type], height - 40, width, this);
-            this[type].displayed = false;
+            this[type].active = false;
             this.append(this[type].element);
         }
         this.nodesSelection = new Set();
@@ -2323,9 +4698,9 @@ class EventCurveEditors extends Z {
         if (val === this._selectedEditor)
             return;
         if (this._selectedEditor)
-            this._selectedEditor.displayed = false;
+            this._selectedEditor.active = false;
         this._selectedEditor = val;
-        val.displayed = true;
+        val.active = true;
         this.nodesSelection = new Set();
         this.draw();
     }
@@ -2342,7 +4717,12 @@ class EventCurveEditors extends Z {
         beats = beats || this.lastBeats;
         this.lastBeats = beats;
         //console.log("draw")
-        this.selectedEditor.draw(beats);
+        if (this.selectedEditor === this.easing) {
+            this.easing.draw(this.easingBeats);
+        }
+        else {
+            this.selectedEditor.draw(beats);
+        }
     }
     changeTarget(target) {
         ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
@@ -2372,14 +4752,17 @@ class EventCurveEditor {
         this._selectedNode = new WeakRef(val);
         editor.eventEditor.target = val;
     }
-    get displayed() {
-        return this._displayed;
+    /** @deprecated use active instead */
+    get displayed() { return this.active; }
+    set displayed(val) { this.active = val; }
+    get active() {
+        return this._active;
     }
-    set displayed(val) {
-        if (val === this._displayed) {
+    set active(val) {
+        if (val === this._active) {
             return;
         }
-        this._displayed = val;
+        this._active = val;
         if (val) {
             this.element.style.display = "";
         }
@@ -2392,10 +4775,10 @@ class EventCurveEditor {
         const config = eventTypeMap[type];
         this.type = type;
         this.parentEditorSet = parent;
-        this._displayed = true;
+        this._active = true;
         this.$element = $("div");
         this.element = this.$element.element;
-        this.displayed = false;
+        this.active = false;
         this.state = EventCurveEditorState.select;
         this.selectionManager = new SelectionManager();
         this.canvas = document.createElement("canvas");
@@ -2418,8 +4801,12 @@ class EventCurveEditor {
         this.valueGridColor = [255, 170, 120];
         this.initContext();
         this.easing = easingMap.linear.in;
-        parent.$editSwitch.onClickChange((checked) => {
+        parent.$editSwitch.whenClickChange((checked) => {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
+        });
+        parent.$timeSpanInput.whenValueChange((val) => {
+            this.timeRange = parent.$timeSpanInput.getNum();
+            this.draw();
         });
         on(["mousemove", "touchmove"], this.canvas, (event) => {
             const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
@@ -2438,8 +4825,8 @@ class EventCurveEditor {
             switch (this.state) {
                 case EventCurveEditorState.selecting:
                     // console.log("det")
-                    editor.chart.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue));
-                    editor.chart.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]));
+                    editor.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue));
+                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]));
             }
             this.draw();
         });
@@ -2473,6 +4860,36 @@ class EventCurveEditor {
         parent.$pasteButton.onClick(() => {
             this.paste();
         });
+        parent.$encapsuleBtn.onClick(() => {
+            if (!this.active) {
+                return;
+            }
+            const $input = this.parentEditorSet.$templateNameInput;
+            const name = $input.getValue();
+            if (name === "") {
+                Editor.notify("Please input template name");
+                return;
+            }
+            const lib = editor.chart.templateEasingLib;
+            if (name in lib.easings) {
+                Editor.notify("Template name already exists");
+                return;
+            }
+            const op = encapsule(lib, this.target, this.parentEditorSet.nodesSelection, name);
+            if (op === EncapsuleErrorType.NotBelongToSourceSequence) {
+                Editor.notify("Not belong to source sequence");
+            }
+            else if (op === EncapsuleErrorType.NotContinuous) {
+                Editor.notify("Not continuous");
+            }
+            else if (op === EncapsuleErrorType.ZeroDelta) {
+                Editor.notify("Selected first and last eventStartNode has zero delta");
+            }
+            else {
+                editor.operationList.do(op);
+                parent.$templateNameInput.dispatchEvent(new ZValueChangeEvent());
+            }
+        });
         window.addEventListener("keypress", (e) => {
             console.log("Key press:", e.key);
             if (!this.mouseIn) {
@@ -2494,8 +4911,8 @@ class EventCurveEditor {
         const { timeRange, valueRange, timeRatio, valueRatio, valueBasis } = this;
         this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
         this.invertedMatrix = this.matrix.invert();
-        console.log(this.matrix);
-        console.log(identity.translate(0, -valueBasis * valueRange));
+        // console.log(this.matrix);
+        // console.log(identity.translate(0, -valueBasis * valueRange))
         this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
         this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
@@ -2503,6 +4920,7 @@ class EventCurveEditor {
         parent.append(this.element);
     }
     downHandler(event) {
+        var _a;
         const { width, height } = this.canvas;
         const { padding } = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
@@ -2530,12 +4948,22 @@ class EventCurveEditor {
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
                 }
-                const endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue);
-                const node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
-                node.easing = this.easing;
+                let node, endNode;
+                if (this.type === EventType.bpm) {
+                    node = new BPMStartNode(time, this.pointedValue);
+                    endNode = new BPMEndNode(time);
+                }
+                else {
+                    endNode = new EventEndNode(time, this.newNodeState === NewNodeState.controlsStart ? prev.value : this.pointedValue);
+                    node = new EventStartNode(time, this.newNodeState === NewNodeState.controlsEnd ? prev.value : this.pointedValue);
+                }
+                node.easing = (_a = this.parentEditorSet.easing.targetEasing) !== null && _a !== void 0 ? _a : this.easing;
                 EventNode.connect(endNode, node);
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                editor.chart.operationList.do(new EventNodePairInsertOperation(node, prev));
+                editor.operationList.do(new EventNodePairInsertOperation(node, prev));
+                if (this.type === EventType.bpm) {
+                    editor.player.audio.currentTime = editor.chart.timeCalculator.toSeconds(this.lastBeats);
+                }
                 this.selectedNode = node;
                 this.state = EventCurveEditorState.selecting;
                 this.parentEditorSet.$editSwitch.checked = false;
@@ -2566,10 +4994,10 @@ class EventCurveEditor {
                 const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
                 const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
                 const array = this.selectionManager.selectScope(sy, sx, ey, ex);
-                console.log("Arr", array);
-                console.log(sx, sy, ex, ey);
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
                 const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
-                console.log(nodes);
+                // console.log(nodes);
                 switch (this.selectState) {
                     case SelectState.extend:
                         this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
@@ -2582,7 +5010,7 @@ class EventCurveEditor {
                         break;
                 }
                 this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note) => !!note.parentSeq));
-                console.log("bp");
+                // console.log("bp")
                 if (this.parentEditorSet.nodesSelection.size !== 0) {
                     editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
                     editor.switchSide(editor.multiNodeEditor);
@@ -2678,8 +5106,8 @@ class EventCurveEditor {
             const startValue = startNode.value;
             const endValue = endNode.value;
             const { x: startX, y: startY } = new Coordinate(startTime - beats, startValue).mul(matrix);
-            console.log("startXY", startX, startY);
-            console.log(Matrix.fromDOMMatrix(context.getTransform()));
+            // console.log("startXY", startX, startY);
+            // console.log(Matrix.fromDOMMatrix(context.getTransform()))
             const { x: endX, y: endY } = new Coordinate(endTime - beats, endValue).mul(matrix);
             const topY = startY - NODE_HEIGHT / 2;
             const topEndY = endY - NODE_HEIGHT / 2;
@@ -2761,10 +5189,17 @@ class EventCurveEditor {
             return;
         }
         line.eventLayers[index] = line.eventLayers[index] || {};
-        this.target = line.eventLayers[index][EventType[this.type]] || EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+        const seq = line.eventLayers[index][EventType[this.type]];
+        if (seq) {
+            this.target = seq;
+        }
+        else {
+            this.target = EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
+            this.target.id = `#${line.id}.${index}.${EventType[this.type]}`;
+        }
     }
     paste() {
-        if (!this.displayed) {
+        if (!this.active) {
             return;
         }
         const { lastBeats } = this;
@@ -2776,19 +5211,14 @@ class EventCurveEditor {
         if (!lastBeats) {
             Editor.notify("Have not rendered a frame");
         }
-        const nodes = [...clipboard];
-        nodes.sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
-        const startTime = nodes[0].time;
-        // const portions: number = Math.round(timeDivisor * lastBeats);
         const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
-        const offset = TimeCalculator.sub(dest, startTime);
-        const newNodes = nodes.map(n => n.clonePair(offset));
-        editor.chart.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
+        const [_, newNodes] = EventNode.setToNewOrderedArray(dest, clipboard);
+        editor.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
         editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set(newNodes);
         editor.update();
     }
     copy() {
-        if (!this.displayed) {
+        if (!this.active) {
             return;
         }
         console.log(this.parentEditorSet.nodesSelection);
@@ -2838,14 +5268,13 @@ class NotesEditor extends Z {
         this._target = line;
         // update the OptionBox options
         const options = [this.allOption];
-        for (let trees of [line.nnLists, line.hnLists]) {
-            for (let name in trees) {
-                const tree = trees[name];
+        for (let lists of [line.nnLists, line.hnLists]) {
+            for (let [name, list] of lists) {
                 const option = new EditableBoxOption(name, (_, t) => {
-                    trees[name] = null;
+                    lists[name] = null;
                     name = t;
-                    trees[name] = tree;
-                }, () => this.targetTree = tree);
+                    lists[name] = list;
+                }, () => this.targetTree = list);
                 options.push(option);
             }
         }
@@ -2858,8 +5287,8 @@ class NotesEditor extends Z {
                 }
             });
             if (this.targetTree instanceof HNList) {
-                if (name in line.hnLists) {
-                    this.targetTree = line.hnLists[name];
+                if (line.hnLists.has(name)) {
+                    this.targetTree = line.hnLists.get(name);
                 }
                 else {
                     this.targetTree = null;
@@ -2867,8 +5296,8 @@ class NotesEditor extends Z {
                 }
             }
             else {
-                if (name in line.nnLists) {
-                    this.targetTree = line.nnLists[name];
+                if (line.nnLists.has(name)) {
+                    this.targetTree = line.nnLists.get(name);
                 }
                 else {
                     this.targetTree = null;
@@ -2911,7 +5340,7 @@ class NotesEditor extends Z {
             this.paste();
         });
         this.$editButton = new ZSwitch("Edit")
-            .onClickChange((checked) => {
+            .whenClickChange((checked) => {
             this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
         });
         this.$statusBar.append(this.$optionBox, this.$typeOption, this.$noteAboveOption, this.$editButton, this.$copyButton, this.$pasteButton, this.$selectOption);
@@ -2960,12 +5389,12 @@ class NotesEditor extends Z {
                         break;
                     }
                     const timeT = [this.pointedBeats, this.beatFraction, editor.timeDivisor];
-                    editor.chart.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX));
+                    editor.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX));
                     if (this.selectingTail) {
-                        editor.chart.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT));
+                        editor.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT));
                     }
                     else {
-                        editor.chart.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)));
+                        editor.operationList.do(new NoteTimeChangeOperation(this.selectedNote, this.selectedNote.parentNode.parentSeq.getNodeOf(timeT)));
                     }
             }
         });
@@ -3016,7 +5445,7 @@ class NotesEditor extends Z {
                         yOffset: 0
                     });
                     // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                    this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                    this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                     break;
             }
         });
@@ -3034,13 +5463,13 @@ class NotesEditor extends Z {
     }
     downHandler(event) {
         const { width, height } = this.canvas;
-        console.log(width, height);
+        // console.log(width, height)
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
         const coord = canvasCoord.mul(this.invertedMatrix);
         const { x, y } = coord;
-        console.log("offset:", offsetX, offsetY);
-        console.log("Coord:", x, y);
+        // console.log("offset:", offsetX, offsetY)
+        // console.log("Coord:", x, y);
         switch (this.state) {
             case NotesEditorState.select:
             case NotesEditorState.selecting:
@@ -3073,7 +5502,7 @@ class NotesEditor extends Z {
                     yOffset: 0
                 });
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
-                this.editor.chart.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
+                this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
                 if (note.type === NoteType.hold) {
                     this.selectingTail = true;
@@ -3105,8 +5534,8 @@ class NotesEditor extends Z {
                 const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
                 const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
                 const array = this.selectionManager.selectScope(sy, sx, ey, ex);
-                console.log("Arr", array);
-                console.log(sx, sy, ex, ey);
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
                 const notes = array.map(x => x.target).filter(x => x instanceof Note);
                 switch (this.selectState) {
                     case SelectState.extend:
@@ -3120,7 +5549,7 @@ class NotesEditor extends Z {
                         break;
                 }
                 this.notesSelection = new Set([...this.notesSelection].filter((note) => !!note.parentNode));
-                console.log("bp");
+                // console.log("bp")
                 if (this.notesSelection.size !== 0) {
                     this.editor.multiNoteEditor.target = this.notesSelection;
                     this.editor.switchSide(editor.multiNoteEditor);
@@ -3228,10 +5657,9 @@ class NotesEditor extends Z {
         }
         else {
             // Hold first, so that drag/flicks can be seen
-            for (let trees of [this.target.hnLists, this.target.nnLists]) {
-                for (let speed in trees) {
-                    let tree = trees[speed];
-                    this.drawNNList(tree, beats);
+            for (const lists of [this.target.hnLists, this.target.nnLists]) {
+                for (const [_, list] of lists) {
+                    this.drawNNList(list, beats);
                 }
             }
         }
@@ -3436,7 +5864,7 @@ class NotesEditor extends Z {
         const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
         const offset = TimeCalculator.sub(dest, startTime);
         const newNotes = notes.map(n => n.clone(offset));
-        this.editor.chart.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
+        this.editor.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
         this.editor.multiNoteEditor.target = this.notesSelection = new Set(newNotes);
         this.editor.update();
     }
@@ -3477,6 +5905,7 @@ class JudgeLinesEditor {
         this.editor.notesEditor.target = lineEditor.judgeLine;
         this.editor.eventCurveEditors.changeTarget(lineEditor.judgeLine);
         lineEditor.element.classList.add("judge-line-editor-selected");
+        this.editor.player.greenLine = lineEditor.judgeLine.id;
         this.editor.eventCurveEditors.draw();
         this.editor.notesEditor.draw();
     }
@@ -3508,7 +5937,7 @@ class JudgeLineEditor {
         this.$name
             .addClass("judgeline-info-name")
             .setValue(judgeLine.name)
-            .onChange((s) => judgeLine.name = s);
+            .whenValueChange((s) => judgeLine.name = s);
         this.$xSpan = $("span");
         this.$ySpan = $("span");
         this.$thetaSpan = $("span");
@@ -3541,6 +5970,7 @@ class SaveDialog extends ZDialog {
         this.append(new ZButton("Cancel")
             .addClass("destructive")
             .onClick(() => this.close()));
+        // @ts-expect-error Here customEvent must be CustomEvent
         this.addEventListener("save", (customEvent) => {
             console.log("save", customEvent.detail);
             serverApi.uploadChart(this.chartData, customEvent.detail)
@@ -3550,19 +5980,77 @@ class SaveDialog extends ZDialog {
         });
     }
 }
+const tips = [
+    "奇谱发生器是Phigros自制谱界最好用的制谱器，每天不写30个奇谱就会有300条判定线在我身上爬",
+    "你说得对，但是奇谱发生器是由Zes Minkey Young自主研发的一款制谱器，后面的忘了",
+    "本制谱器没有使用lchzh3473的sim-phi制作",
+    "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
+    "[露出了6号缓动]",
+    "撤销重做、复制粘贴不需要Ctrl，直接按Z/Y/C/V即可",
+    "天苍苍，野茫茫，风吹草低见牛羊",
+    "闊靛緥婧愮偣",
+    "至此，，，，",
+    "国王的船员们说阿门",
+    "一觉醒来，全世界制谱水平下降1%，而你不变",
+    "我-我-要-要-投-诉-你！",
+    "横眉冷对千夫指，俯首甘为孺子牛",
+    "比起模板缓动，我更喜欢你！",
+    "美食大赛是一款快速高效的JavaScript运行时",
+    "新的 可扩展标记语言超文本传输协议请求 括弧",
+    "Error: Cannot create an instance of abstract class 'Fruit' at line 3 '我不吃苹果和香蕉，医生让我吃水果'",
+    "讲个笑话：睡眠排序的时间复杂度是O(N)",
+    "玩诶喝沸诗俺会生辉",
+    "半罐水响叮当，一罐水响叮叮当当",
+    "十二年寒窗苦读，曾经那个弱不禁风的小男孩已经长成了一个弱不禁风的大男孩",
+    "沉默是金，晚的康桥",
+    "面包的价格是50万马克，所以你选择钝角，并将答案标在试卷上",
+    "化学老师发出了尖锐的爆鸣声",
+    "把你故事的参考文献讲出来，看看是不是在出版社里面。你昨天在这里输出日志，只有你猜中考题是二分查找",
+    "好的菜会被下架吗？好的老师会被开除吗？好的话会被擦掉吗？会吗？会吗？",
+    "20岁吃过砒霜，现在已经18岁了",
+    "对手使用了电石，你的启普发生器爆炸了",
+    "从今天起，做一个幸福的人，劈马，喂柴，周游世界",
+    "不积极阅读乐学学术力作",
+    "运动降低人到封建礼教的能量传递效率",
+    "Taq酶会解决问题的",
+    "你说的对，但是《Air Ticket Extend》是由SWORDNEW...SWORDGAME.EXE自主研发的一款文字剧情冒险游戏，中间的忘了，揭开『科学』『魔法』的真相。",
+];
+const generateTipsLabel = () => {
+    const $div = $("div");
+    $div.addClass("tips-label");
+    let id;
+    const changeText = () => {
+        $div.text("Tips:" + tips[Math.floor(Math.random() * tips.length)]);
+    };
+    const update = () => id = setTimeout(() => {
+        changeText();
+        id = null;
+        update();
+    }, 10000);
+    $div.onClick(() => {
+        if (id)
+            clearTimeout(id);
+        changeText();
+        update();
+    });
+    changeText();
+    update();
+    return $div;
+};
 class Editor extends EventTarget {
     constructor() {
         super();
+        this.$topbar = $(document.getElementById("topbar"));
+        this.$preview = $(document.getElementById("preview"));
+        this.$noteInfo = $(document.getElementById("noteInfo"));
+        this.$eventSequence = $(document.getElementById("eventSequence"));
+        this.lineInfoEle = document.getElementById("lineInfo");
+        this.$saveButton = new ZButton("保存");
+        this.$compileButton = new ZButton("编译");
         this.initialized = false;
         this.imageInitialized = false;
         this.audioInitialized = false;
         this.chartInitialized = false;
-        // load areas
-        this.$topbar = $(document.getElementById("topbar"));
-        this.$preview = $(document.getElementById("preview"));
-        this.$eventSequence = $(document.getElementById("eventSequence"));
-        this.$noteInfo = $(document.getElementById("noteInfo"));
-        this.lineInfoEle = document.getElementById("lineInfo");
         // load player
         this.player = new Player(document.getElementById("player"), this);
         this.notesEditor = new NotesEditor(this, this.$preview.clientWidth - this.player.canvas.width, this.player.canvas.height);
@@ -3572,10 +6060,6 @@ class Editor extends EventTarget {
             this.player.render();
         });
         this.progressBar.appendTo(this.$topbar);
-        // load file inputs
-        this.fileInput = document.getElementById("fileInput");
-        this.musicInput = document.getElementById("musicInput");
-        this.backgroundInput = document.getElementById("backgroundInput");
         this.eventCurveEditors = new EventCurveEditors(this.$eventSequence.clientWidth, this.$eventSequence.clientHeight);
         this.eventCurveEditors.appendTo(this.$eventSequence);
         this.playButton = document.getElementById("playButton");
@@ -3587,39 +6071,21 @@ class Editor extends EventTarget {
                 this.pause();
             }
         });
-        this.fileInput.addEventListener("change", () => {
-            this.readChart(this.fileInput.files[0]);
-        });
-        this.musicInput.addEventListener("change", () => {
-            this.readAudio(this.musicInput.files[0]);
-        });
-        this.backgroundInput.addEventListener("change", () => {
-            this.readImage(this.backgroundInput.files[0]);
-        });
-        [this.$preview, this.eventCurveEditors].forEach($e => $e.on("wheel", (event) => {
+        this.$preview.on("wheel", (event) => {
             if (!this.initialized) {
                 return;
             }
-            const player = this.player;
             if (this.playing) {
                 this.pause();
             }
             const audio = this.player.audio;
-            let currentTime = audio.currentTime;
             // console.log(event.deltaY)
-            currentTime += event.deltaY / 500;
-            if (currentTime > audio.duration) {
-                currentTime = audio.duration;
-            }
-            else if (currentTime < 0) {
-                currentTime = 0;
-            }
-            audio.currentTime = currentTime;
+            changeAudioTime(audio, event.deltaY / 500);
             this.progressBar.update();
             this.update();
             this.player.render();
             // event.preventDefault()
-        }));
+        });
         // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox();
         this.$timeDivisor.onChange((n) => {
@@ -3634,7 +6100,6 @@ class Editor extends EventTarget {
             this.player.audio.playbackRate = parseFloat(rateStr);
         });
         // Save Button
-        this.$saveButton = new ZButton("保存");
         this.$saveButton.disabled = true;
         this.$saveButton.onClick(() => {
             const json = this.chart.dumpKPA();
@@ -3651,22 +6116,43 @@ class Editor extends EventTarget {
             this.chart.modified = false;
         });
         this.$saveDialog = new SaveDialog();
+        this.$compileButton.onClick(() => {
+            const compiler = new RPEChartCompiler(this.chart);
+            const json = compiler.compileChart();
+            saveTextToFile(JSON.stringify(json), this.chart.name + ".rpe.json");
+        });
         this.$offsetInput = new ZInputBox()
-            .onChange(() => {
+            .whenValueChange(() => {
             this.chart.offset = this.$offsetInput.getInt();
         });
-        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$saveButton, this.$saveDialog, this.$offsetInput);
+        this.$tipsLabel = generateTipsLabel();
+        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$saveButton, this.$saveDialog, this.$compileButton, this.$offsetInput, this.$tipsLabel);
         this.addEventListener("chartloaded", (e) => {
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence;
             this.$offsetInput.setValue(this.chart.offset.toString());
-            this.chart.operationList.addEventListener("firstmodified", () => {
+            this.operationList.addEventListener("firstmodified", () => {
                 this.$saveButton.disabled = false;
+            });
+            this.operationList.addEventListener("noundo", () => {
+                Editor.notify("Nothing to undo");
+            });
+            this.operationList.addEventListener("noredo", () => {
+                Editor.notify("Nothing to redo");
             });
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {
                 e.preventDefault();
                 e.returnValue = "Unsaved Changes";
+            }
+        });
+        window.addEventListener("keypress", (e) => {
+            var _a, _b;
+            if (e.key === "z") {
+                (_a = this.operationList) === null || _a === void 0 ? void 0 : _a.undo();
+            }
+            else if (e.key === "y") {
+                (_b = this.operationList) === null || _b === void 0 ? void 0 : _b.redo();
             }
         });
     }
@@ -3717,6 +6203,7 @@ class Editor extends EventTarget {
         const assignChart = (chart) => {
             this.player.chart = chart;
             this.chart = chart;
+            this.operationList = new OperationList(chart);
             this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle);
             this.dispatchEvent(new Event("chartloaded"));
         };
@@ -3818,1388 +6305,186 @@ class Editor extends EventTarget {
     }
 }
 /**
- * @author Zes M Young
+ * 全生命周期只会编译一次，想多次就再构造一个
  */
-const node2string = (node) => {
-    if (!node) {
-        return "" + node;
-    }
-    if ("heading" in node || "tailing" in node) {
-        return "heading" in node ? "H" : "tailing" in node ? "T" : "???";
-    }
-    if (!node.notes) {
-        return "EventNode";
-    }
-    return `NN(${node.notes.length}) at ${node.startTime}`;
-};
-/**
- * 音符
- * Basic element in music game.
- * Has 4 types: tap, drag, flick and hold.
- * Only hold has endTime; others' endTime is equal to startTime.
- * For this reason, holds are store in a special list (HNList),
- * which is sorted by both startTime and endTime,
- * so that they are accessed correctly and rapidly in the renderer.
- * Note that Hold and HoldNode are not individually-declared classes.
- * Hold is a note with type being NoteType.hold,
- * while HoldNode is a node that contains holds.
- */
-class Note {
-    // readonly chart: Chart;
-    // readonly judgeLine: JudgeLine
-    // posPrevious?: Note;
-    // posNext?: Note;
-    // posPreviousSibling?: Note;
-    // posNextSibling: Note;
-    constructor(data) {
-        this.above = data.above === 1;
-        this.alpha = data.alpha || 255;
-        this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
-        this.isFake = Boolean(data.isFake);
-        this.positionX = data.positionX;
-        this.size = data.size || 1.0;
-        this.speed = data.speed || 1.0;
-        this.startTime = data.startTime;
-        this.type = data.type;
-        this.visibleTime = data.visibleTime;
-        this.yOffset = data.yOffset;
-        /*
-        this.previous = null;
-        this.next = null;
-        this.previousSibling = null;
-        this.nextSibling = null;
-        */
-    }
-    /**
-     *
-     * @param offset
-     * @returns
-     */
-    clone(offset) {
-        const data = this.dumpRPE();
-        data.startTime = TimeCalculator.add(data.startTime, offset);
-        data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
-        return new Note(data);
-    }
-    /*
-    static connectPosSibling(note1: Note, note2: Note) {
-        note1.posNextSibling = note2;
-        note2.posPreviousSibling = note1;
-    }
-    static connectPos(note1: Note, note2: Note) {
-        note1.posNext = note2;
-        note2.posPrevious = note1;
-    }
-    */
-    dumpRPE() {
-        return {
-            above: this.above ? 1 : 0,
-            alpha: this.alpha,
-            endTime: this.endTime,
-            isFake: this.isFake ? 1 : 0,
-            positionX: this.positionX,
-            size: this.size,
-            startTime: this.startTime,
-            type: this.type,
-            visibleTime: this.visibleTime,
-            yOffset: this.yOffset,
-            speed: this.speed
-        };
-    }
-    dumpKPA() {
-    }
-}
-class NoteNode {
-    get previous() {
-        if (!this._previous)
-            return null;
-        return this._previous.deref();
-    }
-    set previous(val) {
-        if (!val) {
-            this._previous = null;
-            return;
-        }
-        this._previous = new WeakRef(val);
-    }
-    constructor(time) {
-        this.startTime = [...time];
-        this.notes = [];
-        this.id = NoteNode.count++;
-    }
-    static fromKPAJSON(data) {
-        const node = new NoteNode(data.startTime);
-        for (let noteData of data.notes) {
-            const note = new Note(noteData);
-            node.add(note);
-        }
-        return node;
-    }
-    get isHold() {
-        return this.parentSeq instanceof HNList;
-    }
-    get endTime() {
-        if (this.notes.length === 0) {
-            return [0, 0, 1];
-        }
-        return (this.notes.length === 0 || this.notes[0].type !== NoteType.hold) ? this.startTime : this.notes[0].endTime;
-    }
-    add(note) {
-        if (!TimeCalculator.eq(note.startTime, this.startTime)) {
-            console.warn("Wrong addition!");
-        }
-        this.notes.push(note);
-        note.parentNode = this;
-        this.sort(this.notes.length - 1);
-    }
-    sort(index) {
-        if (typeof index !== "number") {
-            index = this.notes.indexOf(index);
-            if (index === -1) {
-                return;
-            }
-        }
-        if (!this.isHold) {
-            return;
-        }
-        const { notes } = this;
-        const note = notes[index];
-        for (let i = index; i > 0; i--) {
-            const prev = notes[i - 1];
-            if (TimeCalculator.lt(prev.endTime, note.endTime)) {
-                // swap
-                notes[i] = prev;
-                notes[i - 1] = note;
-            }
-            else {
-                break;
-            }
-        }
-        for (let i = index; i < notes.length - 1; i++) {
-            const next = notes[i + 1];
-            if (TimeCalculator.gt(next.endTime, note.endTime)) {
-                // swap
-                notes[i] = next;
-                notes[i + 1] = note;
-            }
-            else {
-                break;
-            }
-        }
-    }
-    remove(note) {
-        this.notes.splice(this.notes.indexOf(note), 1);
-        note.parentNode = null;
-    }
-    static disconnect(note1, note2) {
-        if (note1) {
-            note1.next = null;
-        }
-        if (note2) {
-            note2.previous = null;
-        }
-    }
-    static connect(note1, note2) {
-        if (note1) {
-            // @ts-expect-error
-            note1.next = note2;
-        }
-        if (note2) {
-            // @ts-expect-error
-            note2.previous = note1;
-        }
-        if (note1 && note2) {
-            note2.parentSeq = note1.parentSeq;
-        }
-    }
-    static insert(note1, inserted, note2) {
-        this.connect(note1, inserted);
-        this.connect(inserted, note2);
-    }
-    dump() {
-        return {
-            notes: this.notes.map(note => note.dumpRPE()),
-            startTime: this.startTime
-        };
-    }
-}
-NoteNode.count = 0;
-class NNList {
-    constructor(speed, effectiveBeats) {
-        this.speed = speed;
-        this.head = {
-            heading: true,
-            next: null,
-            parentSeq: this
-        };
-        this.currentPoint = this.head;
-        // this.currentBranchPoint = <NoteNode>{startTime: [-1, 0, 1]}
-        this.tail = {
-            tailing: true,
-            previous: null,
-            parentSeq: this
-        };
-        this.timesWithNotes = 0;
-        /*
-        this.renderPointer = new Pointer();
-        this.hitPointer = new Pointer();
-        this.editorPointer = new Pointer()
-        */
-        this.effectiveBeats = effectiveBeats;
-    }
-    static fromKPAJSON(isHold, effectiveBeats, data, nnnList) {
-        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats);
-        const nnlength = data.noteNodes.length;
-        let cur = list.head;
-        for (let i = 0; i < nnlength; i++) {
-            const nnData = data.noteNodes[i];
-            const nn = NoteNode.fromKPAJSON(nnData);
-            NoteNode.connect(cur, nn);
-            cur = nn;
-            nnnList.addNoteNode(nn);
-        }
-        NoteNode.connect(cur, list.tail);
-        list.initJump();
-        return list;
-    }
-    initJump() {
-        const originalListLength = this.timesWithNotes;
-        if (!this.effectiveBeats) {
-            this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.endTime);
-        }
-        const effectiveBeats = this.effectiveBeats;
-        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
-                return [null, null];
-            }
-            const nextNode = node.next;
-            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
-            return [startTime, nextNode];
-        }, (note, beats) => {
-            return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
-        }
-        /*,
-        (note: Note) => {
-            const prev = note.previous;
-            return "heading" in prev ? note : prev
-        })*/ );
-    }
-    initPointer(pointer) {
-        pointer.pointTo(this.head.next, 0);
-    }
-    //initPointers() {
-    /*
-    this.initPointer(this.hitPointer);
-    this.initPointer(this.renderPointer)
-    this.initPointer(this.editorPointer);
-    */
-    //}
-    /**
-     *
-     * @param beats 目标位置
-     * @param beforeEnd 指定选取该时刻之前还是之后第一个Node，对于非Hold无影响
-     * @param pointer 指针，实现查询位置缓存
-     * @returns
-     */
-    getNodeAt(beats, beforeEnd = false, pointer) {
-        /*
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats)
-                } else {
-                    this.movePointerBeforeStart(pointer, beats)
-                }
-            }
-            if (!pointer.node) {
-                debugger
-            }
-            return pointer.node
-        }
-        */
-        return this.jump.getNodeAt(beats);
-    }
-    /**
-     * Get or create a node of given time
-     * @param time
-     * @returns
-     */
-    getNodeOf(time) {
-        var _a;
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false)
-            .previous;
-        const isEqual = !("heading" in node) && TimeCalculator.eq(node.startTime, time);
-        if (!isEqual) {
-            const newNode = new NoteNode(time);
-            const next = node.next;
-            NoteNode.insert(node, newNode, next);
-            // console.log("created:", node2string(newNode))
-            this.jump.updateRange(node, next);
-            console.log("pl", this.parentLine);
-            if ((_a = this.parentLine) === null || _a === void 0 ? void 0 : _a.chart) {
-                this.parentLine.chart.nnnList.getNode(time).add(newNode);
-            }
-            return newNode;
-        }
-        else {
-            return node;
-        }
-    }
-    /**
-     * @deprecated
-     * @param pointer
-     * @param beats
-     * @param jump
-     * @param useEnd
-     * @returns
-     * /
-    movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
-        const original = pointer.node;
-        beats >= 4 && console.log(pointer, beats, distance, jump, this)
-        if (distance === 0) {
-            pointer.beats = beats;
-            return [original, original, 0]
-        }
-        const delta = beats - pointer.beats;
-        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
-            const end = jump.getNodeAt(beats);
-            console.log("end, beats", end, beats)
-            if (!end) {
-                debugger;
-            }
-            pointer.pointTo(end, beats)
-            return [original, end, distance]
-        }
-        let end: TypeOrTailer<NoteNode>;
-        if (distance === 1) {
-            end = (<NoteNode>original).next // 多谢了个let，特此留念
-        } else if (distance === -1) {
-            end = "heading" in original.previous ? original : original.previous;
-        }
-        if (!end) {
-            debugger;
-        }
-        pointer.pointTo(end, beats)
-        return [original, end, distance]
-    }
-    // */
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeStart(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump)
-    }
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
-    }
-    // */
-    /**
-     * @deprecated
-     */
-    static distanceFromPointer(beats, pointer, useEnd = false) {
-        const note = pointer.node;
-        if (!note) {
-            debugger;
-        }
-        if ("tailing" in note) {
-            if ("heading" in note.previous) {
-                return 0;
-            }
-            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? -1 : 0;
-        }
-        const previous = note.previous;
-        if (!previous)
-            debugger;
-        const previousBeats = "heading" in previous ? -Infinity : TimeCalculator.toBeats(useEnd ? previous.endTime : previous.startTime);
-        const thisBeats = TimeCalculator.toBeats(useEnd ? note.endTime : note.startTime);
-        console.log("tpb", thisBeats, previousBeats, beats);
-        if (beats < previousBeats) {
-            return -1;
-        }
-        else if (beats > thisBeats) {
-            return 1;
-        }
-        return 0;
-    }
-    /*
-    insertNoteJumpUpdater(note: Note) {
-        const {previous, next} = note
-        return () => {
-            this.jump.updateRange(previous, next)
-        }
-    }
-    */
-    /**
-     * To find the note's previous(Sibling) if it is to be inserted into the tree
-     * @param note
-     */
-    /*
-    findPrev(note: Note): TypeOrHeader<NoteNode> {
-        const beats = TimeCalculator.toBeats(note.startTime)
-        const destNote = this.getNoteAt(beats, false, this.editorPointer)
-        if ("tailing" in destNote) {
-            return destNote.previous
-        }
-        if (TimeCalculator.eq(destNote.startTime, note.startTime)) {
-            if (!(this instanceof HoldTree)) {
-                return destNote
-            }
-            let cur = destNote
-            while (1) {
-                const next = destNote.nextSibling
-                if (!next) {
-                    break
-                }
-                if (TimeCalculator.lt(note.endTime, next.endTime)) {
-                    return cur
-                }
-                cur = next
-            }
-        }
-        return destNote.previous
-    }
-    */
-    dumpKPA() {
-        const nodes = [];
-        let node = this.head.next;
-        while (!("tailing" in node)) {
-            nodes.push(node.dump());
-            node = node.next;
-        }
-        return {
-            speed: this.speed,
-            noteNodes: nodes
-        };
-    }
-}
-/**
- * HoldNode的链表
- * HN is the abbreviation of HoldNode, which is not individually declared.
- * A NN that contains holds (a type of note) is a HN.
- */
-class HNList extends NNList {
-    constructor(speed, effectiveBeats) {
-        super(speed, effectiveBeats);
-    }
-    initJump() {
-        super.initJump();
-        const originalListLength = this.timesWithNotes;
-        const effectiveBeats = this.effectiveBeats;
-        this.holdTailJump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
-                return [null, null];
-            }
-            if (!node)
-                debugger;
-            const nextNode = node.next;
-            const endTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.endTime);
-            return [endTime, nextNode];
-        }, (node, beats) => {
-            return TimeCalculator.toBeats(node.endTime) >= beats ? false : node.next; // getNodeAt有guard
-        });
-    }
-    /**
-     *
-     * @param pointer
-     * @param beats
-     * @returns
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
-    }
-    //*/
-    getNodeAt(beats, beforeEnd = false) {
-        return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
-    }
-    // unused
-    insertNoteJumpUpdater(note) {
-        const { previous, next } = note;
-        return () => {
-            this.jump.updateRange(previous, next);
-            this.holdTailJump.updateRange(previous, next);
-        };
-    }
-}
-class NNNode {
-    constructor(time) {
-        this.noteNodes = [];
-        this.holdNodes = [];
-        this.startTime = time;
-    }
-    get endTime() {
-        let latest = this.startTime;
-        for (let index = 0; index < this.holdNodes.length; index++) {
-            const element = this.holdNodes[index];
-            if (TC.gt(element.endTime, latest)) {
-                latest = element.endTime;
-            }
-        }
-        return latest;
-    }
-    add(node) {
-        if (node.isHold) {
-            this.holdNodes.push(node);
-        }
-        else {
-            this.noteNodes.push(node);
-        }
-        node.totalNode = this;
-    }
-}
-/**
- * 二级音符节点链表
- * contains NNNs
- * NNN is the abbreviation of NoteNodeNode, which store note (an element in music game) nodes with same startTime
- * NN is the abbreviation of NoteNode, which stores the notes with the same startTime.
- */
-class NNNList {
-    constructor(effectiveBeats) {
-        this.effectiveBeats = effectiveBeats;
-        this.head = {
-            "heading": true,
-            "next": null,
-            "parentSeq": this
-        };
-        this.tail = {
-            "tailing": true,
-            "previous": null,
-            "parentSeq": this
-        };
-        this.editorPointer = new Pointer();
-        this.editorPointer.pointTo(this.tail, 0);
-        NoteNode.connect(this.head, this.tail);
-        this.initJump();
-    }
-    initJump() {
-        const originalListLength = this.timesWithNotes || 512;
-        /*
-        if (!this.effectiveBeats) {
-            this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.endTime)
-        }
-        */
-        const effectiveBeats = this.effectiveBeats;
-        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
-                return [null, null];
-            }
-            const nextNode = node.next;
-            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
-            return [startTime, nextNode];
-        }, (note, beats) => {
-            return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
-        }
-        /*,
-        (note: Note) => {
-            const prev = note.previous;
-            return "heading" in prev ? note : prev
-        })*/ );
-    }
-    movePointerBeforeStart(pointer, beats) {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump);
-    }
-    movePointerBeforeEnd(pointer, beats) {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true);
-    }
-    movePointerWithGivenJumpArray(pointer, beats, jump, useEnd = false) {
-        const distance = NNList.distanceFromPointer(beats, pointer, useEnd);
-        const original = pointer.node;
-        if (distance === 0) {
-            pointer.beats = beats;
-            return [original, original, 0];
-        }
-        const delta = beats - pointer.beats;
-        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
-            const end = jump.getNodeAt(beats);
-            if (!end) {
-                debugger;
-            }
-            pointer.pointTo(end, beats);
-            return [original, end, distance];
-        }
-        let end;
-        if (distance === 1) {
-            end = original.next; // 多谢了个let，特此留念
-        }
-        else if (distance === -1) {
-            end = "heading" in original.previous ? original : original.previous;
-        }
-        if (!end) {
-            debugger;
-        }
-        pointer.pointTo(end, beats);
-        return [original, end, distance];
-    }
-    getNodeAt(beats, beforeEnd = false, pointer) {
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats);
-                }
-                else {
-                    this.movePointerBeforeStart(pointer, beats);
-                }
-            }
-            if (!pointer.node) {
-                debugger;
-            }
-            return pointer.node;
-        }
-        return this.jump.getNodeAt(beats);
-    }
-    getNode(time) {
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
-        if ("heading" in node || TimeCalculator.ne(node.startTime, time)) {
-            const newNode = new NNNode(time);
-            const next = node.next;
-            NoteNode.insert(node, newNode, next);
-            this.jump.updateRange(node, next);
-            return newNode;
-        }
-        else {
-            return node;
-        }
-    }
-    addNoteNode(noteNode) {
-        this.getNode(noteNode.startTime).add(noteNode);
-    }
-}
-class JudgeLine {
-    constructor(chart) {
-        //this.notes = [];
-        this.chart = chart;
-        this.eventLayers = [];
-        this.children = [];
-        this.hnLists = {};
-        this.nnLists = {};
-        this.texture = "line.png";
-        this.cover = true;
-        // this.noteSpeeds = {};
-    }
-    static fromRPEJSON(chart, id, data, templates, timeCalculator) {
-        let line = new JudgeLine(chart);
-        line.id = id;
-        line.name = data.Name;
-        chart.judgeLineGroups[data.Group].addJudgeLine(line);
-        line.cover = Boolean(data.isCover);
-        const noteNodeTree = chart.nnnList;
-        if (data.notes) {
-            const holdTrees = line.hnLists;
-            const noteTrees = line.nnLists;
-            let notes = data.notes;
-            notes.sort((n1, n2) => {
-                if (TimeCalculator.ne(n1.startTime, n2.startTime)) {
-                    return TimeCalculator.gt(n1.startTime, n2.startTime) ? 1 : -1;
-                }
-                return TimeCalculator.gt(n1.endTime, n2.endTime) ? -1 : 1; // 这里曾经排反了（
-            });
-            const len = notes.length;
-            let lastTime = [-1, 0, 1];
-            // let comboInfoEntity: ComboInfoEntity;
-            for (let i = 0; i < len; i++) {
-                const note = new Note(notes[i]);
-                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false);
-                const cur = tree.currentPoint;
-                const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
-                if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
-                    tree.currentPoint.add(note);
-                }
-                else {
-                    const node = new NoteNode(note.startTime);
-                    node.add(note); // 这里之前没写，特此留念！
-                    NoteNode.connect(tree.currentPoint, node);
-                    tree.currentPoint = node;
-                    noteNodeTree.addNoteNode(node);
-                }
-                tree.timesWithNotes++;
-            }
-            for (let trees of [holdTrees, noteTrees]) {
-                for (let speed in trees) {
-                    const tree = trees[speed];
-                    NoteNode.connect(tree.currentPoint, tree.tail);
-                    tree.initJump();
-                    // tree.initPointers()
-                }
-            }
-        }
-        const eventLayers = data.eventLayers;
-        const length = eventLayers.length;
-        const createSequence = (type, events, index) => {
-            if (events) {
-                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
-                sequence.id = `#${id}.${index}.${EventType[type]}`;
-                chart.sequenceMap[sequence.id] = sequence;
-                return sequence;
-            }
-        };
-        for (let index = 0; index < length; index++) {
-            const layerData = eventLayers[index];
-            if (!layerData) {
-                continue;
-            }
-            const layer = {
-                moveX: createSequence(EventType.moveX, layerData.moveXEvents, index),
-                moveY: createSequence(EventType.moveY, layerData.moveYEvents, index),
-                rotate: createSequence(EventType.rotate, layerData.rotateEvents, index),
-                alpha: createSequence(EventType.alpha, layerData.alphaEvents, index),
-                speed: createSequence(EventType.speed, layerData.speedEvents, index)
-            };
-            line.eventLayers[index] = layer;
-        }
-        // line.updateNoteSpeeds();
-        // line.computeNotePositionY(timeCalculator);
-        return line;
-    }
-    static fromKPAJSON(chart, id, data, templates, timeCalculator) {
-        let line = new JudgeLine(chart);
-        line.id = id;
-        line.name = data.Name;
-        chart.judgeLineGroups[data.group].addJudgeLine(line);
-        const nnnList = chart.nnnList;
-        for (let isHold of [false, true]) {
-            const key = `${isHold ? "hn" : "nn"}Lists`;
-            const lists = data[key];
-            for (let name in lists) {
-                const listData = lists[name];
-                const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
-                list.parentLine = line;
-                list.id = name;
-                line[key][name] = list;
-            }
-        }
-        for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
-        }
-        for (let eventLayerData of data.eventLayers) {
-            let eventLayer = {};
-            for (let key in eventLayerData) {
-                // use "fromRPEJSON" for they have the same logic
-                eventLayer[key] = chart.sequenceMap[eventLayerData[key]];
-            }
-            line.eventLayers.push(eventLayer);
-        }
-        chart.judgeLines.push(line);
-        return line;
-    }
-    updateSpeedIntegralFrom(beats, timeCalculator) {
-        var _a;
-        for (let eventLayer of this.eventLayers) {
-            (_a = eventLayer === null || eventLayer === void 0 ? void 0 : eventLayer.speed) === null || _a === void 0 ? void 0 : _a.updateNodesIntegralFrom(beats, timeCalculator);
-        }
-    }
-    /**
-     * startY and endY must not be negative
-     * @param beats
-     * @param timeCalculator
-     * @param startY
-     * @param endY
-     * @returns
-     */
-    computeTimeRange(beats, timeCalculator, startY, endY) {
-        console.log("invoked");
-        //return [[0, Infinity]]
-        //*
-        // 提取所有有变化的时间点
-        let times = [];
-        let result = [];
-        for (let eventLayer of this.eventLayers) {
-            const sequence = eventLayer === null || eventLayer === void 0 ? void 0 : eventLayer.speed;
-            if (!sequence) {
-                continue;
-            }
-            let node = sequence.getNodeAt(beats);
-            let endNode;
-            while (true) {
-                times.push(TimeCalculator.toBeats(node.time));
-                if ("tailing" in (endNode = node.next)) {
-                    break;
-                }
-                node = endNode.next;
-            }
-        }
-        times = [...new Set(times)].sort((a, b) => a - b);
-        const len = times.length;
-        let nextTime = times[0];
-        let nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
-        let nextSpeed = this.getStackedValue("speed", nextTime, true);
-        let range = [undefined, undefined];
-        console.log(times);
-        const computeTime = (speed, currentPos, fore) => timeCalculator.secondsToBeats(currentPos / (speed * 120) + timeCalculator.toSeconds(fore));
-        for (let i = 0; i < len - 1;) {
-            const thisTime = nextTime;
-            const thisPosY = nextPosY;
-            let thisSpeed = this.getStackedValue("speed", thisTime);
-            if (Math.abs(thisSpeed) < 1e-8) {
-                thisSpeed = 0; // 不这样做可能导致下面异号判断为真从而死循环
-            }
-            nextTime = times[i + 1];
-            nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
-            nextSpeed = this.getStackedValue("speed", nextTime, true);
-            console.log(thisSpeed, nextSpeed, thisSpeed * nextSpeed < 0, i, [...result]);
-            if (thisSpeed * nextSpeed < 0) { // 有变号零点，再次切断，保证处理的每个区间单调性
-                //debugger;
-                nextTime = (nextTime - thisTime) * (0 - thisSpeed) / (nextSpeed - thisSpeed) + thisTime;
-                nextSpeed = 0;
-                nextPosY = this.getStackedIntegral(nextTime, timeCalculator);
-                //debugger
-            }
-            else {
-                console.log("i++");
-                i++;
-            }
-            if (range[0] === undefined) {
-                // 变速区间直接全部囊括，匀速要算一下，因为好算
-                /*
-                设两个时间点的位置为a,b
-                开始结束点为s,e
-                选中小段一部分在区间内：
-                a < s <= b
-                或a > e >= b
-                全部在区间内
-                s <= a <= b
-                */
-                if (thisPosY < startY && startY <= nextPosY
-                    || thisPosY > endY && endY >= nextPosY) {
-                    range[0] = thisSpeed !== nextSpeed ? thisTime : computeTime(thisSpeed, (thisPosY < nextPosY ? startY : endY) - thisPosY, thisTime);
-                }
-                else if (startY <= thisPosY && thisPosY <= endY) {
-                    range[0] = thisTime;
-                }
-            }
-            // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
-            if (range[0] !== undefined) {
-                if (thisPosY < endY && endY <= nextPosY || thisPosY > startY && startY >= nextPosY) {
-                    range[1] = thisSpeed !== nextSpeed ? nextTime : computeTime(thisSpeed, (thisPosY > nextPosY ? startY : endY) - thisPosY, thisTime);
-                    if (range[0] > range[1]) {
-                        console.error("range start should be smaller than range end.");
-                        console.log("\nRange is:", range, "thisTime:", thisTime, "thisSpeed:", thisSpeed, "thisPosY:", thisPosY, "\nstartY:", startY, "endY:", endY, "nextTime:", nextTime, "nextPosY:", nextPosY, "nextSpeed:", nextSpeed, "\njudgeLine:", this);
-                    }
-                    result.push(range);
-                    range = [undefined, undefined];
-                }
-            }
-        }
-        const thisPosY = nextPosY;
-        const thisTime = nextTime;
-        const thisSpeed = this.getStackedValue("speed", thisTime);
-        const inf = thisSpeed > 0 ? Infinity : (thisSpeed < 0 ? -Infinity : thisPosY);
-        if (range[0] === undefined) {
-            // 变速区间直接全部囊括，匀速要算一下，因为好算
-            if (thisPosY < startY && startY <= inf || thisPosY >= endY && endY > inf) {
-                range[0] = computeTime(thisSpeed, (thisPosY < inf ? startY : endY) - thisPosY, thisTime);
-            }
-            else if (thisSpeed === 0) {
-                range[0] = 0;
-            }
-        }
-        // 要注意这里不能合成双分支if因为想要的Y片段可能在一个区间内
-        if (range[0] !== undefined) {
-            if (thisPosY < endY && endY <= inf || thisPosY >= startY && startY > inf) {
-                range[1] = computeTime(thisSpeed, (thisPosY > inf ? startY : endY) - thisPosY, thisTime);
-                result.push(range);
-            }
-            else if (thisSpeed === 0) {
-                range[1] = Infinity;
-                result.push(range);
-            }
-        }
-        return result;
-        //*/
-    }
-    /*
-    computeLinePositionY(beats: number, timeCalculator: TimeCalculator)  {
-        return this.getStackedIntegral(beats, timeCalculator)
-    }
-    */
-    /**
-     *
-     * @param beats
-     * @param usePrev 如果取到节点，将使用EndNode的值。默认为FALSE
-     * @returns
-     */
-    getValues(beats, usePrev = false) {
-        return [
-            this.getStackedValue("moveX", beats, usePrev),
-            this.getStackedValue("moveY", beats, usePrev),
-            this.getStackedValue("rotate", beats, usePrev) / 180 * Math.PI, // 转换为弧度制
-            this.getStackedValue("alpha", beats, usePrev),
-        ];
-    }
-    /**
-     * 求该时刻坐标，不考虑父线
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getThisCoordinate(beats, usePrev = false) {
-        return [this.getStackedValue("moveX", beats, usePrev),
-            this.getStackedValue("moveY", beats, usePrev)];
-    }
-    /**
-     * 求父线锚点坐标，无父线返回原点
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getBaseCoordinate(beats, usePrev = false) {
-        if (!this.father) {
-            return [0, 0];
-        }
-        const baseBase = this.father.getBaseCoordinate(beats, usePrev);
-        const base = this.father.getThisCoordinate(beats, usePrev);
-        return [baseBase[0] + base[0], baseBase[1] + base[1]];
-    }
-    getStackedValue(type, beats, usePrev = false) {
-        const length = this.eventLayers.length;
-        let current = 0;
-        for (let index = 0; index < length; index++) {
-            const layer = this.eventLayers[index];
-            if (!layer || !layer[type]) {
-                break;
-            }
-            current += layer[type].getValueAt(beats, usePrev);
-        }
-        return current;
-    }
-    getStackedIntegral(beats, timeCalculator) {
-        const length = this.eventLayers.length;
-        let current = 0;
-        for (let index = 0; index < length; index++) {
-            const layer = this.eventLayers[index];
-            if (!layer || !layer.speed) {
-                break;
-            }
-            current += layer.speed.getIntegral(beats, timeCalculator);
-        }
-        // console.log("integral", current)
-        return current;
-    }
-    /**
-     * 获取对应速度和类型的Note树,没有则创建
-     */
-    getNNList(speed, isHold, initsJump) {
-        const trees = isHold ? this.hnLists : this.nnLists;
-        for (let treename in trees) {
-            const tree = trees[treename];
-            if (tree.speed == speed) {
-                return tree;
-            }
-        }
-        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
-        list.parentLine = this;
-        NoteNode.connect(list.head, list.tail);
-        if (initsJump)
-            list.initJump();
-        const id = (isHold ? "$" : "#") + speed;
-        (trees[id] = list).id = id;
-        return list;
-    }
-    getNode(note, initsJump) {
-        const speed = note.speed;
-        const isHold = note.type === NoteType.hold;
-        const tree = this.getNNList(speed, isHold, initsJump);
-        return tree.getNodeOf(note.startTime);
-    }
-    /**
-     *
-     * @param eventNodeSequences To Collect the sequences used in this line
-     * @returns
-     */
-    dumpKPA(eventNodeSequences, judgeLineGroups) {
-        const children = [];
-        for (let line of this.children) {
-            children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups));
-        }
-        const eventLayers = [];
-        for (let i = 0; i < this.eventLayers.length; i++) {
-            const layer = this.eventLayers[i];
-            if (!layer)
-                continue;
-            let layerData = {};
-            for (let type in layer) {
-                const sequence = layer[type];
-                if (!sequence)
-                    continue;
-                eventNodeSequences.add(sequence);
-                layerData[type] = sequence.id;
-            }
-            eventLayers.push(layerData);
-        }
-        return {
-            group: judgeLineGroups.indexOf(this.group),
-            id: this.id,
-            Name: this.name,
-            Texture: "line.png",
-            children: children,
-            eventLayers: eventLayers,
-            hnLists: dictForIn(this.hnLists, (t) => t.dumpKPA()),
-            nnLists: dictForIn(this.nnLists, (t) => t.dumpKPA())
-        };
-    }
-    dumpControlEvent(event) {
-        return {
-            startTime: event.startTime,
-            endTime: event.endTime,
-            startValue: event.startValue,
-            endValue: event.endValue,
-            easing: templateLib.resolveEasing(event.easing)
-        };
-    }
-    updateEffectiveBeats(EB) {
-        for (let i = 0; i < this.eventLayers.length; i++) {
-            const layer = this.eventLayers[i];
-            for (let type in layer) {
-                const sequence = layer[type];
-                sequence.effectiveBeats = EB;
-            }
-        }
-        for (let lists of [this.nnLists, this.hnLists]) {
-            for (let name in lists) {
-                lists[name].effectiveBeats = EB;
-            }
-        }
-    }
-}
-var EventType;
-(function (EventType) {
-    EventType[EventType["moveX"] = 0] = "moveX";
-    EventType[EventType["moveY"] = 1] = "moveY";
-    EventType[EventType["rotate"] = 2] = "rotate";
-    EventType[EventType["alpha"] = 3] = "alpha";
-    EventType[EventType["speed"] = 4] = "speed";
-    EventType[EventType["easing"] = 5] = "easing";
-    EventType[EventType["bpm"] = 6] = "bpm";
-})(EventType || (EventType = {}));
-var NoteType;
-(function (NoteType) {
-    NoteType[NoteType["tap"] = 1] = "tap";
-    NoteType[NoteType["drag"] = 4] = "drag";
-    NoteType[NoteType["flick"] = 3] = "flick";
-    NoteType[NoteType["hold"] = 2] = "hold";
-})(NoteType || (NoteType = {}));
-/**
- * 相当于 Python 推导式
- * @param arr
- * @param expr
- * @param guard
- * @returns
- */
-function arrayForIn(arr, expr, guard) {
-    let ret = [];
-    for (let each of arr) {
-        if (!guard || guard && guard(each)) {
-            ret.push(expr(each));
-        }
-    }
-    return ret;
-}
-/**
- * 相当于 Python 推导式
- * @param obj
- * @param expr
- * @param guard
- * @returns
- */
-function dictForIn(obj, expr, guard) {
-    let ret = {};
-    for (let key in obj) {
-        const each = obj[key];
-        if (!guard || guard && guard(each)) {
-            ret[key] = expr(each);
-        }
-    }
-    return ret;
-}
-/**
- * 根据Note的速度存储在不同字段
-interface NoteSpeeds {
-    [key: number]: Note[]
-}
-
- */
-/*
-interface ComboMapping {
-    [beat: /*`${number}:${number}/${number}`* / string]: ComboInfoEntity
-}
-//*/
-class Chart {
-    constructor() {
-        this.modified = false;
-        this.timeCalculator = new TimeCalculator();
-        this.judgeLines = [];
-        this.orphanLines = [];
-        this.templateEasingLib = new TemplateEasingLib(this);
-        // this.comboMapping = {};
-        this.name = "uk";
-        this.level = "uk";
-        this.offset = 0;
-        this.sequenceMap = {};
-        this.judgeLineGroups = [];
-        this.operationList = new OperationList(this);
-    }
-    getEffectiveBeats() {
-        console.log(editor.player.audio.src);
-        const effectiveBeats = this.timeCalculator.secondsToBeats(this.duration);
-        console.log(effectiveBeats);
-        this.effectiveBeats = effectiveBeats;
-        return this.effectiveBeats;
-    }
-    static fromRPEJSON(data, duration) {
-        let chart = new Chart();
-        chart.judgeLineGroups = data.judgeLineGroup.map(group => new JudgeLineGroup(group));
-        chart.bpmList = data.BPMList;
-        chart.name = data.META.name;
-        chart.level = data.META.level;
-        chart.offset = data.META.offset;
-        chart.duration = duration;
-        chart.updateCalculator();
-        console.log(chart, chart.getEffectiveBeats());
-        chart.nnnList = new NNNList(chart.getEffectiveBeats());
-        /*
-        if (data.envEasings) {
-            chart.templateEasingLib.add(...data.envEasings)
-
-        }
-        */
-        // let line = data.judgeLineList[0];
-        const judgeLineList = data.judgeLineList;
-        const length = judgeLineList.length;
-        const orphanLines = [];
-        for (let i = 0; i < length; i++) {
-            const lineData = data.judgeLineList[i];
-            lineData._id = i;
-            if (lineData.father === -1) {
-                orphanLines.push(lineData);
-                continue;
-            }
-            const father = data.judgeLineList[lineData.father];
-            const children = father.children || (father.children = []);
-            children.push(i);
-        }
-        const readOne = (lineData) => {
-            const line = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator);
-            chart.judgeLines.push(line);
-            if (lineData.children) {
-                for (let each of lineData.children) {
-                    const child = readOne(judgeLineList[each]);
-                    child.father = line;
-                    line.children.push(child);
-                }
-            }
-            return line;
-        };
-        for (let lineData of judgeLineList) {
-            const line = readOne(lineData);
-            chart.orphanLines.push(line);
-        }
-        return chart;
-    }
-    static fromKPAJSON(data) {
-        const chart = new Chart();
-        chart.bpmList = data.bpmList;
-        chart.duration = data.duration;
-        chart.name = data.info.name;
-        chart.level = data.info.level;
-        chart.offset = data.offset;
-        chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
-        chart.updateCalculator();
-        chart.nnnList = new NNNList(chart.getEffectiveBeats());
-        const sequences = data.eventNodeSequences;
-        const length = data.eventNodeSequences.length;
-        for (let i = 0; i < length; i++) {
-            const sequence = sequences[i];
-            (chart.sequenceMap[sequence.id] = EventNodeSequence.fromRPEJSON(sequence.type, sequence.events, chart, sequence.endValue)).id = sequence.id;
-        }
-        chart.templateEasingLib.add(data.envEasings);
-        chart.templateEasingLib.check();
-        for (let lineData of data.orphanLines) {
-            const line = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
-            chart.orphanLines.push(line);
-        }
-        return chart;
-    }
-    updateCalculator() {
-        this.timeCalculator.bpmList = this.bpmList;
-        this.timeCalculator.duration = this.duration;
-        this.timeCalculator.update();
-    }
-    updateEffectiveBeats(duration) {
-        const EB = this.timeCalculator.secondsToBeats(duration);
-        for (let i = 0; i < this.judgeLines.length; i++) {
-            const judgeLine = this.judgeLines[i];
-            judgeLine.updateEffectiveBeats(EB);
-        }
-    }
-    dumpKPA() {
-        const eventNodeSequences = new Set();
-        const orphanLines = [];
-        for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
-        }
-        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
-        const eventNodeSequenceData = [];
-        for (let sequence of eventNodeSequences) {
-            eventNodeSequenceData.push(sequence.dump());
-        }
-        return {
-            duration: this.duration,
-            bpmList: this.timeCalculator.dump(),
-            envEasings: envEasings,
-            eventNodeSequences: eventNodeSequenceData,
-            info: {
-                level: this.level,
-                name: this.name
-            },
-            offset: this.offset,
-            orphanLines: orphanLines,
-            judgeLineGroups: this.judgeLineGroups.map(g => g.name),
-        };
-    }
-    getJudgeLineGroups() {
-        // 实现分组逻辑（示例实现）
-        return Array.from(new Set(this.judgeLines.map(line => line.groupId.toString())));
-    }
-    /*
-    getComboInfoEntity(time: TimeT) {
-        const key = toTimeString(time);
-        if (key in this.comboMapping) {
-            return this.comboMapping[key]
-        } else {
-            return this.comboMapping[key] = new ComboInfoEntity()
-        }
-    }
-    */
-    createNNNode(time) {
-        return new NNNode(time);
-    }
-}
-class JudgeLineGroup {
-    constructor(name) {
-        this.name = name;
-        this.judgeLines = [];
-    }
-    addJudgeLine(judgeLine) {
-        this.judgeLines.push(judgeLine);
-        judgeLine.group = this;
-    }
-}
-/*
-class ComboInfoEntity {
-    tap: number;
-    drag: number;
-    holdHead: number;
-    flick: number;
-    hold: number;
-    real: number;
-    fake: number;
-    realEnd: number;
-    previous: TypeOrHeader<ComboInfoEntity>;
-    next: TypeOrTailer<ComboInfoEntity>;
-    constructor() {
-        this.tap = 0;
-        this.drag = 0;
-        this.holdHead = 0;
-        this.hold = 0;
-        this.flick = 0;
-        this.real = 0;
-        this.fake = 0;
-        this.realEnd = 0;
-    }
-    add(note: Note) {
-        if (note.isFake) {
-            this.fake++
-        } else {
-            this.real++
-        }
-        this[NoteType[note.type]]++
-    }
-    remove(note: Note) {
-        if (note.isFake) {
-            this.fake--
-        } else {
-            this.real--
-        }
-        
-        this[NoteType[note.type]]--
-    }
-}
-*/ 
 class RPEChartCompiler {
-    constructor() {
+    constructor(chart) {
+        this.chart = chart;
+        this.sequenceMap = new Map();
     }
-    dumpChart(chart) {
-        const templateLib = chart.templateEasingLib;
+    compileChart() {
+        console.time("compileChart");
+        const chart = this.chart;
         const judgeLineGroups = chart.judgeLineGroups.map(group => group.name);
-        const judgeLineList = chart.judgeLines.map(line => this.dumpJudgeLine(line, templateLib));
+        const judgeLineList = chart.judgeLines.map(line => this.dumpJudgeLine(line));
         const BPMList = chart.timeCalculator.dump();
         const META = {
             RPEVersion: 1,
             background: '',
             charter: '',
             composer: '',
-            id: crypto.randomUUID(),
+            id: Math.random().toString().slice(2, 10),
             level: chart.level,
             name: chart.name,
             offset: chart.offset,
             song: chart.name
         };
+        console.timeEnd("compileChart");
         return {
             BPMList,
             META,
             judgeLineList,
-            judgeLineGroup: judgeLineGroups
+            judgeLineGroup: judgeLineGroups,
+            multiLineString: '',
+            multiScale: 1.0
         };
     }
-    dumpJudgeLine(judgeLine, templateLib) {
-        const notes = [];
-        for (let lists of [judgeLine.hnLists, judgeLine.nnLists]) {
-            for (let name in lists) {
-                const list = lists[name];
-                let node = list.head.next;
-                while (!("tailing" in node)) {
-                    notes.push(...node.notes.map(note => this.dumpNoteNode(note)));
-                    node = node.next;
-                }
-            }
-        }
+    dumpJudgeLine(judgeLine) {
+        var _a, _b;
+        const chart = this.chart;
+        const notes = this.compileNNLists([...judgeLine.nnLists.values()], [...judgeLine.hnLists.values()]);
         return {
             notes: notes,
-            Group: judgeLine.groupId,
+            Group: chart.judgeLineGroups.indexOf(judgeLine.group),
             Name: judgeLine.name,
             Texture: judgeLine.texture,
             bpmfactor: 1.0,
-            eventLayers: judgeLine.eventLayers.map(layer => ({
+            eventLayers: judgeLine.eventLayers.map((layer) => ({
                 moveXEvents: layer.moveX ? this.dumpEventNodeSequence(layer.moveX) : null,
                 moveYEvents: layer.moveY ? this.dumpEventNodeSequence(layer.moveY) : null,
                 rotateEvents: layer.rotate ? this.dumpEventNodeSequence(layer.rotate) : null,
                 alphaEvents: layer.alpha ? this.dumpEventNodeSequence(layer.alpha) : null,
                 speedEvents: layer.speed ? this.dumpEventNodeSequence(layer.speed) : null
-            }))
+            })),
+            father: (_b = (_a = judgeLine.father) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : -1,
+            isCover: judgeLine.cover ? 1 : 0,
+            numOfNotes: notes.length,
         };
     }
     dumpEventNodeSequence(sequence) {
-        return {
-            nodes: sequence.nodes.map(node => ({
-                time: node.time,
-                value: node.value,
-                easing: templateLib.resolveEasing(node.easing),
-                ratio: node.ratio
-            })),
-            id: sequence.id,
-            type: sequence.type
-        };
+        const nodes = [];
+        sequence = this.substitute(sequence);
+        let node = sequence.head.next;
+        while (true) {
+            const end = node.next;
+            if ("tailing" in end)
+                break;
+            nodes.push(node.dump());
+            node = end.next;
+        }
+        nodes.push(node.dumpAsLast());
+        return nodes;
     }
-    dumpNoteNode(note) {
-        return {
-            startTime: note.startTime,
-            endTime: note.endTime,
-            type: NoteType[note.type],
-            isFake: note.isFake,
-            speed: note.speed
+    compileNNLists(nnLists, hnLists) {
+        const noteLists = nnLists.map(list => this.nnListToArray(list));
+        const holdLists = hnLists.map(list => this.nnListToArray(list));
+        const ret = [];
+        const time = (list) => list.length === 0 ? [Infinity, 0, 1] : list[list.length - 1].startTime;
+        const concatWithOrder = (lists) => {
+            if (lists.length === 0)
+                return;
+            // 先按最早的时间排序
+            lists.sort((a, b) => {
+                return TimeCalculator.gt(time(a), time(b)) ? 1 : -1;
+            });
+            // 每次从lists中第一个list pop一个data加入到结果，然后冒泡调整这个list的位置
+            while (lists[0].length > 0) {
+                const list = lists[0];
+                const node = list.pop();
+                ret.push(node);
+                let i = 0;
+                while (i + 1 < lists.length && TimeCalculator.gt(time(lists[i]), time(lists[i + 1]))) {
+                    const temp = lists[i];
+                    lists[i] = lists[i + 1];
+                    lists[i + 1] = temp;
+                    i++;
+                }
+            }
         };
+        concatWithOrder(noteLists);
+        concatWithOrder(holdLists);
+        return ret;
+    }
+    /**
+     * 倒序转换为数组
+     * @param nnList
+     * @returns
+     */
+    nnListToArray(nnList) {
+        const notes = [];
+        let node = nnList.tail.previous;
+        while (!("heading" in node)) {
+            for (let each of node.notes) {
+                notes.push(each.dumpRPE());
+            }
+            node = node.previous;
+        }
+        return notes;
+    }
+    /**
+     * 将当前序列中所有通过模板缓动引用了其他序列的事件直接展开为被引用的序列内容
+     * transform all events that reference other sequences by template easing
+     * into the content of the referenced sequence
+     * 有点类似于MediaWiki的{{subst:templateName}}
+     * @param map 由TemplateEasingLib提供
+     * @returns
+     */
+    substitute(seq) {
+        const map = this.sequenceMap;
+        if (map.has(seq)) {
+            return map.get(seq);
+        }
+        let currentNode = seq.head.next;
+        const newSeq = new EventNodeSequence(seq.type, seq.effectiveBeats);
+        map.set(seq, newSeq);
+        let currentPos = newSeq.head;
+        while (true) {
+            if (!currentNode || ("tailing" in currentNode.next)) {
+                break;
+            }
+            const endNode = currentNode.next;
+            if (currentNode.easing instanceof TemplateEasing) {
+                const quoted = this.substitute(currentNode.easing.eventNodeSequence);
+                const startTime = currentNode.time;
+                const endTime = endNode.time;
+                const start = currentNode.value;
+                const end = endNode.value;
+                const delta = end - start;
+                const originalStart = quoted.head.next.value;
+                const originalDelta = quoted.tail.previous.value - quoted.head.next.value;
+                const originalTimeSpan = TimeCalculator.sub(quoted.tail.previous.time, quoted.head.next.time);
+                const timeSpan = TimeCalculator.sub(endTime, startTime);
+                const ratio = TimeCalculator.div(timeSpan, originalTimeSpan);
+                const convert = (value) => start + (value - originalStart) * delta / originalDelta;
+                // 我恨TS没有运算符重载
+                const convertTime = (time) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, quoted.head.next.time), ratio)));
+                let node = quoted.head.next;
+                while (true) {
+                    const end = node.next;
+                    if ("tailing" in end) {
+                        break;
+                    }
+                    const newNode = new EventStartNode(convertTime(node.time), convert(node.value));
+                    const newEndNode = new EventEndNode(convertTime(end.time), convert(end.value));
+                    EventNode.connect(currentPos, newNode);
+                    EventNode.connect(newNode, newEndNode);
+                    currentPos = newEndNode;
+                    node = end.next;
+                }
+            }
+            else {
+                const newStartNode = currentNode.clone();
+                const newEndNode = endNode.clone();
+                EventNode.connect(currentPos, newStartNode);
+                EventNode.connect(newStartNode, newEndNode);
+                currentPos = newEndNode;
+            }
+            currentNode = endNode.next;
+        }
+        const lastStart = currentNode.clone();
+        EventNode.connect(currentPos, lastStart);
+        EventNode.connect(lastStart, newSeq.tail);
+        return newSeq;
     }
 }
 class Coordinate {
@@ -5254,641 +6539,6 @@ class Matrix {
     }
 }
 const identity = new Matrix(1, 0, 0, 1, 0, 0);
-// interface TemplateEasingLib {[name: string]: TemplateEasing}
-/**
- * To compare two arrays
- * @param arr1
- * @param arr2
- * @returns
- */
-function arrEq(arr1, arr2) {
-    let length;
-    if ((length = arr1.length) !== arr2.length) {
-        return false;
-    }
-    for (let i = 0; i < length; i++) {
-        if (arr1[i] !== arr2[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-/**
- * 事件节点基类
- * event node.
- * 用于代表事件的开始和结束。（EventStartNode表开始，EventEndNode表结束）
- * Used to represent the starts (EventStartNode) and ends (EventEndNode) of events.
- * 事件指的是判定线在某个时间段上的状态变化。
- * Events is the changing of judge line's state in a certain time.
- * 五种事件类型：移动X，移动Y，旋转，透明度，速度。
- * 5 basic types of events: moveX, moveY, rotate, alpha, speed.
- * 事件节点没有类型，类型由它所属的序列决定。
- * Type is not event nodes' property; it is the property of EventNodeSequence.
- * Events' type is determined by which sequence it belongs to.
- * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
- * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
- */
-class EventNode {
-    constructor(time, value) {
-        this.time = time;
-        this.value = value;
-        this.previous = null;
-        this.next = null;
-        this.ratio = 1;
-        this.easing = linearEasing;
-    }
-    clone(offset) {
-        const ret = new this.constructor(TimeCalculator.add(this.time, offset), this.value);
-        ret.easing = this.easing;
-        ret.ratio = this.ratio;
-        return ret;
-    }
-    //#region 
-    /**
-     * gets the easing object from RPEEventData
-     * @param data
-     * @param left
-     * @param right
-     * @param templates
-     * @returns
-     */
-    static getEasing(data, left, right, templates) {
-        if ((left && right) && (left !== 0.0 || right !== 1.0)) {
-            return new SegmentedEasing(EventNode.getEasing(data, 0.0, 1.0, templates), left, right);
-        }
-        if (data.bezier) {
-            let bp = data.bezierPoints;
-            let easing = new BezierEasing();
-            easing.cp1 = { x: bp[0], y: bp[1] };
-            easing.cp2 = { x: bp[2], y: bp[3] };
-            return easing;
-        }
-        else if (typeof data.easingType === "string") {
-            return templates.get(data.easingType);
-        }
-        else if (typeof data.easingType === "number" && data.easingType !== 0) {
-            return rpeEasingArray[data.easingType];
-        }
-        else if (data.start === data.end) {
-            return fixedEasing;
-        }
-        else {
-            return linearEasing;
-        }
-    }
-    /**
-     * constructs EventStartNode and EventEndNode from EventDataRPE
-     * @param data
-     * @param templates
-     * @returns
-     */
-    static fromEvent(data, templates) {
-        let start = new EventStartNode(data.startTime, data.start);
-        let end = new EventEndNode(data.endTime, data.end);
-        start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
-        EventNode.connect(start, end);
-        if (!start.easing) {
-            start.easing = linearEasing;
-            console.error("No easing found for event:", data, start, "will use linear by default");
-        }
-        return [start, end];
-    }
-    static connect(node1, node2) {
-        node1.next = node2;
-        node2.previous = node1;
-        if (node1 && node2) {
-            node2.parentSeq = node1.parentSeq;
-        }
-    }
-    /*
-    static disconnectStart(node: EventStartNode) {
-        (node.previous.previous).next = node.next;
-        node.previous.previous = null;
-        node.next = null;
-    }
-    */
-    static removeNodePair(endNode, startNode) {
-        const prev = endNode.previous;
-        const next = startNode.next;
-        prev.next = next;
-        next.previous = prev;
-        endNode.previous = null;
-        startNode.next = null;
-        return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)];
-    }
-    static insert(node, tarPrev) {
-        const tarNext = tarPrev.next;
-        if ("heading" in node.previous) {
-            throw new Error("Cannot insert a head node before any node");
-        }
-        this.connect(tarPrev, node.previous);
-        node.parentSeq = node.previous.parentSeq;
-        this.connect(node, tarNext);
-        return [this.previousStartOfStart(tarPrev), this.nextStartOfEnd(tarNext)];
-    }
-    /**
-     *
-     * @param node
-     * @returns the next node if it is a tailer, otherwise the next start node
-     */
-    static nextStartOfStart(node) {
-        return "tailing" in node.next ? node.next : node.next.next;
-    }
-    /**
-     *
-     * @param node
-     * @returns itself if node is a tailer, otherwise the next start node
-     */
-    static nextStartOfEnd(node) {
-        return "tailing" in node ? node : node.next;
-    }
-    static previousStartOfStart(node) {
-        return "heading" in node.previous ? node.previous : node.previous.previous;
-    }
-    /**
-     * It does not return the start node which form an event with it.
-     * @param node
-     * @returns
-     */
-    static secondPreviousStartOfEnd(node) {
-        return this.previousStartOfStart(node.previous);
-    }
-    static nextStartInJumpArray(node) {
-        if (node.next.next.isLastStart()) {
-            return node.next.next.next;
-        }
-        else {
-            return node.next.next;
-        }
-    }
-    /**
-     * 获得一对背靠背的节点。不适用于第一个StartNode
-     * @param node
-     * @returns
-     */
-    static getEndStart(node) {
-        if (node instanceof EventStartNode) {
-            if (node.isFirstStart()) {
-                throw new Error("Cannot get previous start node of the first start node");
-            }
-            return [node.previous, node];
-        }
-        else if (node instanceof EventEndNode) {
-            return [node, node.next];
-        }
-    }
-    static getStartEnd(node) {
-        if (node instanceof EventStartNode) {
-            return [node, node.next];
-        }
-        else if (node instanceof EventEndNode) {
-            return [node.previous, node];
-        }
-        else {
-            throw new Error("Invalid node type");
-        }
-    }
-    get innerEasing() {
-        return this.easing instanceof SegmentedEasing ?
-            this.easing.easing :
-            this.easing;
-    }
-    /**
-     * 设置easing，如果easing是分段缓动，则将分段缓动中的easing设置为innerEasing
-     * 不可传入分段缓动，否则会出错
-     */
-    set innerEasing(easing) {
-        if (this.easing instanceof SegmentedEasing) {
-            this.easing.easing = easing;
-        }
-        else {
-            this.easing = easing;
-        }
-    }
-}
-/*
-enum EventNodeType {
-    first,
-    middle,
-    last
-}
-
-
-interface StartNextMap {
-    [EventNodeType.first]: EventEndNode;
-    [EventNodeType.middle]: EventEndNode;
-    [EventNodeType.last]: Tailer<EventStartNode<EventNodeType.last>>;
-}
-interface StartPreviousMap {
-    [EventNodeType.first]: Header<EventStartNode<EventNodeType.first>>;
-    [EventNodeType.middle]: EventEndNode;
-    [EventNodeType.last]: EventEndNode;
-}
-*/
-class EventStartNode extends EventNode {
-    constructor(time, value) {
-        super(time, value);
-    }
-    get easingIsSegmented() {
-        return this.easing instanceof SegmentedEasing;
-    }
-    /**
-     * 因为是RPE和KPA共用的方法所以easingType可以为字符串
-     * @returns
-     */
-    dump() {
-        const endNode = this.next;
-        const isSegmented = this.easingIsSegmented;
-        const easing = isSegmented ? this.easing.easing : this.easing;
-        return {
-            bezier: easing instanceof BezierEasing ? 1 : 0,
-            bezierPoints: easing instanceof BezierEasing ?
-                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
-                [0, 0, 0, 0],
-            easingLeft: isSegmented ? this.easing.left : 0.0,
-            easingRight: isSegmented ? this.easing.right : 1.0,
-            // @ts-expect-error
-            easingType: easing instanceof TemplateEasing ?
-                (easing.name) :
-                easing instanceof NormalEasing ?
-                    easing.rpeId :
-                    null,
-            end: endNode.value,
-            endTime: endNode.time,
-            linkgroup: 0, // 假设默认值为 0
-            start: this.value,
-            startTime: this.time,
-        };
-    }
-    getValueAt(beats) {
-        // 除了尾部的开始节点，其他都有下个节点
-        // 钩定型缓动也有
-        if ("tailing" in this.next) {
-            return this.value;
-        }
-        let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
-        let current = beats - TimeCalculator.toBeats(this.time);
-        if (current > timeDelta || current < 0) {
-            console.warn("超过事件时间范围！", this, beats);
-        }
-        // 参数方程型缓动无需指定首尾数值
-        if (this.easing instanceof ParametricEquationEasing) {
-            return this.easing.getValue(current / timeDelta);
-        }
-        let valueDelta = this.next.value - this.value;
-        // 钩定模板缓动用ratio表示倍率
-        if (valueDelta === 0 && this.easing instanceof TemplateEasing) {
-            return this.value + this.easing.getValue(current / timeDelta) * this.ratio;
-        }
-        if (!this.easing) {
-            debugger;
-        }
-        // 其他类型，包括普通缓动和非钩定模板缓动
-        return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
-    }
-    getSpeedValueAt(beats) {
-        if ("tailing" in this.next) {
-            return this.value;
-        }
-        let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
-        let valueDelta = this.next.value - this.value;
-        let current = beats - TimeCalculator.toBeats(this.time);
-        if (current > timeDelta || current < 0) {
-            console.warn("超过事件时间范围！", this, beats);
-            // debugger
-        }
-        return this.value + linearEasing.getValue(current / timeDelta) * valueDelta;
-    }
-    /**
-     * 积分获取位移
-     */
-    getIntegral(beats, timeCalculator) {
-        return timeCalculator.segmentToSeconds(TimeCalculator.toBeats(this.time), beats) * (this.value + this.getSpeedValueAt(beats)) / 2 * 120; // 每单位120px
-    }
-    getFullIntegral(timeCalculator) {
-        if ("tailing" in this.next) {
-            console.log(this);
-            throw new Error("getFullIntegral不可用于尾部节点");
-        }
-        let end = this.next;
-        let endBeats = TimeCalculator.toBeats(end.time);
-        let startBeats = TimeCalculator.toBeats(this.time);
-        // 原来这里写反了，气死偶咧！
-        return timeCalculator.segmentToSeconds(startBeats, endBeats) * (this.value + end.value) / 2 * 120;
-    }
-    isFirstStart() {
-        return this.previous && "heading" in this.previous;
-    }
-    isLastStart() {
-        return this.next && "tailing" in this.next;
-    }
-    clone(offset) {
-        return super.clone(offset);
-    }
-    ;
-    clonePair(offset) {
-        const endNode = !("heading" in this.previous) ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
-        const startNode = this.clone(offset);
-        EventNode.connect(endNode, startNode);
-        return startNode;
-    }
-    ;
-}
-/*
-type AnyStartNode = EventStartNode<EventNodeType.first>
-                  | EventStartNode<EventNodeType.middle>
-                  | EventStartNode<EventNodeType.last>
-                  */
-class EventEndNode extends EventNode {
-    get parentSeq() { var _a; return (_a = this.previous) === null || _a === void 0 ? void 0 : _a.parentSeq; }
-    set parentSeq(_parent) { }
-    constructor(time, value) {
-        super(time, value);
-    }
-    getValueAt(beats) {
-        return this.previous.getValueAt(beats);
-    }
-    clone(offset) {
-        return super.clone(offset);
-    }
-}
-/**
- * 为一个链表结构。会有一个数组进行快跳。
- * is the list of event nodes, but not purely start nodes.
- * 结构如下：Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
- * The structure is like this: Header -> (StartNode -> [EndNode) -> (StartNode] -> [EndNode) -> ... -> StartNode] -> Tailer.
- * 用括号标出的两个节点是一个事件，用方括号标出的两个节点是同一时间点的节点。
- * The each 2 nodes marked by parentheses is an event; the each 2 nodes marked by brackets have the same time.
- * 注意尾节点之前的节点不是一个结束节点，而是一个开始节点，其缓动无效。
- * Note that the node before the tailer is not an end node, but a start node whose easing is meaningless.
- * 就是说最后一个节点后取值，显然会取得这个节点的值，与缓动无关。
- * (i. e. the value after the last event node is its value, not subject to easing, obviously.)
- * 如果尾之前的节点是一个结束节点，那么取值会返回undefined，这是不期望的。
- * If so, the value after that will be undefined, which is not expected.
- * ("so" refers to the assumption that the node before the tailer is an end node)
- * 和NNList和NNNList一样，有跳数组以加速随机读取。
- * Like NNList and NNNList, it has a jump array to speed up random reading.
- * 插入或删除节点时，需要更新跳数组。
- * Remember to update the jump array when inserting or deleting nodes.
- */
-class EventNodeSequence {
-    // nodes: EventNode[];
-    // startNodes: EventStartNode[];
-    // endNodes: EventEndNode[];
-    // eventTime: Float64Array;
-    constructor(type, effectiveBeats) {
-        this.type = type;
-        this.effectiveBeats = effectiveBeats;
-        this.head = {
-            heading: true,
-            next: null,
-            parentSeq: this
-        };
-        this.tail = {
-            tailing: true,
-            previous: null,
-            parentSeq: this
-        };
-        this.listLength = 1;
-        // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
-        // this.nodes = [];
-        // this.startNodes = [];
-        // this.endNodes = [];
-    }
-    static fromRPEJSON(type, data, chart, endValue) {
-        const { templateEasingLib: templates, timeCalculator } = chart;
-        const length = data.length;
-        // const isSpeed = type === EventType.Speed;
-        // console.log(isSpeed)
-        const seq = new EventNodeSequence(type, chart.effectiveBeats);
-        let listLength = length;
-        let lastEnd = seq.head;
-        let lastIntegral = 0;
-        for (let index = 0; index < length; index++) {
-            const event = data[index];
-            let [start, end] = EventNode.fromEvent(event, templates);
-            if ("heading" in lastEnd) {
-                EventNode.connect(lastEnd, start);
-            }
-            else if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
-                lastEnd.time = start.time;
-                EventNode.connect(lastEnd, start);
-            }
-            else if (TimeCalculator.toBeats(lastEnd.time) !== TimeCalculator.toBeats(start.time)) {
-                let val = lastEnd.value;
-                let midStart = new EventStartNode(lastEnd.time, val);
-                let midEnd = new EventEndNode(start.time, val);
-                midStart.easing = lastEnd.previous.easing;
-                EventNode.connect(lastEnd, midStart);
-                EventNode.connect(midStart, midEnd);
-                EventNode.connect(midEnd, start);
-                // seq.startNodes.push(midStart);
-                // seq.endNodes.push(midEnd);
-                listLength++;
-            }
-            else {
-                EventNode.connect(lastEnd, start);
-            }
-            // seq.startNodes.push(start);
-            // seq.endNodes.push(end);
-            lastEnd = end;
-            // seq.nodes.push(start, end);
-        }
-        // let last = seq.endNodes[length - 1];
-        // let last = seq.endNodes[seq.endNodes.length - 1];
-        const last = lastEnd;
-        let tail;
-        if ("heading" in last) {
-            debugger; // 这里事件层级里面一定有至少一个事件
-            throw new Error();
-        }
-        tail = new EventStartNode(last.time, endValue !== null && endValue !== void 0 ? endValue : last.value);
-        EventNode.connect(last, tail);
-        tail.easing = last.previous.easing;
-        tail.cachedIntegral = lastIntegral;
-        EventNode.connect(tail, seq.tail);
-        seq.listLength = listLength;
-        // seq.startNodes.push(tail);
-        // seq.update();
-        // seq.validate();
-        seq.initJump();
-        return seq;
-    }
-    static newSeq(type, effectiveBeats) {
-        const sequence = new EventNodeSequence(type, effectiveBeats);
-        const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
-        EventNode.connect(sequence.head, node);
-        EventNode.connect(node, sequence.tail);
-        sequence.initJump();
-        return sequence;
-    }
-    /** validate() {
-        /*
-         * 奇谱发生器中事件都是首尾相连的
-         //
-        const length = this.endNodes.length;
-        for (let index = 0; index < length; index++) {
-            let end = this.endNodes[index];
-            let start = this.startNodes[index + 1]
-            if (!arrEq(end.time, start.time)) {
-                start.time = end.time
-            }
-            start.previous = end;
-            end.next = start;
-            // 这个就是真的该这么写了（
-        }
-    }
-    **/
-    /*update() {
-        let {startNodes, endNodes} = this;
-        startNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
-        endNodes.sort((a, b) => TimeCalculator.getDelta(a.time, b.time))
-        const length = this.endNodes.length;
-        // this.nodes = new Array(length * 2 + 1);
-        let eventTime: Float64Array;
-        this.eventTime = eventTime = new Float64Array(length);
-        for (let i = 0; i < length; i++) {
-            eventTime[i] = TimeCalculator.getDelta(endNodes[i].time, startNodes[i].time);
-        }
-    }*/
-    initJump() {
-        const originalListLength = this.listLength;
-        const effectiveBeats = this.effectiveBeats;
-        this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            // console.log(node)
-            if ("tailing" in node) {
-                return [null, null];
-            }
-            if ("heading" in node) {
-                return [0, node.next];
-            }
-            const endNode = node.next;
-            const time = TimeCalculator.toBeats(endNode.time);
-            const nextNode = endNode.next;
-            if ("tailing" in nextNode.next) {
-                return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
-            }
-            else {
-                return [time, nextNode];
-            }
-        }, (node, beats) => {
-            return TimeCalculator.toBeats(node.next.time) > beats ? false : EventNode.nextStartInJumpArray(node);
-        }, (node) => {
-            return node.next && "tailing" in node.next ? node.next : node;
-        }
-        /*(node: EventStartNode) => {
-            const prev = node.previous;
-            return "heading" in prev ? node : prev.previous;
-        }*/
-        );
-    }
-    insert() {
-    }
-    getNodeAt(beats, usePrev = false) {
-        var _a;
-        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
-        if ("tailing" in node) {
-            if (usePrev) {
-                return node.previous.previous.previous;
-            }
-            // 最后一个事件节点本身具有无限延伸的特性
-            return node.previous;
-        }
-        if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
-            const prev = node.previous;
-            if (!("heading" in prev)) {
-                node = prev.previous;
-            }
-        }
-        if (TimeCalculator.toBeats(node.time) > beats && beats >= 0) {
-            console.warn("Got a node after the given beats. This would only happen when the given beats is negative. Beats and Node:", beats, node);
-        }
-        return node;
-    }
-    getValueAt(beats, usePrev = false) {
-        return this.getNodeAt(beats, usePrev).getValueAt(beats);
-    }
-    getIntegral(beats, timeCalculator) {
-        const node = this.getNodeAt(beats);
-        return node.getIntegral(beats, timeCalculator) + node.cachedIntegral;
-    }
-    updateNodesIntegralFrom(beats, timeCalculator) {
-        let previousStartNode = this.getNodeAt(beats);
-        previousStartNode.cachedIntegral = -previousStartNode.getIntegral(beats, timeCalculator);
-        let totalIntegral = previousStartNode.cachedIntegral;
-        let endNode;
-        while (!("tailing" in (endNode = previousStartNode.next))) {
-            const currentStartNode = endNode.next;
-            totalIntegral += previousStartNode.getFullIntegral(timeCalculator);
-            currentStartNode.cachedIntegral = totalIntegral;
-            previousStartNode = currentStartNode;
-        }
-    }
-    dump() {
-        const nodes = [];
-        let currentNode = this.head.next;
-        while (currentNode && !("tailing" in currentNode.next)) {
-            const eventData = currentNode.dump();
-            nodes.push(eventData);
-            currentNode = currentNode.next.next;
-        }
-        return {
-            type: this.type,
-            events: nodes,
-            id: this.id,
-            endValue: currentNode.value
-        };
-    }
-    /**
-     * 将当前序列中所有通过模板缓动引用了其他序列的事件直接展开为被引用的序列内容
-     * transform all events that reference other sequences by template easing
-     * into the content of the referenced sequence
-     * 有点类似于MediaWiki的{{subst:templateName}}
-     * @param map 由TemplateEasingLib提供
-     * @returns
-     */
-    substitute(map) {
-        if (map.has(this)) {
-            return map.get(this);
-        }
-        let currentNode = this.head.next;
-        const newSeq = new EventNodeSequence(this.type, this.effectiveBeats);
-        map.set(this, newSeq);
-        let currentPos = newSeq.head;
-        while (true) {
-            if (!currentNode || ("tailing" in currentNode.next)) {
-                break;
-            }
-            const endNode = currentNode.next;
-            if (currentNode.easing instanceof TemplateEasing) {
-                const quoted = currentNode.easing.eventNodeSequence.substitute(map);
-                /** 只对头尾数值相同的模板缓动有效 */
-                const ratio = currentNode.ratio;
-                const startTime = currentNode.time;
-                const endTime = endNode.time;
-                const start = currentNode.value;
-                const end = endNode.value;
-                const delta = end - start;
-                const originalDelta = quoted.head.next.value - quoted.tail.previous.value;
-                const convert = delta === 0
-                    ? (value) => start + value * ratio
-                    : (value) => start + value * delta / originalDelta;
-                let node = quoted.head.next;
-                while (true) {
-                    const newNode = new EventStartNode(node.time, convert(node.value));
-                }
-            }
-            else {
-                const newStartNode = currentNode.clone();
-                const newEndNode = endNode.clone();
-                EventNode.connect(currentPos, newStartNode);
-                EventNode.connect(newStartNode, newEndNode);
-                currentPos = newEndNode;
-            }
-            currentNode = endNode.next;
-        }
-    }
-}
 /**
  * 使用AudioBuffer加快播放
  */
@@ -5987,6 +6637,7 @@ const RENDER_SCOPE = 900;
 const getVector = (theta) => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]];
 class Player {
     constructor(canvas, editor) {
+        this.greenLine = 0;
         this.canvas = canvas;
         this.context = canvas.getContext("2d");
         this.audioProcessor = new AudioProcessor();
@@ -6184,7 +6835,7 @@ class Player {
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
         const lineColor = settings.get("lineColor");
-        context.strokeStyle = rgba(...lineColor, alpha / 255);
+        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? [100, 255, 100] : lineColor), alpha / 255);
         drawLine(context, -1350, 0, 1350, 0);
         context.drawImage(ANCHOR, -10, -10);
         /** 判定线的法向量 */
@@ -6216,26 +6867,25 @@ class Player {
         const holdTrees = judgeLine.hnLists;
         const noteTrees = judgeLine.nnLists;
         const soundQueue = this.soundQueue;
-        if (Object.keys(holdTrees).length || Object.keys(noteTrees).length) {
+        if (holdTrees.size || noteTrees.size) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator);
         }
         for (let trees of [holdTrees, noteTrees]) {
-            for (let name in trees) {
-                const tree = trees[name];
-                const speedVal = tree.speed;
+            for (const [_, list] of trees) {
+                const speedVal = list.speed;
                 if (DRAWS_NOTES) {
                     // debugger
                     // 渲染音符
                     const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
-                    tree.timeRanges = timeRanges;
+                    list.timeRanges = timeRanges;
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
                         const start = range[0];
                         const end = range[1];
                         // drawScope(judgeLine.getStackedIntegral(start, timeCalculator))
                         // drawScope(judgeLine.getStackedIntegral(end, timeCalculator))
-                        let noteNode = tree.getNodeAt(start, true);
-                        console.log(noteNode);
+                        let noteNode = list.getNodeAt(start, true);
+                        // console.log(noteNode)
                         let startBeats;
                         while (!("tailing" in noteNode)
                             && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end) {
@@ -6249,14 +6899,14 @@ class Player {
                     }
                 }
                 // 处理音效
-                this.renderSounds(tree, beats, soundQueue, timeCalculator);
+                this.renderSounds(list, beats, soundQueue, timeCalculator);
                 // 打击特效
                 if (beats > 0) {
-                    if (tree instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, tree, beats, hitRenderLimit, beats, this.hitContext, timeCalculator);
+                    if (list instanceof HNList) {
+                        this.renderHoldHitEffects(judgeLine, list, beats, hitRenderLimit, beats, this.hitContext, timeCalculator);
                     }
                     else {
-                        this.renderHitEffects(judgeLine, tree, hitRenderLimit, beats, this.hitContext, timeCalculator);
+                        this.renderHitEffects(judgeLine, list, hitRenderLimit, beats, this.hitContext, timeCalculator);
                     }
                 }
             }
@@ -6337,12 +6987,13 @@ class Player {
      */
     renderHoldHitEffects(judgeLine, tree, beats, startBeats, endBeats, hitContext, timeCalculator) {
         const start = tree.getNodeAt(startBeats, true);
-        // console.log("start", start)
         let noteNode = start;
-        const end = tree.getNodeAt(endBeats, true);
+        const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
         }
+        if (noteNode !== end)
+            console.log("start", start, startBeats, endBeats);
         while (noteNode !== end) {
             const base = judgeLine.getBaseCoordinate(beats);
             const thisCoord = judgeLine.getThisCoordinate(beats);
@@ -6373,7 +7024,7 @@ class Player {
             }
         }
         else {
-            console.log("renderSameTimeNotes", noteNode);
+            // console.log("renderSameTimeNotes", noteNode)
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
@@ -6382,7 +7033,7 @@ class Player {
         }
     }
     renderNote(note, chord, positionY, endpositionY) {
-        console.log(note, this.beats);
+        // console.log(note, this.beats)
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
@@ -6516,239 +7167,6 @@ class SoundEntity {
         // this.playingSound = false;
     }
 }
-/**
- *
- */
-class BPMStartNode extends EventStartNode {
-    constructor(startTime, bpm) {
-        super(startTime, bpm);
-        this.spb = 60 / bpm;
-    }
-    getIntegral(beats) {
-        return (beats - TimeCalculator.toBeats(this.time)) * 60 / this.value;
-    }
-    /**
-     * may only used with a startnode whose next is not tail
-     * @returns
-     */
-    getFullIntegral() {
-        return (TimeCalculator.toBeats(this.next.time) - TimeCalculator.toBeats(this.time)) * 60 / this.value;
-    }
-}
-class BPMEndNode extends EventEndNode {
-    constructor(endTime) {
-        super(endTime, null);
-    }
-    // @ts-expect-error
-    get value() {
-        return this.previous.value;
-    }
-    set value(val) { }
-}
-/**
- * 拥有与事件类似的逻辑
- * 每对节点之间代表一个BPM相同的片段
- * 片段之间BPM可以发生改变
- */
-class BPMSequence extends EventNodeSequence {
-    constructor(bpmList, duration) {
-        super(EventType.bpm, null);
-        this.duration = duration;
-        let curPos = this.head;
-        let next = bpmList[0];
-        this.listLength = bpmList.length;
-        for (let i = 1; i < bpmList.length; i++) {
-            const each = next;
-            next = bpmList[i];
-            const startNode = new BPMStartNode(each.startTime, each.bpm);
-            const endNode = new BPMEndNode(next.startTime);
-            BPMStartNode.connect(startNode, endNode);
-            BPMStartNode.connect(curPos, startNode);
-            curPos = endNode;
-        }
-        const last = new BPMStartNode(next.startTime, next.bpm);
-        BPMStartNode.connect(curPos, last);
-        BPMStartNode.connect(last, this.tail);
-        this.initJump();
-    }
-    initJump() {
-        console.log(this);
-        this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.time);
-        if (this.effectiveBeats !== 0) {
-            super.initJump(); // 为0可以跳过jumpArray，用不到
-            // 只有一个BPM片段就会这样
-        }
-        this.updateSecondJump();
-    }
-    updateSecondJump() {
-        let integral = 0;
-        // 计算积分并缓存到BPMNode
-        let node = this.head.next;
-        while (true) {
-            if ("tailing" in node.next) {
-                break;
-            }
-            const endNode = node.next;
-            node.cachedStartIntegral = integral;
-            integral += node.getFullIntegral();
-            node.cachedIntegral = integral;
-            node = endNode.next;
-        }
-        node.cachedStartIntegral = integral;
-        if (this.effectiveBeats === 0) {
-            return;
-        }
-        const originalListLength = this.listLength;
-        this.secondJump = new JumpArray(this.head, this.tail, originalListLength, this.duration, (node) => {
-            if ("tailing" in node) {
-                return [null, null];
-            }
-            if ("heading" in node) {
-                return [0, node.next];
-            }
-            const endNode = node.next;
-            const time = node.cachedIntegral;
-            const nextNode = endNode.next;
-            if ("tailing" in nextNode.next) {
-                return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
-            }
-            else {
-                return [time, nextNode];
-            }
-        }, (node, seconds) => {
-            return node.cachedIntegral > seconds ? false : node.next.next;
-        });
-    }
-    getNodeBySeconds(seconds) {
-        if (this.effectiveBeats === 0) {
-            return this.tail.previous;
-        }
-        const node = this.secondJump.getNodeAt(seconds);
-        if ("tailing" in node) {
-            return node.previous;
-        }
-        return node;
-    }
-}
-/**
- * TimeT是用带分数表示的拍数，该元组的第一个元素表示整数部分，第二个元素表示分子，第三个元素表示分母。
- */
-class TimeCalculator {
-    constructor() {
-    }
-    update() {
-        let bpmList = this.bpmList;
-        this.bpmSequence = new BPMSequence(bpmList, this.duration);
-    }
-    toSeconds(beats) {
-        const node = this.bpmSequence.getNodeAt(beats);
-        // console.log(node)
-        const pre = !("heading" in node.previous) ? node.previous.previous.cachedIntegral : 0;
-        return node.cachedStartIntegral + node.getIntegral(beats);
-    }
-    segmentToSeconds(beats1, beats2) {
-        let ret = this.toSeconds(beats2) - this.toSeconds(beats1);
-        if (ret < 0) {
-            console.warn("segmentToSeconds的第二个参数需大于第一个！", "得到的参数：", arguments);
-        }
-        return ret;
-    }
-    secondsToBeats(seconds) {
-        const node = this.bpmSequence.getNodeBySeconds(seconds);
-        // console.log("node:", node)
-        const beats = (seconds - node.cachedStartIntegral) / node.spb;
-        return TimeCalculator.toBeats(node.time) + beats;
-    }
-    static toBeats(beaT) {
-        if (!beaT)
-            debugger;
-        return beaT[0] + beaT[1] / beaT[2];
-    }
-    static getDelta(beaT1, beaT2) {
-        return this.toBeats(beaT1) - this.toBeats(beaT2);
-    }
-    static eq(beaT1, beaT2) {
-        return beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] === beaT1[2] * beaT2[1]; // 这里曾经把两个都写成beaT1，特此留念（
-    }
-    static gt(beaT1, beaT2) {
-        return beaT1[0] > beaT2[0] || beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] > beaT1[2] * beaT2[1];
-    }
-    static lt(beaT1, beaT2) {
-        return beaT1[0] < beaT2[0] || beaT1[0] === beaT2[0] && beaT1[1] * beaT2[2] < beaT1[2] * beaT2[1];
-    }
-    static ne(beaT1, beaT2) {
-        return beaT1[0] !== beaT2[0] || beaT1[1] * beaT2[2] !== beaT1[2] * beaT2[1];
-    }
-    static add(beaT1, beaT2) {
-        return [beaT1[0] + beaT2[0], beaT1[1] * beaT2[2] + beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
-    }
-    static sub(beaT1, beaT2) {
-        return [beaT1[0] - beaT2[0], beaT1[1] * beaT2[2] - beaT1[2] * beaT2[1], beaT1[2] * beaT2[2]];
-    }
-    static div(beaT1, beaT2) {
-        return [(beaT1[0] * beaT1[2] + beaT1[1]) * beaT2[2], (beaT2[0] * beaT2[2] + beaT2[1]) * beaT1[2]];
-    }
-    static mul(beaT, ratio) {
-        // 将带分数beaT: TimeT乘一个分数[number, number]得到一个新的带分数returnval: TimeT，不要求这个带分数分子不超过分母，但所有的数都是整数
-        // （输入的两个元组都是整数元组）
-        const [numerator, denominator] = ratio;
-        const b0nume = beaT[0] * numerator;
-        const remainder = b0nume % denominator;
-        if (remainder === 0) {
-            return [b0nume / denominator, beaT[1] * numerator, beaT[2] * denominator];
-        }
-        else {
-            return [Math.floor(b0nume / denominator), beaT[1] * numerator + remainder * beaT[2], beaT[2] * denominator];
-        }
-    }
-    /**
-     * 原地规范化时间元组，但仍然返回这个元组，方便使用
-     * validate TimeT in place
-     * @param beaT
-     */
-    static validate(beaT) {
-        if (beaT === undefined || beaT[2] === 0) {
-            throw new Error("Invalid time" + beaT.valueOf());
-        }
-        if (beaT[1] >= beaT[2]) {
-            const quotient = Math.floor(beaT[1] / beaT[2]);
-            const remainder = beaT[1] % beaT[2];
-            beaT[0] += quotient;
-            beaT[1] = remainder;
-        }
-        else if (beaT[1] < 0) {
-            const quotient = Math.floor(beaT[1] / beaT[2]);
-            const remainder = beaT[2] + beaT[1] % beaT[2];
-            beaT[0] += quotient;
-            beaT[1] = remainder;
-        }
-        if (beaT[1] === 0) {
-            beaT[2] = 1;
-            return beaT;
-        }
-        const gcd = this.gcd(beaT[2], beaT[1]);
-        if (gcd > 1) {
-            beaT[1] /= gcd;
-            beaT[2] /= gcd;
-        }
-        return beaT;
-    }
-    static gcd(a, b) {
-        if (a === 0 || b === 0) {
-            return 0;
-        }
-        while (b !== 0) {
-            const r = a % b;
-            a = b;
-            b = r;
-        }
-        return a;
-    }
-    dump() {
-        return this.bpmList;
-    }
-}
-const TC = TimeCalculator;
 class ChartMetadata {
     constructor(name, song, picture, chart) {
         this.name = name;
@@ -6838,6 +7256,7 @@ class ServerApi {
         setInterval(() => {
             const chart = editor.chart;
             if (chart.modified) {
+                chart.chartingTime++;
                 this.autosave(chart.dumpKPA())
                     .then(success => {
                     if (success) {
@@ -6850,6 +7269,27 @@ class ServerApi {
                 });
             }
         }, 60000);
+    }
+}
+class Settings {
+    constructor() {
+        let json;
+        if (json = localStorage.getItem("settings")) {
+            this.cache = JSON.parse(json);
+        }
+        else {
+            this.cache = {
+                lineColor: [200, 200, 120],
+                playerShowInfo: true
+            };
+        }
+    }
+    get(item) {
+        return this.cache[item];
+    }
+    set(item, val) {
+        this.cache[item] = val;
+        localStorage.setItem("settings", JSON.stringify(this.cache));
     }
 }
 if (globalThis.document) {

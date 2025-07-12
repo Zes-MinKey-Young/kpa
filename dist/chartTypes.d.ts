@@ -1,4 +1,4 @@
-/// <reference path="../src/chartTypes.d.ts" />
+/// <reference path="../src/shared/chartTypes.d.ts" />
 
 export enum EventType {
     moveX,
