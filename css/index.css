@@ -7,7 +7,8 @@ body, html {
     font-family: "phigros";
     color: white;
     margin: 0;
-    height: 100%;
+    height: 100lvh;
+    width: 100lvw;
     overflow: hidden;
     box-sizing: border-box;
     user-select: none;
@@ -46,21 +47,47 @@ input:not(:focus) {
 #preview {
     grid-row: 2 / 3;
     grid-column: 1 / 2;
+    height: calc((100vh - 2em - 6px) / 2 ); /* 防止Canvas撑大整个布局 */
 }
 
 #preview {
-    display: grid;
-    grid-template-columns: auto auto;
+    display: flex;
+    flex-direction: row;
 }
 
-#itemInfo {
+canvas#player {
+    height: 100%
+}
+
+.notes-editor {
+    height: calc((100vh - 2em - 6px) / 2 )
+}
+
+.notes-editor-status-bar {
+    margin: auto;
+}
+
+.notes-editor.mobile {
+    position: absolute;
+    left: 0;
+    transition: 0.5s ease-out opacity;
+    opacity: 0.2;
+}
+
+.notes-editor.mobile:hover {
+    opacity: 1;
+}
+
+
+
+#noteInfo {
     grid-row: 2 / 3;
     grid-column: 2 / 3;
-    overflow: auto;
     display: flex;
     flex-direction: column;
     gap: 4px;
     isolation: isolate;
+    height: calc((100vh - 2em - 6px) / 2 );
 }
 
 #eventSequence {
@@ -127,138 +154,16 @@ input:not(:focus) {
     display: grid;
     padding: 3em 2em;
     grid-template-columns: 3fr 7fr;
+    overflow: auto;
+}
+
+.side-editor .dropdown-option-box {
+    margin-inline: auto;
 }
 
 
 
 
-
-
-.input-box {
-    border-radius: 0;
-    text-align: center;
-}
-
-.fraction-input {
-    background-color: #ddd;
-    padding: 2px;
-    gap: 2px;
-    display: grid;
-    grid-template-rows: 1.5em 2px 1.5em;
-    grid-template-columns: 2em 2em;
-    margin: auto
-}
-
-.fraction-input .input-box.integer {
-    grid-row: 1 / 4;
-    margin: auto 0
-}
-
-.fraction-input .line {
-    background-color: black;
-}
-
-
-.dropdown-option-box {
-    background-color: #FFF;
-    color: black;
-    min-height: 1em;
-    width: 4em;
-    text-align: center;
-    margin: auto;
-    position: relative;
-}
-.dropdown-option-box > span {
-}
-
-.dropdown-option-box .dropdown-option-list {
-    top: 100%;
-    position: absolute;
-    min-width: 4em;
-    display: none;
-    z-index: 1;
-}
-
-.dropdown-option-box.up .dropdown-option-list {
-    top: unset;
-    bottom: 100% !important;
-    position: absolute;
-}
-
-.dropdown-option-box:hover .dropdown-option-list {
-    display: block;
-    background-color: #BBB;
-    border: 1px solid black;
-}
-.dropdown-option-list > *:nth-child(even) {
-    background-color: #CCC;
-}
-.dropdown-option-list > *:hover {
-    background-color: #4499aa;
-}
-
-.flex-row {
-    display: flex;
-    margin: auto;
-    flex-direction: row;
-    gap: 2px;
-}
-
-.arrow-down {
-    background-image: url(../img/ArrowDown.png);
-    grid-row: 2;
-}
-
-.arrow-up {
-    background-image: url(../img/ArrowUp.png);
-}
-
-.arrow-down, .arrow-up {
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-}
-
-.arrow-input-box {
-    display: grid;
-    grid-template-rows: 1fr 1fr;
-    grid-template-columns: 1em 4em;
-}
-
-.arrow-input-box .input-box {
-    grid-row: 1 / 3;
-    grid-column: 2;
-}
-
-.button {
-    background-color: #eee;
-    color: #555;
-    padding: 0.2em 0.5em;
-    margin-block: auto;
-    border-radius: 0.25em;
-    cursor: pointer;
-    user-select: none;
-    text-align: center;
-}
-
-.button.destructive {
-    background-color: #f44;
-    color: white;
-
-}
-
-.button.progressive {
-    background-color: #4af;
-    color: white;
-}
-
-.switch.checked {
-    background-color: aquamarine;
-}
-
-.button.disabled {
-    background-color: #aaa;
-}
 
 .event-curve-editors {
     display: flex;
@@ -268,11 +173,12 @@ input:not(:focus) {
 .event-curve-editors-bar {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
 }
 
 .notes-editor {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto 1fr;
 }
 
 .notes-editor-status-bar {
@@ -285,16 +191,6 @@ input:not(:focus) {
     grid-column: span 2;
 }
 
-.radio-box {
-    display: flex;
-    flex-direction: row;
-    gap: 2px;
-}
-
-dialog[open] {
-    display: flex;
-    top: 20%;
-}
 
 .notification {
     background-color: #CCC;

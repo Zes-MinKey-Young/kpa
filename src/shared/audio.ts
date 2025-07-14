@@ -4,20 +4,24 @@
 
 
 class AudioProcessor {
+    instance?: AudioProcessor;
     audioContext: AudioContext;
     initialized: boolean;
     tap: AudioBuffer;
     drag: AudioBuffer;
     flick: AudioBuffer
     constructor() {
+        if (this.instance) {
+            return this.instance;
+        }
         this.audioContext = "AudioContext" in window ? new AudioContext() : new globalThis.webkitAudioContext();
         this.init()
     }
     init() {
         Promise.all([
-            this.fetchAudioBuffer("../sound/tap.mp3"),
-            this.fetchAudioBuffer("../sound/drag.mp3"),
-            this.fetchAudioBuffer("../sound/flick.mp3")
+            this.fetchAudioBuffer(serverApi.resolvePath("/sound/tap.mp3")),
+            this.fetchAudioBuffer(serverApi.resolvePath("/sound/drag.mp3")),
+            this.fetchAudioBuffer(serverApi.resolvePath("/sound/flick.mp3"))
         ]).then(([T, D, F]) => {
             this.tap = T;
             this.drag = D;

@@ -402,15 +402,6 @@ class JudgeLine {
         }
     }
 
-    private dumpControlEvent(event: ControlEvent): any {
-        return {
-            startTime: event.startTime,
-            endTime: event.endTime,
-            startValue: event.startValue,
-            endValue: event.endValue,
-            easing: templateLib.resolveEasing(event.easing)
-        };
-    }
     
     updateEffectiveBeats(EB: number) {
         for (let i = 0; i < this.eventLayers.length; i++) {

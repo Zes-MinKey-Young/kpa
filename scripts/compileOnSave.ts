@@ -11,7 +11,7 @@ const debounce = (fn: Function, delay: number) => {
     };
 };
 
-const confPaths = ["../src/tsconfig-editor.json"];
+const confPaths = ["../src/tsconfig-editor.json", "../src/tsconfig-diff.json"];
 
 for (const path of confPaths) {
     const configFile = Bun.file(path);
@@ -23,9 +23,9 @@ for (const path of confPaths) {
             if (eventType === "change") {
                 console.log("Compiling...");
                 const proc = Bun.spawn(["tsc", "-p", path], { cwd: "../src" });
-                proc.stdout.pipeTo(new WritableStream({
+                proc.stdout.pipeTo(new WritableStream<Uint8Array>({
                     write(chunk) {
-                        console.log(chunk.toString());
+                        console.log(new TextDecoder().decode(chunk));
                     },
                 }));
             }

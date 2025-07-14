@@ -3,6 +3,9 @@
     "references": [
         {
             "path": "./tsconfig-editor.json"
+        },
+        {
+            "path": "./tsconfig-diff.json"
         }
     ]
 }

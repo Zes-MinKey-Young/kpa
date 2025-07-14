@@ -211,6 +211,7 @@ const generateTipsLabel = (): Z<"div"> => {
 }
 
 
+
 class Editor extends EventTarget {
     initialized: boolean;
     chartInitialized: boolean;
@@ -239,7 +240,7 @@ class Editor extends EventTarget {
     $saveButton = new ZButton("保存");
     $compileButton = new ZButton("编译");
     $playbackRate: ZDropdownOptionBox;
-    $offsetInput: ZInputBox;
+    $offsetInput = new ZInputBox().attr("size", "3");
     $tipsLabel: Z<"div">;
 
     judgeLinesEditor: JudgeLinesEditor;
@@ -261,21 +262,30 @@ class Editor extends EventTarget {
         this.chartInitialized = false
 
         // load player
-        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"), this);
-        this.notesEditor = new NotesEditor(this, this.$preview.clientWidth - this.player.canvas.width, this.player.canvas.height)
+        this.player = new Player(<HTMLCanvasElement>document.getElementById("player"));
+
+        this.notesEditor = new NotesEditor(this);
         this.notesEditor.appendTo(this.$preview)
+        const notesEditorWidth = this.$preview.clientWidth - this.player.canvas.clientWidth;
+        if (notesEditorWidth < 400) {
+            this.notesEditor.addClass("mobile");
+            this.notesEditor.init(this.$preview.clientWidth, this.$preview.clientHeight)
+        } else {
+            this.notesEditor.init(notesEditorWidth, this.$preview.clientHeight)
+        }
         this.progressBar = new ZProgressBar(
-            this.player.audio,
-            () => this.pause(),
-            () => {
+            this.player.audio);
+        this.progressBar.addEventListener("pause", () => this.pause());
+        this.progressBar.addEventListener("change", () => {
             this.update();
             this.player.render();
-        });
+        })
         this.progressBar.appendTo(this.$topbar)
 
         
-        this.eventCurveEditors = new EventCurveEditors(this.$eventSequence.clientWidth, this.$eventSequence.clientHeight);
+        this.eventCurveEditors = new EventCurveEditors();
         this.eventCurveEditors.appendTo(this.$eventSequence)
+        this.eventCurveEditors.init();
 
         
         this.playButton = <HTMLButtonElement>document.getElementById("playButton")
@@ -337,18 +347,17 @@ class Editor extends EventTarget {
             const json = compiler.compileChart();
             saveTextToFile(JSON.stringify(json), this.chart.name + ".rpe.json")
         })
-        this.$offsetInput = new ZInputBox()
-            .whenValueChange(() => {
+        this.$offsetInput.whenValueChange(() => {
                 this.chart.offset = this.$offsetInput.getInt();
             });
         this.$tipsLabel = generateTipsLabel();
         this.$topbar.append(
             this.$timeDivisor,
             this.$playbackRate,
+            this.$offsetInput,
             this.$saveButton,
             this.$saveDialog,
             this.$compileButton,
-            this.$offsetInput,
             this.$tipsLabel
         )
 
@@ -359,10 +368,10 @@ class Editor extends EventTarget {
                 this.$saveButton.disabled = false;
             })
             this.operationList.addEventListener("noundo", () => {
-                Editor.notify("Nothing to undo");
+                notify("Nothing to undo");
             });
             this.operationList.addEventListener("noredo", () => {
-                Editor.notify("Nothing to redo");
+                notify("Nothing to redo");
             });
         });
         window.addEventListener("beforeunload", (e) => {
@@ -378,6 +387,16 @@ class Editor extends EventTarget {
                 this.operationList?.redo();
             }
         })
+        /*
+        window.addEventListener("resize", () => {
+            this.player.initCoordinate();
+            if (!this.initialized) {
+                this.player.initGreyScreen()
+            } else {
+                this.update()
+            }
+        })
+            */
     }
     shownSideEditor: SideEditor<any>;
     switchSide(editor: SideEditor<any>) {
@@ -399,6 +418,36 @@ class Editor extends EventTarget {
             })
             this.loadChart();
         }
+    }
+    addListenerForPlayer() {
+        const player = this.player;
+        const canvas = player.canvas;
+        
+        canvas.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            player.renderDropScreen()
+        })
+        canvas.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            player.renderGreyScreen()
+        })
+        canvas.addEventListener("drop", (e) => {
+            const files = e.dataTransfer.files;
+            const len = files.length;
+            for (let i = 0; i < len; i++) {
+                const file = files[i];
+                const arr = file.name.split(".")
+                const extension = arr[arr.length - 1];
+                if (["jpeg", "jpg", "png", "gif", "svg", "webp", "bmp", "ico"].includes(extension)) {
+                    this.readImage(file);
+                } else if (["json"].includes(extension)) {
+                    this.readChart(file)
+                } else {
+                    this.readAudio(file)
+                }
+            }
+            e.preventDefault()
+        })
     }
     readChart(file: Blob) {
         const reader = new FileReader()
@@ -531,8 +580,5 @@ class Editor extends EventTarget {
         this.player.pause()
         this.update()
         this.playButton.innerHTML = "继续"
-    }
-    static notify(message: string) {
-        $(document.body).append(new ZNotification(message))
     }
 }

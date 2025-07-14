@@ -118,6 +118,12 @@ const innerProduct = (v1: Vector, v2: Vector) => {
 }
 
 
+
+const getOffset = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    return [rect.left, rect.top];
+}
+
 /**
  * To get offset coordinates from mouse or touch
  * @param event 
@@ -125,10 +131,14 @@ const innerProduct = (v1: Vector, v2: Vector) => {
  * @returns 
  */
 const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element: HTMLElement) => [number, number] = 
-(event: MouseEvent | TouchEvent, element: HTMLElement) => 
-    event instanceof MouseEvent ?
-     [event.offsetX, event.offsetY] :
-     [event.changedTouches[0].clientX - element.offsetTop, event.changedTouches[0].clientY - element.offsetTop]
+(event: MouseEvent | TouchEvent, element: HTMLElement) =>  {
+    if (event instanceof MouseEvent) {
+        return [event.offsetX, event.offsetY];
+    } else {
+        const [left, top] = getOffset(element); // 不是简单的offsetLeft，因为offsetLeft是相对于offsetParent的
+        return [event.changedTouches[0].clientX - left, event.changedTouches[0].clientY - top];
+    }
+}
 
 function saveTextToFile(text: string, filename: string) {
     // 创建一个 Blob 对象
@@ -171,3 +181,5 @@ function changeAudioTime(audio: HTMLAudioElement, delta: number) {
         audio.currentTime = time;
     }
 }
+
+

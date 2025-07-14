@@ -109,6 +109,7 @@ interface Config {
     create: string[][];
     commit: string[][];
     autosave: string[][];
+    revision: string[];
     versionControlEnabled: boolean;
     key: string;
     cert: string;
@@ -123,6 +124,7 @@ const pathqueryCmd = configData.pathquery;
 const createCmds = configData.create;
 const commitCmds = configData.commit;
 const autosaveCmds = configData.autosave;
+const revisionCmds = configData.revision;
 const versionControlEnabled = configData.versionControlEnabled || false;
 
 const key = configData.key;
@@ -133,6 +135,14 @@ const generateCommand = (cmdTemplate: string[], time: Date, message: string) => 
         (token) => token
             .replaceAll("$time", time.toLocaleString().replaceAll("/", "-"))
             .replaceAll("$message", message)
+    )
+}
+
+const generateRevCommand = (cmdTemplate: string[], file: string, version: string) => {
+    return cmdTemplate.map(
+        (token) => token
+            .replaceAll("$file", file)
+            .replaceAll("$version", version)
     )
 }
 
@@ -148,6 +158,11 @@ function checkRepo(cwd: string) {
         console.log("There is a parent repo. Will create a sub repo.")
     }
     return false;
+}
+
+function getChartRevision(cwd: string, version: string) {
+    const proc = Bun.spawnSync(generateRevCommand(revisionCmds, "chart.json", version), {cwd});
+    return proc.stdout.toString("utf8");
 }
 
 async function isChart(dir: string) {
@@ -168,7 +183,7 @@ Bun.serve({
     routes: {
         "/": Response.redirect("/html/chartIndex.html"),
         "/status": () => {
-            return new Response("", { status: 204 })
+            return new Response("", { status: 204, headers: { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }})
         },
         "/html": async () => {
             return new Response(Bun.file("../html/index.html"), { status: 200 });
@@ -286,6 +301,15 @@ Bun.serve({
         },
         "/Resources/:id": async (req: BunRequest) => {
             return new Response(Bun.file("../html/index.html"))
+        },
+        "/Resources/:id/diff": async (req: BunRequest) => {
+            return new Response(Bun.file("../html/diff.html"))
+        },
+        "/Resources/:id/history/:version": async (req: BunRequest) => {
+            const { id, version } = req.params;
+            const folder = "../Resources/" + id;
+            const content = getChartRevision(folder, version);
+            return new Response(content, { headers: { "Content-Type": "application/json" } });
         },
         "/autosave/:id": async (req: BunRequest) => {
             if (req.method !== "POST") {

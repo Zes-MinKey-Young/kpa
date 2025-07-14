@@ -13,7 +13,6 @@ const RENDER_SCOPE = 900;
 const getVector = (theta: number): [Vector, Vector] => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]]
 
 class Player {
-    editor: Editor;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
     hitCanvas: HTMLCanvasElement;
@@ -31,27 +30,18 @@ class Player {
 
     greenLine: number = 0;
     
-    constructor(canvas: HTMLCanvasElement, editor: Editor) {
+    constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
         this.context = canvas.getContext("2d");
         this.audioProcessor = new AudioProcessor();
         this.hitCanvas = document.createElement("canvas");
         this.hitContext = this.hitCanvas.getContext("2d");
         this.audio = new Audio();
-        this.editor = editor;
         this.playing = false;
         this.aspect = DEFAULT_ASPECT_RATIO;
-        this.noteSize = 135;
+        this.noteSize = 175;
         this.noteHeight = 10;
         this.initCoordinate();
-        window.addEventListener("resize", () => {
-            this.initCoordinate();
-            if (!editor.initialized) {
-                this.initGreyScreen()
-            } else {
-                editor.update()
-            }
-        })
         this.audio.addEventListener("ended", () => {
             this.playing = false;
         })
@@ -68,8 +58,8 @@ class Player {
         let {canvas, context, hitCanvas, hitContext} = this;
         
         // console.log(context.getTransform())
-        const height = canvas.parentElement.clientHeight;
-        const width = height * (this.aspect)
+        const height = 900;
+        const width = 1350;
         canvas.height = height;
         canvas.width = width;
         hitCanvas.height = height;
@@ -119,31 +109,6 @@ class Player {
     initGreyScreen() {
         const {canvas, context} = this;
         this.renderGreyScreen()
-        canvas.addEventListener("dragover", (e) => {
-            e.preventDefault();
-            this.renderDropScreen()
-        })
-        canvas.addEventListener("dragleave", (e) => {
-            e.preventDefault();
-            this.renderGreyScreen()
-        })
-        canvas.addEventListener("drop", (e) => {
-            const files = e.dataTransfer.files;
-            const len = files.length;
-            for (let i = 0; i < len; i++) {
-                const file = files[i];
-                const arr = file.name.split(".")
-                const extension = arr[arr.length - 1];
-                if (["jpeg", "jpg", "png", "gif", "svg", "webp", "bmp", "ico"].includes(extension)) {
-                    this.editor.readImage(file);
-                } else if (["json"].includes(extension)) {
-                    this.editor.readChart(file)
-                } else {
-                    this.editor.readAudio(file)
-                }
-            }
-            e.preventDefault()
-        })
     }
     render() {
         if (!ENABLE_PLAYER) {
@@ -519,7 +484,7 @@ class Player {
 
 class ZProgressBar extends Z<"progress"> {
     target: HTMLAudioElement;
-    constructor(target: HTMLAudioElement, pauseFn: () => void, updateFn: () => void) {
+    constructor(target: HTMLAudioElement) {
         super("progress");
         this.target = target;
         const element = this.element;
@@ -535,7 +500,7 @@ class ZProgressBar extends Z<"progress"> {
         let controlling = false;
         on(["mousedown", "touchstart"], element, (event: MouseEvent | TouchEvent) => {
             controlling = true;
-            pauseFn();
+            this.dispatchEvent(new Event("pause"));
         });
         on(["mousemove", "touchmove"], element, (event: MouseEvent | TouchEvent) => {
             let posX: number;
@@ -550,7 +515,7 @@ class ZProgressBar extends Z<"progress"> {
             const value = element.max * ((posX - element.offsetLeft) / element.clientWidth);
             element.value = value;
             target.currentTime = value;
-            updateFn()
+            this.dispatchEvent(new CustomEvent("change", {detail: value}))
         })
         on(["mouseup", "touchend"], element, (event: MouseEvent | TouchEvent) => {
             let posX: number;
@@ -566,7 +531,8 @@ class ZProgressBar extends Z<"progress"> {
             const value = element.max * ((posX - element.offsetLeft) / element.clientWidth);
             element.value = value;
             target.currentTime = value;
-            updateFn()
+            
+            this.dispatchEvent(new CustomEvent("change", {detail: value}))
         })
         on(["mouseleave", "touchend"], element, () => {
             controlling = false;

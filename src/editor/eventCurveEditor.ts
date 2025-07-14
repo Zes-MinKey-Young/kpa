@@ -47,7 +47,7 @@ enum NewNodeState {
 
 class EventCurveEditors extends Z<"div"> {
     element: HTMLDivElement;
-    $bar: Z<"div"> = $("div").addClass("flex-row");
+    $bar: Z<"div"> = $("div").addClass("event-curve-editors-bar");
     $typeSelect = new ZDropdownOptionBox([
             "moveX",
             "moveY",
@@ -58,7 +58,7 @@ class EventCurveEditors extends Z<"div"> {
             "bpm"
         ].map((s) => new BoxOption(s)), true);;
     $layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
-    $timeSpanInput = new ZInputBox("4");
+    $timeSpanInput = new ZInputBox("4").attr("size", "3");
     $editSwitch = new ZSwitch("Edit");
     $easingBox = new ZEasingBox(true);
     $newNodeStateSelect: ZDropdownOptionBox;
@@ -84,7 +84,7 @@ class EventCurveEditors extends Z<"div"> {
     clipboard: Set<EventStartNode>;
     nodesSelection: Set<EventStartNode>;
 
-    constructor(width: number, height: number) {
+    constructor() {
         super("div")
         this.addClass("event-curve-editors")
 
@@ -120,7 +120,7 @@ class EventCurveEditors extends Z<"div"> {
         this.$copyButton = new ZButton("Copy");
         this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
-        this.$templateNameInput = new ZInputBox();
+        this.$templateNameInput = new ZInputBox().attr("size", "4");
         this.$templateNameInput.whenValueChange((name) => {
             const easing = editor.chart.templateEasingLib.get(name)
             if (easing) {
@@ -162,14 +162,18 @@ class EventCurveEditors extends Z<"div"> {
         )
         this.append(this.$bar)
 
+
+        this.nodesSelection = new Set<EventStartNode>();
+
+    }
+    init() {
+        const barHeight = this.$bar.clientHeight;
         for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
-            this[type] = new EventCurveEditor(EventType[type], height - 40, width, this);
+            this[type] = new EventCurveEditor(EventType[type], this.parent.clientHeight - barHeight, this.parent.clientWidth, this);
             this[type].active = false;
             this.append(this[type].element)
         }
-        this.nodesSelection = new Set<EventStartNode>();
         this.selectedEditor = this.moveX;
-
     }
     _selectedEditor: EventCurveEditor;
     get selectedEditor() {
@@ -323,7 +327,7 @@ class EventCurveEditor {
 
         this.canvas = document.createElement("canvas")
         this.element.append(this.canvas)
-        this.canvas.width = width//this.canvas.parentElement.clientWidth;
+        this.canvas.width = width
         this.canvas.height = height;
         this.padding = 14;
         this.innerHeight = this.canvas.height - this.padding * 2;
@@ -344,7 +348,9 @@ class EventCurveEditor {
         this.initContext()
 
         this.easing = easingMap.linear.in;
-
+        
+        // 下面有一堆监听器
+        // #region
         parent.$editSwitch.whenClickChange((checked) => {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
         })
@@ -417,21 +423,21 @@ class EventCurveEditor {
             const $input = this.parentEditorSet.$templateNameInput
             const name = $input.getValue();
             if (name === "") {
-                Editor.notify("Please input template name")
+                notify("Please input template name")
                 return;
             }
             const lib = editor.chart.templateEasingLib;
             if (name in lib.easings) {
-                Editor.notify("Template name already exists")
+                notify("Template name already exists")
                 return;
             }
             const op = encapsule(lib, this.target, this.parentEditorSet.nodesSelection, name);
             if (op === EncapsuleErrorType.NotBelongToSourceSequence) {
-                Editor.notify("Not belong to source sequence")
+                notify("Not belong to source sequence")
             } else if (op === EncapsuleErrorType.NotContinuous) {
-                Editor.notify("Not continuous")
+                notify("Not continuous")
             } else if (op === EncapsuleErrorType.ZeroDelta) {
-                Editor.notify("Selected first and last eventStartNode has zero delta");
+                notify("Selected first and last eventStartNode has zero delta");
             } else {
                 editor.operationList.do(op);
                 parent.$templateNameInput.dispatchEvent(new ZValueChangeEvent());
@@ -452,8 +458,9 @@ class EventCurveEditor {
                     break;
             }
         })
-
+        // #endregion
     }
+
     matrix: Matrix;
     invertedMatrix: Matrix;
     canvasMatrix: Matrix;
@@ -790,7 +797,7 @@ class EventCurveEditor {
             return;
         }
         if (!lastBeats) {
-            Editor.notify("Have not rendered a frame")
+            notify("Have not rendered a frame")
         }
         const dest: TimeT = [this.pointedBeats, this.beatFraction, timeDivisor];
 

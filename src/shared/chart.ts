@@ -90,7 +90,6 @@ class Chart {
     modified: boolean = false;
     constructor() {}
     getEffectiveBeats() {
-        console.log(editor.player.audio.src)
         const effectiveBeats = this.timeCalculator.secondsToBeats(this.duration)
         console.log(effectiveBeats)
         this.effectiveBeats = effectiveBeats

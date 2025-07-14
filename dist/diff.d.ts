@@ -2,6 +2,63 @@
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
  */
+/**
+ * 使用AudioBuffer加快播放
+ */
+declare class AudioProcessor {
+    instance?: AudioProcessor;
+    audioContext: AudioContext;
+    initialized: boolean;
+    tap: AudioBuffer;
+    drag: AudioBuffer;
+    flick: AudioBuffer;
+    constructor();
+    init(): void;
+    fetchAudioBuffer(path: string): Promise<AudioBuffer>;
+    play(buffer: AudioBuffer): void;
+    playNoteSound(type: NoteType): void;
+}
+declare const TAP: HTMLImageElement;
+declare const DRAG: HTMLImageElement;
+declare const FLICK: HTMLImageElement;
+declare const HOLD: HTMLImageElement;
+declare const HOLD_HEAD: HTMLImageElement;
+declare const HOLD_BODY: HTMLImageElement;
+declare const DOUBLE: HTMLImageElement;
+declare const BELOW: HTMLImageElement;
+declare const ANCHOR: HTMLImageElement;
+declare const NODE_START: HTMLImageElement;
+declare const NODE_END: HTMLImageElement;
+declare const HIT_FX: HTMLImageElement;
+declare const SELECT_NOTE: HTMLImageElement;
+declare const TRUCK: HTMLImageElement;
+declare const fetchImage: () => void;
+declare const drawNthFrame: (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
+declare const getImageFromType: (noteType: NoteType) => HTMLImageElement;
+declare class Coordinate {
+    readonly x: number;
+    readonly y: number;
+    constructor(x: number, y: number);
+    mul(matrix: Matrix): Coordinate;
+    static from([x, y]: [number, number]): Coordinate;
+}
+declare class Matrix {
+    readonly a: number;
+    readonly b: number;
+    readonly c: number;
+    readonly d: number;
+    readonly e: number;
+    readonly f: number;
+    constructor(a: number, b: number, c: number, d: number, e: number, f: number);
+    rotate(angle: number): Matrix;
+    translate(x: number, y: number): Matrix;
+    scale(x: number, y: number): Matrix;
+    invert(): Matrix;
+    xmul(x: number, y: number): number;
+    ymul(x: number, y: number): number;
+    static fromDOMMatrix({ a, b, c, d, e, f }: DOMMatrix): Matrix;
+}
+declare const identity: Matrix;
 declare const DEFAULT_TEMPLATE_LENGTH = 16;
 declare const easeOutElastic: (x: number) => number;
 declare const easeOutBounce: (x: number) => number;
@@ -1199,6 +1256,71 @@ declare class ZNotification extends Z<"div"> {
     constructor(text: string, timeout?: number);
 }
 declare function notify(message: string): void;
+declare const ENABLE_PLAYER = true;
+declare const DRAWS_NOTES = true;
+declare const DEFAULT_ASPECT_RATIO: number;
+declare const LINE_WIDTH = 10;
+declare const LINE_COLOR = "#CCCC77";
+declare const HIT_EFFECT_SIZE = 200;
+declare const HALF_HIT: number;
+declare const RENDER_SCOPE = 900;
+declare const getVector: (theta: number) => [Vector, Vector];
+declare class Player {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    hitCanvas: HTMLCanvasElement;
+    hitContext: CanvasRenderingContext2D;
+    chart: Chart;
+    audio: HTMLAudioElement;
+    audioProcessor: AudioProcessor;
+    playing: boolean;
+    background: HTMLImageElement;
+    aspect: number;
+    noteSize: number;
+    noteHeight: number;
+    soundQueue: SoundEntity[];
+    lastBeats: number;
+    greenLine: number;
+    constructor(canvas: HTMLCanvasElement);
+    get time(): number;
+    get beats(): number;
+    initCoordinate(): void;
+    renderDropScreen(): void;
+    renderGreyScreen(): void;
+    initGreyScreen(): void;
+    render(): void;
+    renderLine(baseX: number, baseY: number, judgeLine: JudgeLine): void;
+    renderSounds(tree: NNList, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator): void;
+    renderHitEffects(judgeLine: JudgeLine, tree: NNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    /**
+     *
+     * @param judgeLine
+     * @param tree
+     * @param beats 当前拍数
+     * @param startBeats
+     * @param endBeats 截止拍数
+     * @param hitContext
+     * @param timeCalculator
+     * @returns
+     */
+    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator): void;
+    renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number): void;
+    private update;
+    play(): void;
+    pause(): void;
+}
+declare class ZProgressBar extends Z<"progress"> {
+    target: HTMLAudioElement;
+    constructor(target: HTMLAudioElement);
+    update(): void;
+}
+declare class SoundEntity {
+    type: NoteType;
+    beats: number;
+    seconds: number;
+    constructor(type: NoteType, beats: number, timeCalculator: TimeCalculator);
+}
 interface ListNode<T> {
     next: ListNode<T> | null;
     value: T;
@@ -1279,770 +1401,6 @@ declare const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element:
 declare function saveTextToFile(text: string, filename: string): void;
 declare function shortenFloat(num: number, decimalPlaces: number): number;
 declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
-declare class OperationList extends EventTarget {
-    parentChart: Chart;
-    operations: Operation[];
-    undoneOperations: Operation[];
-    constructor(parentChart: Chart);
-    undo(): void;
-    redo(): void;
-    do(operation: Operation): void;
-}
-declare abstract class Operation {
-    ineffective: boolean;
-    updatesEditor: boolean;
-    constructor();
-    abstract do(): void;
-    abstract undo(): void;
-    rewrite(op: typeof this): boolean;
-}
-declare class ComplexOperation<T extends Operation[]> extends Operation {
-    subOperations: T;
-    length: number;
-    constructor(...sub: T);
-    do(): void;
-    undo(): void;
-}
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size";
-declare class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
-    field: T;
-    note: Note;
-    previousValue: Note[T];
-    value: Note[T];
-    updatesEditor: boolean;
-    constructor(note: Note, field: T, value: Note[T]);
-    do(): void;
-    undo(): void;
-    rewrite(operation: NoteValueChangeOperation<T>): boolean;
-}
-declare class NoteRemoveOperation extends Operation {
-    noteNode: NoteNode;
-    note: Note;
-    isHold: boolean;
-    constructor(note: Note);
-    do(): void;
-    undo(): void;
-}
-/**
- * 删除一个note
- * 从语义上删除Note要用这个操作
- * 结果上，这个会更新编辑器
- */
-declare class NoteDeleteOperation extends NoteRemoveOperation {
-    updatesEditor: boolean;
-}
-declare class MultiNoteDeleteOperation extends ComplexOperation<NoteDeleteOperation[]> {
-    updatesEditor: boolean;
-    constructor(notes: Set<Note> | Note[]);
-}
-declare class NoteAddOperation extends Operation {
-    noteNode: NoteNode;
-    note: Note;
-    isHold: boolean;
-    updatesEditor: boolean;
-    constructor(note: Note, node: NoteNode);
-    do(): void;
-    undo(): void;
-}
-declare class MultiNoteAddOperation extends ComplexOperation<NoteAddOperation[]> {
-    updatesEditor: boolean;
-    constructor(notes: Set<Note> | Note[], judgeLine: JudgeLine);
-}
-declare class NoteTimeChangeOperation extends ComplexOperation<[NoteRemoveOperation, NoteValueChangeOperation<"startTime">, NoteAddOperation]> {
-    note: Note;
-    updatesEditor: boolean;
-    constructor(note: Note, noteNode: NoteNode);
-    rewrite(operation: NoteTimeChangeOperation): boolean;
-}
-declare class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
-    constructor(note: Note, value: TimeT);
-    do(): void;
-    undo(): void;
-    rewrite(operation: HoldEndTimeChangeOperation): boolean;
-}
-declare class NoteSpeedChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
-    updatesEditor: boolean;
-    originalTree: NNList;
-    judgeLine: JudgeLine;
-    targetTree: NNList;
-    constructor(note: Note, value: number, line: JudgeLine);
-}
-declare class NoteTypeChangeOperation extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperation]*/ any> {
-    updatesEditor: boolean;
-    constructor(note: Note, value: number);
-}
-declare class NoteTreeChangeOperation extends NoteAddOperation {
-}
-declare class EventNodePairRemoveOperation extends Operation {
-    updatesEditor: boolean;
-    endNode: EventEndNode;
-    startNode: EventStartNode;
-    sequence: EventNodeSequence;
-    originalPrev: EventStartNode;
-    constructor(node: EventStartNode);
-    do(): void;
-    undo(): void;
-}
-/**
- * 将一对孤立的节点对插入到一个开始节点之后的操作。
- * 如果这个节点对的时刻与节点对的时刻相同，那么该节点对将不会被插入。
- * 而是把原来开始节点的值修改。
- */
-declare class EventNodePairInsertOperation extends Operation {
-    updatesEditor: boolean;
-    node: EventStartNode;
-    tarPrev: EventStartNode;
-    originalSequence: EventNodeSequence;
-    overlapped: boolean;
-    originalValue: number;
-    value: number;
-    /**
-     *
-     * @param node the node to insert
-     * @param targetPrevious The node to insert before, accessed through EventNodeSequence.getNodeAt(TC.toBeats(node))
-     * If the targetPrevious's time is the same as node's time, the node will not be inserted,
-     * and the targetPrevious' value will be replaced with the node's value.
-     */
-    constructor(node: EventStartNode, targetPrevious: EventStartNode);
-    do(): void;
-    undo(): void;
-}
-/**
- * Only used for new nodes
- * dynamically compute the targetPrevious
- * /
-class EventNodePairAddOperation extends Operation {
-    updatesEditor = true
-    constructor(public node: EventStartNode, public targetSequence: EventNodeSequence) {
-        super();
-    }
-    do() {
-        const tarPrev = this.targetSequence.getNodeAt(this.node.start);
-        const [endNode, startNode] =
-    }
-}
-*/
-declare class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
-    updatesEditor: boolean;
-    nodes: EventStartNode[];
-    constructor(nodes: EventStartNode[], seq: EventNodeSequence);
-}
-declare class MultiNodeDeleteOperation extends ComplexOperation<EventNodePairRemoveOperation[]> {
-    updatesEditor: boolean;
-    constructor(nodes: EventStartNode[]);
-}
-declare class EventNodeValueChangeOperation extends Operation {
-    updatesEditor: boolean;
-    node: EventNode;
-    value: number;
-    originalValue: number;
-    constructor(node: EventNode, val: number);
-    do(): void;
-    undo(): void;
-    rewrite(operation: EventNodeValueChangeOperation): boolean;
-}
-declare class EventNodeTimeChangeOperation extends Operation {
-    updatesEditor: boolean;
-    sequence: EventNodeSequence;
-    /**
-     * 这里两个node不是面对面，而是背靠背
-     * i. e. EndNode -> StartNode
-     */
-    startNode: EventStartNode;
-    endNode: EventEndNode;
-    value: TimeT;
-    originalValue: TimeT;
-    originalPrevious: EventStartNode;
-    newPrevious: EventStartNode;
-    constructor(node: EventStartNode | EventEndNode, val: TimeT);
-    do(): void;
-    undo(): void;
-}
-declare class EventNodeInnerEasingChangeOperation extends Operation {
-    updatesEditor: boolean;
-    startNode: EventStartNode;
-    value: Easing;
-    originalValue: Easing;
-    constructor(node: EventStartNode | EventEndNode, val: Easing);
-    do(): void;
-    undo(): void;
-}
-declare class EventNodeEasingChangeOperation extends Operation {
-    updatesEditor: boolean;
-    startNode: EventStartNode;
-    value: Easing;
-    originalValue: Easing;
-    constructor(node: EventStartNode | EventEndNode, val: Easing);
-    do(): void;
-    undo(): void;
-}
-declare class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation]> {
-    updatesEditor: boolean;
-    constructor(nodes: EventStartNode[], easing: TemplateEasing);
-}
-declare enum EncapsuleErrorType {
-    NotBelongToSourceSequence = 1,
-    NotContinuous = 2,
-    ZeroDelta = 3
-}
-/**
- * 将一些来自sourceSequence的节点打包为一个用于模板缓动的事件序列
- * 然后把sourceSequence中的源节点集合替换为单个使用了该模板的事件
- * @param sourceSequence
- * @param sourceNodes
- */
-declare function encapsule(templateEasingLib: TemplateEasingLib, sourceSequence: EventNodeSequence, sourceNodes: Set<EventStartNode>, name: string): EncapsuleErrorType | EncapsuleOperation;
-declare abstract class SideEditor<T extends object> extends Z<"div"> {
-    element: HTMLDivElement;
-    $title: Z<"div">;
-    $body: Z<"div">;
-    _target: WeakRef<T>;
-    get target(): T;
-    set target(val: T);
-    abstract update(): void;
-    constructor();
-}
-declare class NoteEditor extends SideEditor<Note> {
-    $time: ZFractionInput;
-    $endTime: ZFractionInput;
-    $type: ZDropdownOptionBox;
-    $position: ZInputBox;
-    $dir: ZDropdownOptionBox;
-    $speed: ZInputBox;
-    $alpha: ZInputBox;
-    $size: ZInputBox;
-    $delete: ZButton;
-    aboveOption: BoxOption;
-    belowOption: BoxOption;
-    noteTypeOptions: BoxOption[];
-    constructor();
-    update(): void;
-}
-declare class MultiNoteEditor extends SideEditor<Set<Note>> {
-    $reverse: ZButton;
-    $delete: ZButton;
-    constructor();
-    update(): void;
-}
-declare class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
-    $reverse: ZButton;
-    $delete: ZButton;
-    constructor();
-    update(): void;
-}
-declare class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
-    $time: ZFractionInput;
-    $value: ZInputBox;
-    $easing: ZEasingBox;
-    $radioTabs: ZRadioTabs;
-    $templateEasing: ZInputBox;
-    $delete: ZButton;
-    constructor();
-    setNormalEasing(id: number): void;
-    setTemplateEasing(name: string): void;
-    update(): void;
-}
-type PositionEntity<T> = {
-    target: T;
-    left: number;
-    top: number;
-    height: number;
-    width: number;
-    priority: number;
-} | {
-    target: T;
-    centerX: number;
-    centerY: number;
-    height: number;
-    width: number;
-    priority: number;
-    rad?: number;
-};
-declare const pointIsInRect: (x: number, y: number, rectTop: number, rectLeft: number, width: number, height: number) => boolean;
-declare class SelectionManager<T> {
-    positions: PositionEntity<T>[];
-    constructor();
-    refresh(): void;
-    add(entity: PositionEntity<T>): {
-        annotate: (context: CanvasRenderingContext2D, canvasX: number, canvasY: number) => void;
-    };
-    click(Coordinate: Coordinate): undefined | PositionEntity<T>;
-    click(x: number, y: number): undefined | PositionEntity<T>;
-    /**
-     * For PositionEntities whose centerXY is given, this method only examine whether the center is in the rect.
-     * For PositionEntities whose left, top is given, this method also examine whether the pos rect is in the rect.
-     * @param top
-     * @param left
-     * @param right
-     * @param bottom
-     * @returns
-     */
-    selectScope(top: number, left: number, bottom: number, right: number): PositionEntity<T>[];
-}
-declare const eventTypeMap: {
-    basis: number;
-    valueGridSpan: number;
-    valueRange: number;
-}[];
-type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
-declare enum NewNodeState {
-    controlsStart = 0,
-    controlsEnd = 1,
-    controlsBoth = 2
-}
-declare class EventCurveEditors extends Z<"div"> {
-    element: HTMLDivElement;
-    $bar: Z<"div">;
-    $typeSelect: ZDropdownOptionBox;
-    $layerSelect: ZDropdownOptionBox;
-    $timeSpanInput: ZInputBox;
-    $editSwitch: ZSwitch;
-    $easingBox: ZEasingBox;
-    $newNodeStateSelect: ZDropdownOptionBox;
-    $encapsuleBtn: ZButton;
-    $templateNameInput: ZInputBox;
-    $selectOption: ZDropdownOptionBox;
-    selectState: SelectState;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
-    moveX: EventCurveEditor;
-    moveY: EventCurveEditor;
-    alpha: EventCurveEditor;
-    rotate: EventCurveEditor;
-    speed: EventCurveEditor;
-    easing: EventCurveEditor;
-    bpm: EventCurveEditor;
-    lastBeats: number;
-    easingBeats: number;
-    clipboard: Set<EventStartNode>;
-    nodesSelection: Set<EventStartNode>;
-    constructor();
-    init(): void;
-    _selectedEditor: EventCurveEditor;
-    get selectedEditor(): EventCurveEditor;
-    set selectedEditor(val: EventCurveEditor);
-    _selectedLayer: "0" | "1" | "2" | "3" | "ex";
-    get selectedLayer(): "0" | "1" | "2" | "3" | "ex";
-    set selectedLayer(val: "0" | "1" | "2" | "3" | "ex");
-    draw(beats?: number): void;
-    target: JudgeLine;
-    changeTarget(target: JudgeLine): void;
-}
-type NodePosition = {
-    node: EventNode;
-    x: number;
-    y: number;
-};
-declare enum EventCurveEditorState {
-    select = 0,
-    selecting = 1,
-    edit = 2,
-    flowing = 3,
-    selectScope = 4,
-    selectingScope = 5
-}
-declare class EventCurveEditor {
-    type: EventType;
-    target: EventNodeSequence;
-    targetEasing?: TemplateEasing;
-    parentEditorSet: EventCurveEditors;
-    innerHeight: number;
-    innerWidth: number;
-    $element: Z<"div">;
-    element: HTMLDivElement;
-    canvas: HTMLCanvasElement;
-    context: CanvasRenderingContext2D;
-    valueRatio: number;
-    timeRatio: number;
-    valueRange: number;
-    /**
-     * (distance from the horizontal axis to the middle axis) / height
-     */
-    valueBasis: number;
-    timeRange: number;
-    timeGridSpan: number;
-    valueGridSpan: number;
-    timeGridColor: RGB;
-    valueGridColor: RGB;
-    padding: number;
-    lastBeats: number;
-    selectionManager: SelectionManager<EventNode>;
-    state: EventCurveEditorState;
-    wasEditing: boolean;
-    _selectedNode: WeakRef<EventStartNode | EventEndNode>;
-    pointedValue: number;
-    pointedBeats: number;
-    beatFraction: number;
-    easing: NormalEasing;
-    newNodeState: NewNodeState;
-    selectState: SelectState;
-    mouseIn: boolean;
-    startingPoint: Coordinate;
-    startingCanvasPoint: Coordinate;
-    canvasPoint: Coordinate;
-    get selectedNode(): EventStartNode | EventEndNode;
-    set selectedNode(val: EventStartNode | EventEndNode);
-    private _active;
-    /** @deprecated use active instead */
-    get displayed(): boolean;
-    set displayed(val: boolean);
-    get active(): boolean;
-    set active(val: boolean);
-    constructor(type: EventType, height: number, width: number, parent: EventCurveEditors);
-    matrix: Matrix;
-    invertedMatrix: Matrix;
-    canvasMatrix: Matrix;
-    invertedCanvasMatrix: Matrix;
-    updateMatrix(): void;
-    appendTo(parent: HTMLElement): void;
-    downHandler(event: MouseEvent | TouchEvent): void;
-    upHandler(event: MouseEvent | TouchEvent): void;
-    initContext(): void;
-    drawCoordination(beats: number): void;
-    draw(beats?: number): void;
-    changeTarget(line: JudgeLine, index: number): void;
-    paste(): void;
-    copy(): void;
-}
-declare const DRAWS_NN = true;
-declare const COLOR_1 = "#66ccff";
-declare const COLOR_2 = "#ffcc66";
-declare const HEAD = 1;
-declare const BODY = 2;
-declare const TAIL = 3;
-/**
- * 用于Note编辑器记录其中的音符贴图位置
- */
-type NotePosition = {
-    note: Note;
-    x: number;
-    y: number;
-    height: number;
-    type: 1 | 2 | 3;
-};
-declare enum NotesEditorState {
-    select = 0,
-    selecting = 1,
-    edit = 2,
-    selectScope = 3,
-    selectingScope = 4,
-    flowing = 5
-}
-declare class HoldTail {
-    note: Note;
-    constructor(note: Note);
-}
-declare const timeToString: (time: TimeT) => string;
-declare enum SelectState {
-    none = 0,
-    extend = 1,
-    replace = 2,
-    exclude = 3
-}
-declare class NotesEditor extends Z<"div"> {
-    editor: Editor;
-    $statusBar: Z<"div">;
-    canvas: HTMLCanvasElement;
-    context: CanvasRenderingContext2D;
-    _target: JudgeLine;
-    targetTree?: NNList;
-    positionBasis: number;
-    positionRatio: number;
-    positionGridSpan: number;
-    positionSpan: number;
-    timeRatio: number;
-    timeGridSpan: number;
-    timeSpan: number;
-    padding: number;
-    timeGridColor: RGB;
-    positionGridColor: RGB;
-    selectionManager: SelectionManager<Note | HoldTail>;
-    startingPoint: Coordinate;
-    startingCanvasPoint: Coordinate;
-    canvasPoint: Coordinate;
-    notesSelection: Set<Note>;
-    clipboard: Set<Note>;
-    selectingTail: boolean;
-    state: NotesEditorState;
-    selectState: SelectState;
-    wasEditing: boolean;
-    pointedPositionX: number;
-    pointedBeats: number;
-    beatFraction: number;
-    noteType: NoteType;
-    noteAbove: boolean;
-    drawn: boolean;
-    lastBeats: number;
-    $optionBox: ZEditableDropdownOptionBox;
-    $typeOption: ZDropdownOptionBox;
-    $noteAboveOption: ZDropdownOptionBox;
-    $selectOption: ZDropdownOptionBox;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
-    $editButton: ZSwitch;
-    allOption: EditableBoxOption;
-    mouseIn: boolean;
-    get target(): JudgeLine;
-    set target(line: JudgeLine);
-    constructor(editor: Editor);
-    downHandler(event: TouchEvent | MouseEvent): void;
-    upHandler(event: any): void;
-    _selectedNote: WeakRef<Note>;
-    get selectedNote(): Note;
-    set selectedNote(val: Note);
-    matrix: Matrix;
-    invertedMatrix: Matrix;
-    canvasMatrix: Matrix;
-    invertedCanvasMatrix: Matrix;
-    updateMatrix(): void;
-    init(width: number, height: number): void;
-    drawCoordination(beats: number): void;
-    draw(beats?: number): void;
-    drawNNList(tree: NNList, beats: number): void;
-    drawNote(beats: number, note: Note, isTruck: boolean, nth: number): void;
-    paste(): void;
-    copy(): void;
-}
-declare const NODE_WIDTH = 20;
-declare const NODE_HEIGHT = 20;
-declare const NOTE_WIDTH = 54;
-declare const NOTE_HEIGHT = 6;
-declare const round: (n: number, r: number) => string;
-declare class JudgeLinesEditor {
-    editor: Editor;
-    chart: Chart;
-    element: HTMLDivElement;
-    editors: JudgeLineEditor[];
-    metaLineAdded: boolean;
-    constructor(editor: Editor, element: HTMLDivElement);
-    _selectedLine: JudgeLineEditor;
-    get selectedLine(): JudgeLineEditor;
-    set selectedLine(lineEditor: JudgeLineEditor);
-    addJudgeLine(judgeLine: JudgeLine): void;
-    update(): void;
-}
-declare class JudgeLineEditor {
-    linesEditor: JudgeLinesEditor;
-    element: HTMLDivElement;
-    judgeLine: JudgeLine;
-    $id: Z<"div">;
-    $name: ZInputBox;
-    $xSpan: Z<"span">;
-    $ySpan: Z<"span">;
-    $thetaSpan: Z<"span">;
-    $alphaSpan: Z<"span">;
-    constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine);
-    update(): void;
-}
-declare class SaveDialog extends ZDialog {
-    $message: ZInputBox;
-    chartData: ChartDataKPA;
-    constructor();
-}
-declare const tips: string[];
-declare const generateTipsLabel: () => Z<"div">;
-declare class Editor extends EventTarget {
-    initialized: boolean;
-    chartInitialized: boolean;
-    audioInitialized: boolean;
-    imageInitialized: boolean;
-    player: Player;
-    notesEditor: NotesEditor;
-    eventEditor: EventEditor;
-    chart: Chart;
-    operationList?: OperationList;
-    chartType: "rpejson" | "kpajson";
-    chartData: ChartDataRPE | ChartDataKPA;
-    progressBar: ZProgressBar;
-    eventCurveEditors: EventCurveEditors;
-    $topbar: Z<"div">;
-    $preview: Z<"div">;
-    $noteInfo: Z<"div">;
-    $eventSequence: Z<"div">;
-    lineInfoEle: HTMLDivElement;
-    playButton: HTMLButtonElement;
-    $timeDivisor: ZArrowInputBox;
-    timeDivisor: number;
-    $saveButton: ZButton;
-    $compileButton: ZButton;
-    $playbackRate: ZDropdownOptionBox;
-    $offsetInput: ZInputBox;
-    $tipsLabel: Z<"div">;
-    judgeLinesEditor: JudgeLinesEditor;
-    selectedLine: JudgeLine;
-    noteEditor: NoteEditor;
-    multiNoteEditor: MultiNoteEditor;
-    multiNodeEditor: MultiNodeEditor;
-    renderingTime: number;
-    lastRenderingTime: number;
-    $saveDialog: SaveDialog;
-    constructor();
-    shownSideEditor: SideEditor<any>;
-    switchSide(editor: SideEditor<any>): void;
-    checkAndInit(): void;
-    addListenerForPlayer(): void;
-    readChart(file: Blob): void;
-    loadChart(): void;
-    initFirstFrame(): void;
-    readAudio(file: Blob): void;
-    readImage(file: Blob): void;
-    update(): void;
-    updateEventSequences(): void;
-    updateNotesEditor(): void;
-    updateShownEditor(): void;
-    get playing(): boolean;
-    play(): void;
-    pause(): void;
-}
-/**
- * 全生命周期只会编译一次，想多次就再构造一个
- */
-declare class RPEChartCompiler {
-    chart: Chart;
-    sequenceMap: Map<EventNodeSequence, EventNodeSequence>;
-    constructor(chart: Chart);
-    compileChart(): ChartDataRPE;
-    dumpJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE;
-    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPE[];
-    compileNNLists(nnLists: NNList[], hnLists: HNList[]): NoteDataRPE[];
-    /**
-     * 倒序转换为数组
-     * @param nnList
-     * @returns
-     */
-    nnListToArray(nnList: NNList): NoteDataRPE[];
-    /**
-     * 将当前序列中所有通过模板缓动引用了其他序列的事件直接展开为被引用的序列内容
-     * transform all events that reference other sequences by template easing
-     * into the content of the referenced sequence
-     * 有点类似于MediaWiki的{{subst:templateName}}
-     * @param map 由TemplateEasingLib提供
-     * @returns
-     */
-    substitute(seq: EventNodeSequence): EventNodeSequence;
-}
-declare class Coordinate {
-    readonly x: number;
-    readonly y: number;
-    constructor(x: number, y: number);
-    mul(matrix: Matrix): Coordinate;
-    static from([x, y]: [number, number]): Coordinate;
-}
-declare class Matrix {
-    readonly a: number;
-    readonly b: number;
-    readonly c: number;
-    readonly d: number;
-    readonly e: number;
-    readonly f: number;
-    constructor(a: number, b: number, c: number, d: number, e: number, f: number);
-    rotate(angle: number): Matrix;
-    translate(x: number, y: number): Matrix;
-    scale(x: number, y: number): Matrix;
-    invert(): Matrix;
-    xmul(x: number, y: number): number;
-    ymul(x: number, y: number): number;
-    static fromDOMMatrix({ a, b, c, d, e, f }: DOMMatrix): Matrix;
-}
-declare const identity: Matrix;
-/**
- * 使用AudioBuffer加快播放
- */
-declare class AudioProcessor {
-    instance?: AudioProcessor;
-    audioContext: AudioContext;
-    initialized: boolean;
-    tap: AudioBuffer;
-    drag: AudioBuffer;
-    flick: AudioBuffer;
-    constructor();
-    init(): void;
-    fetchAudioBuffer(path: string): Promise<AudioBuffer>;
-    play(buffer: AudioBuffer): void;
-    playNoteSound(type: NoteType): void;
-}
-declare const TAP: HTMLImageElement;
-declare const DRAG: HTMLImageElement;
-declare const FLICK: HTMLImageElement;
-declare const HOLD: HTMLImageElement;
-declare const HOLD_HEAD: HTMLImageElement;
-declare const HOLD_BODY: HTMLImageElement;
-declare const DOUBLE: HTMLImageElement;
-declare const BELOW: HTMLImageElement;
-declare const ANCHOR: HTMLImageElement;
-declare const NODE_START: HTMLImageElement;
-declare const NODE_END: HTMLImageElement;
-declare const HIT_FX: HTMLImageElement;
-declare const SELECT_NOTE: HTMLImageElement;
-declare const TRUCK: HTMLImageElement;
-declare const fetchImage: () => void;
-declare const drawNthFrame: (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
-declare const getImageFromType: (noteType: NoteType) => HTMLImageElement;
-declare const ENABLE_PLAYER = true;
-declare const DRAWS_NOTES = true;
-declare const DEFAULT_ASPECT_RATIO: number;
-declare const LINE_WIDTH = 10;
-declare const LINE_COLOR = "#CCCC77";
-declare const HIT_EFFECT_SIZE = 200;
-declare const HALF_HIT: number;
-declare const RENDER_SCOPE = 900;
-declare const getVector: (theta: number) => [Vector, Vector];
-declare class Player {
-    canvas: HTMLCanvasElement;
-    context: CanvasRenderingContext2D;
-    hitCanvas: HTMLCanvasElement;
-    hitContext: CanvasRenderingContext2D;
-    chart: Chart;
-    audio: HTMLAudioElement;
-    audioProcessor: AudioProcessor;
-    playing: boolean;
-    background: HTMLImageElement;
-    aspect: number;
-    noteSize: number;
-    noteHeight: number;
-    soundQueue: SoundEntity[];
-    lastBeats: number;
-    greenLine: number;
-    constructor(canvas: HTMLCanvasElement);
-    get time(): number;
-    get beats(): number;
-    initCoordinate(): void;
-    renderDropScreen(): void;
-    renderGreyScreen(): void;
-    initGreyScreen(): void;
-    render(): void;
-    renderLine(baseX: number, baseY: number, judgeLine: JudgeLine): void;
-    renderSounds(tree: NNList, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator): void;
-    renderHitEffects(judgeLine: JudgeLine, tree: NNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
-    /**
-     *
-     * @param judgeLine
-     * @param tree
-     * @param beats 当前拍数
-     * @param startBeats
-     * @param endBeats 截止拍数
-     * @param hitContext
-     * @param timeCalculator
-     * @returns
-     */
-    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
-    renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator): void;
-    renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number): void;
-    private update;
-    play(): void;
-    pause(): void;
-}
-declare class ZProgressBar extends Z<"progress"> {
-    target: HTMLAudioElement;
-    constructor(target: HTMLAudioElement);
-    update(): void;
-}
-declare class SoundEntity {
-    type: NoteType;
-    beats: number;
-    seconds: number;
-    constructor(type: NoteType, beats: number, timeCalculator: TimeCalculator);
-}
 declare const PROJECT_NAME = "kpa";
 declare class ChartMetadata {
     name: string;
@@ -2074,4 +1432,19 @@ declare class Settings {
     get<K extends keyof SettingEntries>(item: K): SettingEntries[K];
     set<K extends keyof SettingEntries>(item: K, val: SettingEntries[K]): void;
 }
-declare var editor: any, settings: any;
+declare class Comparer {
+    $topBar: Z<"div">;
+    $button: ZButton;
+    player1: Player;
+    player2: Player;
+    progressBar: ZProgressBar;
+    constructor();
+    readImage(blob: Blob): void;
+    readAudio(blob: Blob): void;
+    loadChart(data: ChartDataKPA, data2: ChartDataKPA): void;
+    get playing(): boolean;
+    play(): void;
+    pause(): void;
+}
+declare const serverApi: ServerApi;
+declare let settings: any;

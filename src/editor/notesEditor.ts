@@ -145,7 +145,7 @@ class NotesEditor extends Z<"div"> {
         }
     }
 
-    constructor(editor: Editor, width: number, height: number) {
+    constructor(editor: Editor) {
         super("div");
         this.addClass("notes-editor")
         this.selectionManager = new SelectionManager()
@@ -195,7 +195,8 @@ class NotesEditor extends Z<"div"> {
             this.$pasteButton,
             this.$selectOption
             )
-        this.$statusBar.css("width", width + "px")
+
+        
 
         this.editor = editor;
         this.padding = 10;
@@ -205,15 +206,10 @@ class NotesEditor extends Z<"div"> {
         this.positionBasis = 0;
         this.positionGridSpan = 135;
         this.positionSpan = 1350;
-        this.positionRatio = width / 1350;
         this.timeGridSpan = 1;
         this.timeSpan = 2;
-        this.timeRatio = (height - this.padding) / this.timeSpan;
         this.noteType = NoteType.tap;
         this.canvas = document.createElement("canvas");
-        this.canvas.width = width;
-        this.canvas.height = height;
-        console.log("Initialized:", width, height)
         this.context = this.canvas.getContext("2d");
         this.append(this.canvas)
         on(["mousedown", "touchstart"], this.canvas, (event) => {this.downHandler(event)})
@@ -316,7 +312,6 @@ class NotesEditor extends Z<"div"> {
         
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
-        this.init()
     }
     downHandler(event: TouchEvent | MouseEvent) {
         const {width, height} = this.canvas;
@@ -431,8 +426,8 @@ class NotesEditor extends Z<"div"> {
     canvasMatrix: Matrix;
     invertedCanvasMatrix: Matrix;
     updateMatrix() {
-        this.positionRatio = this.canvas.height / this.positionSpan;
-        this.timeRatio = this.canvas.width / this.timeSpan;
+        this.positionRatio = this.canvas.width / this.positionSpan;
+        this.timeRatio = this.canvas.height / this.timeSpan;
         const {
             // timeSpan,
             // positionSpan,
@@ -444,7 +439,10 @@ class NotesEditor extends Z<"div"> {
         this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
         this.invertedCanvasMatrix = this.canvasMatrix.invert();
     }
-    init() {
+    init(width: number, height: number) {
+        this.positionRatio = width / 1350;
+        this.canvas.width = width;
+        this.canvas.height = height - this.$statusBar.clientHeight;
         this.context.translate(this.canvas.width / 2, this.canvas.height - this.padding)
         this.context.strokeStyle = "#EEE"
         this.context.fillStyle = "#333"
@@ -755,7 +753,7 @@ class NotesEditor extends Z<"div"> {
             return;
         }
         if (!lastBeats) {
-            Editor.notify("Have not rendered a frame")
+            notify("Have not rendered a frame")
         }
         const notes = [...clipboard];
         notes.sort((a: Note, b: Note) => TimeCalculator.gt(a.startTime, b.startTime) ? 1 : -1);

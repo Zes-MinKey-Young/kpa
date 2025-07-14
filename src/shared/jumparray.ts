@@ -189,10 +189,10 @@ class JumpArray<T extends TwoDirectionNode> {
      */
     getNodeAt(beats: number): T | Tailer<T> {
         if (beats < 0) {
-            return this.header.next ?? breakpoint();
+            return this.header.next;
         }
         if (beats >= this.effectiveBeats) {
-            return this.tailer ?? breakpoint();
+            return this.tailer;
         }
         const jumpAverageBeats = this.averageBeats;
         const jumpPos = Math.floor(beats / jumpAverageBeats);
@@ -203,7 +203,7 @@ class JumpArray<T extends TwoDirectionNode> {
             ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
             : canBeNodeOrArray;
         if ("tailing" in node) {
-            return node ?? breakpoint();
+            return node;
         }
         // console.log(this, node, jumpPos, beats)
         if (!node) {
@@ -218,7 +218,7 @@ class JumpArray<T extends TwoDirectionNode> {
                 break;
             }
         }
-        return node ?? breakpoint()
+        return node
     }
 }
 

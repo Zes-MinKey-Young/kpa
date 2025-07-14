@@ -1,16 +1,7 @@
 {
-    "exclude": ["*.js", "ty.ts"],
+    "extends": "./tsconfig-base.json",
     "compilerOptions": {
-        "composite": true,
-        "target": "ES6",
-        "lib": ["ES2016", "dom", "ES2021.WeakRef", "ESNext.Collection", "ES2017.Object"],
-        "strictFunctionTypes": true,
-        "outFile": "../dist/index.js",
-        "sourceMap": true,
-        "declaration": true
-        //"strictPropertyInitialization": true,
-        //"strictNullChecks": true
-        
+        "outFile": "../dist/index.js"
     },
     "include": [
         "shared/set.ts",
@@ -18,7 +9,7 @@
         "shared/easing.ts", "shared/jumparray.ts", "shared/note.ts", "shared/judgeline.ts", "shared/chart.ts", "shared/event.ts", "shared/time.ts",
         "ui/ui.ts", "shared/util.ts",
         "editor/operation.ts",
-        "editor/sideEditor.ts","editor/selectionManager.ts","editor/eventCurveEditor.ts","editor/notesEditor.ts","editor/editor.ts", "editor/rpeChartCompiler.ts","shared/matrix.ts" ,"editor/audio.ts","editor/images.ts","ui/player.ts",
-        "editor/server.ts", "editor/settings.ts", "editor/main.ts"
+        "editor/sideEditor.ts","editor/selectionManager.ts","editor/eventCurveEditor.ts","editor/notesEditor.ts","editor/editor.ts", "editor/rpeChartCompiler.ts","shared/matrix.ts" ,"shared/audio.ts","shared/images.ts","ui/player.ts",
+        "shared/server.ts", "shared/settings.ts", "editor/main.ts"
     ]
 }

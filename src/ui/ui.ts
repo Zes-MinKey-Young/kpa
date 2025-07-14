@@ -5,6 +5,9 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
     | "parentRule" | "item" | "getPropertyValue" 
     | "getPropertyPriority" | "setProperty" | "removeProperty">
 
+
+
+
 /**
  * Z is just like jQuery, but it's much simpler.
  * It only contains one element, which is enough in most cases.
@@ -19,6 +22,9 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
  */
 class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     element: HTMLElementTagNameMap[K];
+    get parent() {
+        return Z.from(this.element.parentElement);
+    }
     constructor(type: K, newElement: boolean = true) {
         super();
         if (newElement) this.element = document.createElement(type);
@@ -782,4 +788,9 @@ class ZNotification extends Z<"div"> {
         this.$text = $("span").text(text)
         this.append(this.$text)
     }
+}
+
+
+function notify(message: string) {
+    $(document.body).append(new ZNotification(message))
 }

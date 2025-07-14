@@ -13,20 +13,23 @@ const HIT_FX = new Image(1024, 1024);
 const SELECT_NOTE = new Image(135);
 const TRUCK = new Image(135);
 
-TAP.src = "../img/tap.png"
-DRAG.src = "../img/drag.png"
-FLICK.src = "../img/flick.png"
-HOLD.src = "../img/hold.png"
-HOLD_HEAD.src = "../img/holdHead.png"
-HOLD_BODY.src = "../img/holdBody.png"
-ANCHOR.src = "../img/anchor.png"
-BELOW.src = "../img/below.png"
-DOUBLE.src = "../img/double.png"
-NODE_START.src = "../img/south.png"
-NODE_END.src = "../img/north.png"
-HIT_FX.src = "../img/hit_fx.png"
-SELECT_NOTE.src = "../img/selectNote.png"
-TRUCK.src = "../img/Truck.png"
+
+const fetchImage = () => {
+    TAP.src = serverApi.resolvePath("/img/tap.png");
+    DRAG.src = serverApi.resolvePath("/img/drag.png");
+    FLICK.src = serverApi.resolvePath("/img/flick.png");
+    HOLD.src = serverApi.resolvePath("/img/hold.png");
+    HOLD_HEAD.src = serverApi.resolvePath("/img/holdHead.png");
+    HOLD_BODY.src = serverApi.resolvePath("/img/holdBody.png");
+    ANCHOR.src = serverApi.resolvePath("/img/anchor.png");
+    BELOW.src = serverApi.resolvePath("/img/below.png");
+    DOUBLE.src = serverApi.resolvePath("/img/double.png");
+    NODE_START.src = serverApi.resolvePath("/img/south.png");
+    NODE_END.src = serverApi.resolvePath("/img/north.png");
+    HIT_FX.src = serverApi.resolvePath("/img/hit_fx.png");
+    SELECT_NOTE.src = serverApi.resolvePath("/img/selectNote.png");
+    TRUCK.src = serverApi.resolvePath("/img/Truck.png");
+}
 
 
 

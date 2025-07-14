@@ -12,5 +12,6 @@
         ["git", "add", "."],
         ["git", "commit", "-m", "Autosave $time"]
     ], /// The command to commit autosave changes to the repository in the version control system the user is using.
+    "revision": [["git", "show", "$version:$file"]],
     "versionControlEnabled": false // Whether the version control is enabled or not.
 }
