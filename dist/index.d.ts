@@ -297,6 +297,7 @@ declare class Pointer<T extends TwoDirectionNode> {
 /**
  * @author Zes M Young
  */
+declare const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 declare const node2string: (node: NoteNode | Tailer<NoteNode>) => string;
 /**
  * 音符
@@ -322,17 +323,20 @@ declare class Note {
     startTime: [number, number, number];
     type: NoteType;
     visibleTime: number;
+    visibleBeats: number;
     yOffset: number;
     parentNode: NoteNode;
     constructor(data: NoteDataRPE);
+    static fromKPAJSON(data: NoteDataKPA, timeCalculator: TimeCalculator): Note;
+    computeVisibleBeats(timeCalculator: TimeCalculator): void;
     /**
      *
      * @param offset
      * @returns
      */
     clone(offset: TimeT): Note;
-    dumpRPE(): NoteDataRPE;
-    dumpKPA(): void;
+    dumpRPE(timeCalculator: TimeCalculator): NoteDataRPE;
+    dumpKPA(): NoteDataKPA;
 }
 type Connectee = NoteNode | NNNode;
 declare class NoteNode implements TwoDirectionNode {
@@ -352,16 +356,16 @@ declare class NoteNode implements TwoDirectionNode {
     static count: number;
     id: number;
     constructor(time: TimeT);
-    static fromKPAJSON(data: NoteNodeDataKPA): NoteNode;
+    static fromKPAJSON(data: NoteNodeDataKPA, timeCalculator: TimeCalculator): NoteNode;
     get isHold(): boolean;
     get endTime(): TimeT;
     add(note: Note): void;
-    sort(note: Note): any;
+    sort(note: Note): void;
     /**
      * 其他部分均已有序，通过冒泡排序把发生变更的NoteNode移动到正确的位置
      * @param index 待排序的Note的索引
      */
-    sort(index: number): any;
+    sort(index: number): void;
     remove(note: Note): void;
     static disconnect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>): void;
     static connect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>): void;
@@ -369,8 +373,10 @@ declare class NoteNode implements TwoDirectionNode {
     dump(): NoteNodeDataKPA;
 }
 declare class NNList {
-    id: string;
     speed: number;
+    medianYOffset: number;
+    /** 格式为#xxoxx或$xxoxx，亦可自命名 */
+    id: string;
     head: Header<NoteNode>;
     tail: Tailer<NoteNode>;
     currentPoint: NoteNode | Header<NoteNode>;
@@ -380,8 +386,9 @@ declare class NNList {
     timeRanges: [number, number][];
     effectiveBeats: number;
     parentLine: JudgeLine;
-    constructor(speed: number, effectiveBeats?: number);
-    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList): NNList;
+    constructor(speed: number, medianYOffset?: number, effectiveBeats?: number);
+    /** 此方法永远用于最新KPAJSON */
+    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator): NNList;
     initJump(): void;
     initPointer(pointer: Pointer<NoteNode>): void;
     /**
@@ -470,7 +477,7 @@ declare class HNList extends NNList {
      * 最早的还未结束Hold
      */
     holdTailJump: JumpArray<NoteNode>;
-    constructor(speed: number, effectiveBeats?: number);
+    constructor(speed: number, medianYOffset: number, effectiveBeats?: number);
     initJump(): void;
     /**
      *
@@ -520,6 +527,12 @@ declare class NNNList {
     getNode(time: TimeT): NNNode;
     addNoteNode(noteNode: NoteNode): void;
 }
+/**
+ * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
+ * @param yOffset
+ * @returns
+ */
+declare const getRangeMedian: (yOffset: number) => number;
 declare class JudgeLine {
     texture: string;
     group: JudgeLineGroup;
@@ -538,7 +551,8 @@ declare class JudgeLine {
     readonly chart: Chart;
     constructor(chart: Chart);
     static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator): JudgeLine;
-    static fromKPAJSON(chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator): JudgeLine;
+    static fromKPAJSON(isOld: boolean, chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator): JudgeLine;
+    getNNListFromOldKPAJSON(lists: Map<string, NNList>, namePrefix: string, isHold: boolean, effectiveBeats: number, listData: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator): void;
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator): void;
     /**
      * startY and endY must not be negative
@@ -575,7 +589,7 @@ declare class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNNList(speed: number, isHold: boolean, initsJump: boolean): NNList;
+    getNNList(speed: number, yOffset: number, isHold: boolean, initsJump: boolean): NNList;
     getNode(note: Note, initsJump: boolean): NoteNode;
     /**
      *
@@ -1511,6 +1525,7 @@ declare class NoteEditor extends SideEditor<Note> {
     $speed: ZInputBox;
     $alpha: ZInputBox;
     $size: ZInputBox;
+    $yOffset: ZInputBox;
     $delete: ZButton;
     aboveOption: BoxOption;
     belowOption: BoxOption;
@@ -2074,4 +2089,4 @@ declare class Settings {
     get<K extends keyof SettingEntries>(item: K): SettingEntries[K];
     set<K extends keyof SettingEntries>(item: K, val: SettingEntries[K]): void;
 }
-declare var editor: any, settings: any;
+declare var editor: Editor, settings: Settings;

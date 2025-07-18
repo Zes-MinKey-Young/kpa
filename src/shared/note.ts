@@ -3,6 +3,9 @@
  */
 
 
+const NNLIST_Y_OFFSET_HALF_SPAN = 100
+
+
 const node2string = (node: NoteNode | Tailer<NoteNode>) => {
     if (!node) {
         return "" + node
@@ -39,6 +42,7 @@ class Note {
     startTime: [number, number, number];
     type: NoteType;
     visibleTime: number;
+    visibleBeats: number;
     yOffset: number;
     /*
      * 和打击位置的距离，与yOffset和上下无关，为负不可见
@@ -61,16 +65,20 @@ class Note {
     // posNextSibling: Note;
     constructor(data: NoteDataRPE) {
         this.above = data.above === 1;
-        this.alpha = data.alpha || 255;
+        this.alpha = data.alpha ?? 255;
         this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
-        this.size = data.size || 1.0;
-        this.speed = data.speed || 1.0;
+        this.size = data.size ?? 1.0;
+        this.speed = data.speed ?? 1.0;
         this.startTime = data.startTime;
         this.type = data.type;
         this.visibleTime = data.visibleTime;
-        this.yOffset = data.yOffset;
+        // @ts-expect-error
+        this.yOffset = data.absoluteYOffset ?? data.yOffset * this.speed;
+        // @ts-expect-error 若data是RPE数据，则为undefined，无影响。
+        // 当然也有可能是KPA数据但是就是没有给
+        this.visibleBeats = data.visibleBeats;
         /*
         this.previous = null;
         this.next = null;
@@ -78,13 +86,31 @@ class Note {
         this.nextSibling = null;
         */
     }
+    static fromKPAJSON(data: NoteDataKPA, timeCalculator: TimeCalculator) {
+        const note = new Note(data);
+        if (!note.visibleBeats) {
+            note.computeVisibleBeats(timeCalculator);
+        }
+        return note;
+    }
+    computeVisibleBeats(timeCalculator: TimeCalculator) {
+        if (this.visibleTime >= 90000) {
+            this.visibleBeats = Infinity;
+            return;
+        }
+        const hitBeats = TimeCalculator.toBeats(this.startTime);
+        const hitSeconds = timeCalculator.toSeconds(hitBeats);
+        const visabilityChangeSeconds = hitSeconds - this.visibleTime;
+        const visabilityChangeBeats = timeCalculator.secondsToBeats(visabilityChangeSeconds);
+        this.visibleBeats = hitBeats - visabilityChangeBeats;
+    }
     /**
      * 
      * @param offset 
      * @returns 
      */
     clone(offset: TimeT) {
-        const data = this.dumpRPE();
+        const data = this.dumpKPA();
         data.startTime = TimeCalculator.add(data.startTime, offset);
         data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
         return new Note(data);
@@ -99,7 +125,14 @@ class Note {
         note2.posPrevious = note1;
     }
     */
-    dumpRPE(): NoteDataRPE {
+    dumpRPE(timeCalculator: TimeCalculator): NoteDataRPE {
+        let visibleTime: number;
+        if (this.visibleBeats !== Infinity) {
+            const beats = TimeCalculator.toBeats(this.startTime);
+            this.visibleBeats = timeCalculator.segmentToSeconds(beats - this.visibleBeats, beats);
+        } else {
+            visibleTime = 99999.0
+        }
         return {
             above: this.above ? 1 : 0,
             alpha: this.alpha,
@@ -109,13 +142,29 @@ class Note {
             size: this.size,
             startTime: this.startTime,
             type: this.type,
-            visibleTime: this.visibleTime,
-            yOffset: this.yOffset,
+            visibleTime: visibleTime,
+            yOffset: this.yOffset / this.speed,
             speed: this.speed
         }
     }
-    dumpKPA() {
-        
+    dumpKPA(): NoteDataKPA {
+        return {
+            
+            above: this.above ? 1 : 0,
+            alpha: this.alpha,
+            endTime: this.endTime,
+            isFake: this.isFake ? 1 : 0,
+            positionX: this.positionX,
+            size: this.size,
+            startTime: this.startTime,
+            type: this.type,
+            visibleBeats: this.visibleBeats,
+            yOffset: this.yOffset / this.speed,
+            /** 新KPAJSON认为YOffset就应该是个绝对的值，不受速度影响 */
+            /** 但是有历史包袱，所以加字段 */
+            absoluteYOffset: this.yOffset,
+            speed: this.speed
+        }
     }
 }
 /*
@@ -160,10 +209,10 @@ class NoteNode implements TwoDirectionNode {
         this.notes = [];
         this.id = NoteNode.count++;
     }
-    static fromKPAJSON(data: NoteNodeDataKPA) {
+    static fromKPAJSON(data: NoteNodeDataKPA, timeCalculator: TimeCalculator) {
         const node = new NoteNode(data.startTime);
         for (let noteData of data.notes) {
-            const note = new Note(noteData);
+            const note = Note.fromKPAJSON(noteData, timeCalculator);
             node.add(note);
         }
         return node
@@ -185,12 +234,12 @@ class NoteNode implements TwoDirectionNode {
         note.parentNode = this
         this.sort(this.notes.length - 1);
     }
-    sort(note: Note)
+    sort(note: Note): void;
     /**
      * 其他部分均已有序，通过冒泡排序把发生变更的NoteNode移动到正确的位置 
      * @param index 待排序的Note的索引
      */
-    sort(index: number)
+    sort(index: number): void;
     sort(index: number | Note) {
         if (typeof index !== "number") {
             index = this.notes.indexOf(index);
@@ -256,7 +305,7 @@ class NoteNode implements TwoDirectionNode {
     }
     dump(): NoteNodeDataKPA {
         return {
-            notes: this.notes.map(note => note.dumpRPE()),
+            notes: this.notes.map(note => note.dumpKPA()),
             startTime: this.startTime
         }
     }
@@ -264,8 +313,8 @@ class NoteNode implements TwoDirectionNode {
 
 
 class NNList {
+    /** 格式为#xxoxx或$xxoxx，亦可自命名 */
     id: string;
-    speed: number;
     head: Header<NoteNode>;
     tail: Tailer<NoteNode>;
     currentPoint: NoteNode | Header<NoteNode>;
@@ -283,8 +332,7 @@ class NNList {
     effectiveBeats: number;
 
     parentLine: JudgeLine;
-    constructor(speed: number, effectiveBeats?: number) {
-        this.speed = speed
+    constructor(public speed: number, public medianYOffset: number = 0, effectiveBeats?: number) {
         this.head = {
             heading: true,
             next: null,
@@ -305,13 +353,14 @@ class NNList {
         */
         this.effectiveBeats = effectiveBeats
     }
-    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList) {
-        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats)
+    /** 此方法永远用于最新KPAJSON */
+    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator) {
+        const list = isHold ? new HNList(data.speed, data.medianYOffset, effectiveBeats) : new NNList(data.speed, data.medianYOffset, effectiveBeats)
         const nnlength = data.noteNodes.length
         let cur: TypeOrHeader<NoteNode> = list.head;
         for (let i = 0; i < nnlength; i++) {
             const nnData = data.noteNodes[i];
-            const nn = NoteNode.fromKPAJSON(nnData)
+            const nn = NoteNode.fromKPAJSON(nnData, timeCalculator);
             NoteNode.connect(cur, nn);
             cur = nn;
             nnnList.addNoteNode(nn);
@@ -554,8 +603,8 @@ class HNList extends NNList {
      * 最早的还未结束Hold
      */
     holdTailJump: JumpArray<NoteNode>;
-    constructor(speed: number, effectiveBeats?: number) {
-        super(speed, effectiveBeats)
+    constructor(speed: number, medianYOffset: number, effectiveBeats?: number) {
+        super(speed, medianYOffset, effectiveBeats)
     }
     initJump(): void {
         super.initJump()

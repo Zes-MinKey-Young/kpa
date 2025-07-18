@@ -106,7 +106,7 @@ class ComplexOperation<T extends Operation[]> extends Operation {
     }
 }
 
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size"
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset";
 
 class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
@@ -342,13 +342,29 @@ extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation
     targetTree: NNList
     constructor(note: Note, value: number, line: JudgeLine) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
-        const tree = line.getNNList(value, note.type === NoteType.hold, true)
+        const tree = line.getNNList(value, note.yOffset, note.type === NoteType.hold, true)
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
         const insert = new NoteAddOperation(note, node)
         super(valueChange, removal, insert);
     }
 }
+
+class NoteYOffsetChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"yOffset">, NoteRemoveOperation, NoteAddOperation]> {
+    updatesEditor = true
+    originalTree: NNList;
+    judgeLine: JudgeLine;
+    targetTree: NNList
+    constructor(note: Note, value: number, line: JudgeLine) {
+        const valueChange = new NoteValueChangeOperation(note, "yOffset", value);
+        const tree = line.getNNList(note.speed, value, note.type === NoteType.hold, true)
+        const node = tree.getNodeOf(note.startTime);
+        const removal = new NoteRemoveOperation(note);
+        const insert = new NoteAddOperation(note, node)
+        super(valueChange, removal, insert);
+    }
+}
+
 
 class NoteTypeChangeOperation 
 extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperation]*/ any> {
@@ -358,7 +374,7 @@ extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperatio
         const isHold = note.type === NoteType.hold
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, !isHold, true)
+            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, note.yOffset, !isHold, true)
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);

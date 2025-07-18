@@ -181,8 +181,9 @@ class Chart {
             chart.templateEasingLib.implement(easingData.name, chart.sequenceMap.get(easingData.content));
         }
         chart.templateEasingLib.check()
+        const isOld = !data.version || data.version < 150
         for (let lineData of data.orphanLines) {
-            const line: JudgeLine = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator)
+            const line: JudgeLine = JudgeLine.fromKPAJSON(isOld, chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator)
             chart.orphanLines.push(line)
         }
 

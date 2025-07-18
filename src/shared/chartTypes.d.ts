@@ -73,7 +73,7 @@ interface NoteDataRPE {
     /** y值偏移，使音符被打击时的位置偏离判定线 */
     yOffset: number;
 
-    
+    // 下面是PhiZone Player扩展的内容
     /** Sets the Z index for the object. */
     zIndex?: number;
     /**
@@ -84,6 +84,11 @@ interface NoteDataRPE {
     tint?: RGB;
     /** Determines the width of the judgment area of the note. Defaults to size. */
     judgeSize?: number;
+}
+
+interface NoteDataKPA extends NoteDataRPE {
+    visibleBeats?: number;
+    absoluteYOffset: number;
 }
 
 /** 事件 */
@@ -223,6 +228,8 @@ interface CustomEasingData {
 }
 
 
+// 使用对应标识符来标记事件节点序列
+
 interface EventLayerDataKPA {
     moveX: string;
     moveY: string;
@@ -233,12 +240,13 @@ interface EventLayerDataKPA {
 
 
 interface NoteNodeDataKPA {
-    notes: NoteDataRPE[];
+    notes: NoteDataKPA[];
     startTime: TimeT;
 }
 
 interface NNListDataKPA {
     speed: number;
+    medianYOffset: number;
     noteNodes: NoteNodeDataKPA[];
 }
 
@@ -276,6 +284,7 @@ interface EventNodeSequenceDataKPA {
 }
 
 interface ChartDataKPA {
+    version: number;
     offset: number;
     duration: number;
     info: {

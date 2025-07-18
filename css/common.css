@@ -55,6 +55,8 @@ dialog[open] {
     min-width: 4em;
     display: none;
     z-index: 1;
+    max-height: 60vh;
+    overflow-y: auto;
 }
 
 .dropdown-option-box.up .dropdown-option-list {

@@ -1,3 +1,13 @@
+
+
+/**
+ * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
+ * @param yOffset 
+ * @returns 
+ */
+const getRangeMedian = (yOffset: number) => {
+    return (Math.floor((Math.abs(yOffset) - NNLIST_Y_OFFSET_HALF_SPAN) / NNLIST_Y_OFFSET_HALF_SPAN / 2) * (NNLIST_Y_OFFSET_HALF_SPAN * 2) + NNLIST_Y_OFFSET_HALF_SPAN * 2) * Math.sign(yOffset);
+}
 class JudgeLine {
     texture: string;
     group: JudgeLineGroup;
@@ -51,7 +61,11 @@ class JudgeLine {
                     
             for (let i = 0; i < len; i++) {
                 const note: Note = new Note(notes[i]);
-                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false)
+                note.computeVisibleBeats(timeCalculator);
+                if (note.speed === 0) {
+                    debugger;
+                }
+                const tree = line.getNNList(note.speed, note.yOffset, note.type === NoteType.hold, false)
                 const cur = tree.currentPoint
                 const lastHoldTime: TimeT = "heading" in cur ? [-1, 0, 1] : cur.startTime
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -101,25 +115,30 @@ class JudgeLine {
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
-    static fromKPAJSON(chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
+    static fromKPAJSON(isOld: boolean, chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator) {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
         chart.judgeLineGroups[data.group].addJudgeLine(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
-            const key = `${isHold ? "hn" : "nn"}Lists`
+            const key: "hnLists" | "nnLists" = `${isHold ? "hn" : "nn"}Lists`
             const lists: Plain<NNListDataKPA> = data[key];
             for (let name in lists) {
                 const listData = lists[name];
-                const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
-                list.parentLine = line;
-                list.id = name
-                line[key].set(name, list);
+                if (!isOld) {
+                        
+                    const list: NNList = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                    list.parentLine = line;
+                    list.id = name
+                    line[key].set(name, list);
+                } else {
+                    line.getNNListFromOldKPAJSON(line[key], name, isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                }
             }
         }
         for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
+            line.children.push(JudgeLine.fromKPAJSON(isOld, chart, id, child, templates, timeCalculator));
         }
         for (let eventLayerData of data.eventLayers) {
             let eventLayer: EventLayer = {} as EventLayer;
@@ -131,6 +150,51 @@ class JudgeLine {
         }
         chart.judgeLines.push(line);
         return line;
+    }
+    getNNListFromOldKPAJSON(lists: Map<string, NNList>, namePrefix: string, isHold: boolean, effectiveBeats: number, listData: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator) {
+        const speed = listData.speed;
+        const constructor = isHold ? HNList : NNList;
+        const createdLists = new Set<NNList>();
+        const getOrCreateNNList = (median: number, name: string) => {
+            if (lists.has(name)) {
+                return lists.get(name);
+            }
+            const list: NNList = new constructor(speed, median, effectiveBeats);
+            list.id = name;
+            list.parentLine = this;
+            lists.set(name, list);
+            createdLists.add(list);
+            return list;
+        };
+        const nns = listData.noteNodes;
+        const len = nns.length;
+        for (let i = 0; i < len; i++) {
+            const nodeData = nns[i];
+            const l = nodeData.notes.length;
+            for (let j = 0; j < l; j++) {
+                const noteData = nodeData.notes[j];
+                const note = new Note(noteData);
+                const median = getRangeMedian(note.yOffset)
+                const list = getOrCreateNNList(median, namePrefix + "o" + median);
+                const cur = list.currentPoint;
+                if (!note.visibleBeats) {
+                    note.computeVisibleBeats(timeCalculator)
+                }
+                if (!("heading" in cur) && TC.eq(noteData.startTime, cur.startTime)) {
+                    cur.add(note);
+                } else {
+                    const node = new NoteNode(noteData.startTime);
+                    node.add(note);
+                    nnnList.addNoteNode(node);
+                    NoteNode.connect(cur, node);
+                    list.currentPoint = node;
+                }
+            }
+        }
+        for (const list of createdLists) {
+            NoteNode.connect(list.currentPoint, list.tail);
+            list.initJump();
+        }
     }
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
         for (let eventLayer of this.eventLayers) {
@@ -337,27 +401,29 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNNList(speed: number, isHold: boolean, initsJump: boolean) {
+    getNNList(speed: number, yOffset: number, isHold: boolean, initsJump: boolean) {
         const lists = isHold ? this.hnLists : this.nnLists;
+        const medianYOffset = getRangeMedian(yOffset);
         for (const [_, list] of lists) {
-            if (list.speed == speed) {
-                return list
+            if (list.speed === speed && list.medianYOffset === medianYOffset) {
+                return list;
             }
         }
-        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
+        const list = isHold ? new HNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration))
         list.parentLine = this;
         NoteNode.connect(list.head, list.tail)
         if (initsJump) list.initJump();
-        const id = (isHold ? "$" : "#") + speed;
+        const id = (isHold ? "$" : "#") + speed + "o" + medianYOffset;
         lists.set(id, list);
         list.id = id;
         return list;
     }
     getNode(note: Note, initsJump: boolean) {
         const speed = note.speed;
-        const isHold = note.type === NoteType.hold
-        const tree = this.getNNList(speed, isHold, initsJump)
-        return tree.getNodeOf(note.startTime)
+        const yOffset = note.yOffset;
+        const isHold = note.type === NoteType.hold;
+        const tree = this.getNNList(speed, yOffset, isHold, initsJump);
+        return tree.getNodeOf(note.startTime);
     }
     /**
      * 

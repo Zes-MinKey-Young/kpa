@@ -209,14 +209,19 @@ class Player {
         const toCenter: Vector = [-transformedX, -transformedY];
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
-        const distance: number = Math.abs(innerProduct(toCenter, nVector));
-        let startY: number, endY: number;
-        if (distance < RENDER_SCOPE) {
-            startY = 0;
-            endY = distance + RENDER_SCOPE
-        } else {
-            startY = distance - RENDER_SCOPE
-            endY = distance + RENDER_SCOPE
+        const innerProd = innerProduct(toCenter, nVector)
+        const getYs = (offset: number) => {
+            
+            const distance: number = Math.abs(innerProd + offset);
+            let startY: number, endY: number;
+            if (distance < RENDER_SCOPE) {
+                startY = 0;
+                endY = distance + RENDER_SCOPE
+            } else {
+                startY = distance - RENDER_SCOPE
+                endY = distance + RENDER_SCOPE
+            }
+            return [startY, endY]
         }
         const drawScope = (y: number) => {
             if (y<=1e-6) return
@@ -241,10 +246,10 @@ class Player {
             for (const [_, list] of trees) {
                 const speedVal: number = list.speed;
                 if (DRAWS_NOTES) {
-                        
                     // debugger
                     // 渲染音符
-                    const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                    const [startY, endY] = getYs(list.medianYOffset)
+                    const timeRanges = speedVal !== 0 ? judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal) : [[0, Infinity] as [number, number]];
                     list.timeRanges = timeRanges
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
@@ -286,7 +291,6 @@ class Player {
         }
         
         
-        drawScope(endY)
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
             const speed = parseFloat(eachSpeed)
@@ -322,6 +326,9 @@ class Player {
             , len = notes.length
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator))
             }
             node = node.previous
@@ -344,8 +351,12 @@ class Player {
             , len = notes.length
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 const posX = note.positionX;
-                const x = bx + posX * vx, y = by + posX * vy;
+                const yo = note.yOffset * (note.above ? 1 : -1);
+                const x = bx + posX * vx + yo * vy, y = by + posX * vy + yo * vx;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
             }
@@ -383,6 +394,9 @@ class Player {
             , len = notes.length
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 if (startBeats > TimeCalculator.toBeats(note.endTime)) {
                     continue;
                 }
@@ -428,9 +442,16 @@ class Player {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
+        if (TimeCalculator.toBeats(note.startTime) - note.visibleBeats > this.beats) {
+            return;
+        }
         let image: HTMLImageElement = getImageFromType(note.type);
         const context = this.context;
         
+        if (note.yOffset) {
+            positionY += note.yOffset;
+            endpositionY += note.yOffset;
+        }
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY
@@ -446,7 +467,7 @@ class Player {
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, note.positionX -  half,  positionY - 10, this.noteSize, length)
+            context.drawImage(HOLD_BODY, note.positionX -  half,  positionY - 10, size, length)
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height)
         if (chord) {

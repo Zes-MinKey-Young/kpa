@@ -1,7 +1,7 @@
 
 
 
-var editor, settings;
+var editor: Editor, settings: Settings;
 if (globalThis.document) {
 
     var serverApi = new ServerApi();

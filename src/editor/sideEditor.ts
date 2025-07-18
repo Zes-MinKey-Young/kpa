@@ -25,18 +25,24 @@ abstract class SideEditor<T extends object> extends Z<"div"> {
 
 
 class NoteEditor extends SideEditor<Note> {
-    $time: ZFractionInput;
-    $endTime: ZFractionInput;
-    $type: ZDropdownOptionBox;
-    $position: ZInputBox;
-    $dir: ZDropdownOptionBox;
-    $speed: ZInputBox;
-    $alpha: ZInputBox;
-    $size: ZInputBox;
-    $delete: ZButton;
-    aboveOption: BoxOption;
-    belowOption: BoxOption;
-    noteTypeOptions: BoxOption[];
+    aboveOption: BoxOption = new BoxOption("above", () => this.target.above = true);
+    belowOption: BoxOption = new BoxOption("below", () => this.target.above = false);
+    noteTypeOptions: BoxOption[] = ["tap", "hold", "flick", "drag"]
+        .map((v) => new BoxOption(v, () => {
+            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
+        }));
+
+    $time         = new ZFractionInput();;
+    $endTime      = new ZFractionInput();;
+    $type         = new ZDropdownOptionBox(this.noteTypeOptions);
+    $position     = new ZInputBox();;
+    $dir          = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
+    $speed        = new ZInputBox();
+    $alpha        = new ZInputBox();
+    $size         = new ZInputBox();
+    $yOffset      = new ZInputBox();
+    $visibleBeats = new ZInputBox();
+    $delete       = new ZButton("Delete").addClass("destructive");
     constructor() {
         super()
         this.noteTypeOptions = arrayForIn([
@@ -65,6 +71,7 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("dir"), this.$dir,
             $("span").text("alpha"), this.$alpha,
             $("span").text("size"), this.$size,
+            $("span").text("yOffset"), this.$yOffset,
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
@@ -111,6 +118,7 @@ class NoteEditor extends SideEditor<Note> {
         this.$dir.value = note.above ? this.aboveOption : this.belowOption
         this.$speed.setValue(note.speed + "")
         this.$alpha.setValue(note.alpha + "")
+        this.$yOffset.setValue(note.yOffset + "")
         this.$size.setValue(note.size + "")
     }
 }

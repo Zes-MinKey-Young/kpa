@@ -1,6 +1,6 @@
 
 const serverApi = new ServerApi();
-let settings;
+let settings: Settings;
 
 
 serverApi.addEventListener("load", () => {
