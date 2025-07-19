@@ -1,3 +1,6 @@
+
+const VERSION = 150;
+
 enum EventType {
     moveX,
     moveY,
@@ -213,6 +216,7 @@ class Chart {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
+            version: VERSION,
             duration: this.duration,
             bpmList: this.timeCalculator.dump(),
             envEasings: envEasings,

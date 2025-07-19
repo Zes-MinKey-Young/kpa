@@ -231,7 +231,7 @@ class BezierEasing extends Easing {
             startX, startY,
             endX, endY,
             startX + cp1x * timeDelta, startY + cp1y * delta,
-            endX + cp2x * timeDelta, endY + cp2y * delta,
+            startX + cp2x * timeDelta, startY + cp2y * delta,
         )
     }
 }
@@ -279,13 +279,13 @@ class TemplateEasing extends Easing {
  */
 class ParametricEquationEasing extends Easing {
     _getValue: (x: number) => number;
-    constructor(equation: string) {
+    constructor(public equation: string) {
         super()
         // @ts-ignore
         this._getValue = new Function("t", equation)
     }
     getValue(t: number): number {
-        return this._getValue(t);
+        return this._getValue(t) ?? 0;
     }
 }
 

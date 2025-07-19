@@ -45,23 +45,7 @@ class NoteEditor extends SideEditor<Note> {
     $delete       = new ZButton("Delete").addClass("destructive");
     constructor() {
         super()
-        this.noteTypeOptions = arrayForIn([
-            "tap", "hold", "flick", "drag"
-        ], (v) => new BoxOption(v, () => {
-            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
-        }))
-        this.aboveOption = new BoxOption("above", () => this.target.above = true)
-        this.belowOption = new BoxOption("below", () => this.target.above = false)
         this.$title.text("Note")
-        this.$time = new ZFractionInput();
-        this.$endTime = new ZFractionInput();
-        this.$type = new ZDropdownOptionBox(this.noteTypeOptions)
-        this.$position = new ZInputBox();
-        this.$dir = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
-        this.$speed = new ZInputBox();
-        this.$alpha = new ZInputBox();
-        this.$size = new ZInputBox();
-        this.$delete = new ZButton("Delete").addClass("destructive");
         this.$body.append(
             $("span").text("speed"), this.$speed,
             $("span").text("time"),
@@ -71,7 +55,8 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("dir"), this.$dir,
             $("span").text("alpha"), this.$alpha,
             $("span").text("size"), this.$size,
-            $("span").text("yOffset"), this.$yOffset,
+            $("span").text("AbsYOffset"), this.$yOffset,
+            $("span").text("visibleBeats"), this.$visibleBeats,
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
@@ -96,6 +81,13 @@ class NoteEditor extends SideEditor<Note> {
         this.$size.whenValueChange(() => {
             editor.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()))
         })
+        this.$yOffset.whenValueChange(() => {
+            editor.operationList.do(new NoteYOffsetChangeOperation(this.target, this.$yOffset.getNum(), this.target.parentNode.parentSeq.parentLine));
+
+        })
+        this.$visibleBeats.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "visibleBeats", this.$visibleBeats.getNum()));
+        });
         this.$delete.onClick(() => {
             editor.operationList.do(new NoteDeleteOperation(this.target));
         })
@@ -119,6 +111,7 @@ class NoteEditor extends SideEditor<Note> {
         this.$speed.setValue(note.speed + "")
         this.$alpha.setValue(note.alpha + "")
         this.$yOffset.setValue(note.yOffset + "")
+        this.$visibleBeats.setValue(note.visibleBeats + "")
         this.$size.setValue(note.size + "")
     }
 }
@@ -174,23 +167,24 @@ class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
 
 class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
 
-    $time: ZFractionInput;
-    $value: ZInputBox;
-    $easing: ZEasingBox;
-    $radioTabs: ZRadioTabs;
-    $templateEasing: ZInputBox;
+    $time           = new ZFractionInput();
+    $value          = new ZInputBox();
+    $easing         = new ZEasingBox();
+    $templateEasing = new ZInputBox().addClass("template-easing-box");
+    $parametric     = new ZInputBox();
+    $bezierEditor   = new BezierEditor(window.innerWidth * 0.2);
     $delete: ZButton;
+    $radioTabs: ZRadioTabs;
     constructor() {
         super()
         this.$title.text("Event")
         this.addClass("event-editor")
-        this.$time = new ZFractionInput();
-        this.$value = new ZInputBox();
-        this.$easing = new ZEasingBox()
-        this.$templateEasing = new ZInputBox().addClass("template-easing-box");
+        this.$bezierEditor 
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$easing,
-            "Template": this.$templateEasing
+            "Template": this.$templateEasing,
+            "Bezier": this.$bezierEditor,
+            "Parametric": this.$parametric
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
@@ -208,12 +202,22 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         })
         this.$easing.onChange((id) => this.setNormalEasing(id))
         this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name))
+        this.$bezierEditor.whenValueChange(() => {
+            this.setBezierEasing(this.$bezierEditor.getValue());
+        })
+        this.$parametric.whenValueChange(() => {
+            this.setParametricEasing(this.$parametric.getValue());
+        })
         this.$radioTabs.$radioBox.onChange((id) => {
-            if (id === 0) {
+            if (id === 0) { // Normal
                 this.setNormalEasing(this.$easing.value)
-            } else if (id === 1) {
+            } else if (id === 1) { // Template
                 if (!this.$templateEasing.getValue()) { return; }
                 this.setTemplateEasing(this.$templateEasing.getValue())
+            } else if (id === 2) { // Bezier
+                this.setBezierEasing(this.$bezierEditor.getValue());
+            } else if (id === 3) { // Parametric
+                this.setParametricEasing(this.$parametric.getValue());
             }
         })
     }
@@ -225,6 +229,12 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         const chart = editor.chart;
         const easing = chart.templateEasingLib.getOrNew(name);
         editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing))
+    }
+    setBezierEasing(easing: BezierEasing) {
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing));
+    }
+    setParametricEasing(expression: string) {
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, new ParametricEquationEasing(expression)));
     }
     update(): void {
         const eventNode = this.target;
@@ -238,7 +248,14 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
             this.$easing.setValue(eventNode.innerEasing);
         } else if (eventNode.innerEasing instanceof TemplateEasing) {
             this.$radioTabs.switchTo(1)
-
+            this.$templateEasing.setValue(eventNode.innerEasing.name);
+        } else if (eventNode.innerEasing instanceof BezierEasing) { 
+            this.$radioTabs.switchTo(2)
+            this.$bezierEditor.setValue(eventNode.innerEasing);
+        } else if (eventNode.innerEasing instanceof ParametricEquationEasing) { 
+            this.$radioTabs.switchTo(3)
+            this.$parametric.setValue(eventNode.innerEasing.equation);
         }
+        
     }
 }

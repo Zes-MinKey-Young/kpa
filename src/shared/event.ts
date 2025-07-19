@@ -405,6 +405,27 @@ class EventStartNode extends EventNode {
         EventNode.connect(endNode, startNode);
         return startNode;
     };
+
+    
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number, matrix: Matrix): void {
+        if (!(this.easing instanceof ParametricEquationEasing)) {
+            return this.easing.drawCurve(context, startX, startY, endX, endY);
+        }
+        const getValue = (ratio: number) => {
+            return matrix.ymul(0, this.easing.getValue(ratio))
+        }
+        const timeDelta = endX - startX;
+        let last = startY;
+        context.beginPath()
+        context.moveTo(startX, last)
+        for (let t = 4; t <= timeDelta; t += 4) {
+            const ratio = t / timeDelta
+            const curPosY = getValue(ratio);
+            context.lineTo(startX + t, curPosY);
+            last = curPosY;
+        }
+        context.stroke();
+    }
 }
 /*
 type AnyStartNode = EventStartNode<EventNodeType.first>

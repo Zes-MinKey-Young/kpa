@@ -94,7 +94,7 @@ class Note {
         return note;
     }
     computeVisibleBeats(timeCalculator: TimeCalculator) {
-        if (this.visibleTime >= 90000) {
+        if (!this.visibleTime || this.visibleTime >= 90000) {
             this.visibleBeats = Infinity;
             return;
         }

@@ -715,7 +715,7 @@ class EventCurveEditor {
             }
 
 
-            startNode.easing.drawCurve(context, startX, startY, endX, endY)
+            startNode.drawCurve(context, startX, startY, endX, endY, matrix);
             if (selected) {
                 context.restore()
             }
