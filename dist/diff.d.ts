@@ -192,6 +192,7 @@ declare class TemplateEasing extends Easing {
  * We do not segment it until the chart is converted to an RPEJSON.
  */
 declare class ParametricEquationEasing extends Easing {
+    equation: string;
     _getValue: (x: number) => number;
     constructor(equation: string);
     getValue(t: number): number;
@@ -656,6 +657,7 @@ declare class JudgeLine {
     dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     updateEffectiveBeats(EB: number): void;
 }
+declare const VERSION = 150;
 declare enum EventType {
     moveX = 0,
     moveY = 1,
@@ -859,6 +861,7 @@ declare class EventStartNode extends EventNode {
     isLastStart(): boolean;
     clone(offset?: TimeT): EventStartNode;
     clonePair(offset: TimeT): EventStartNode;
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number, matrix: Matrix): void;
 }
 declare class EventEndNode extends EventNode {
     next: EventStartNode;
@@ -1415,6 +1418,10 @@ declare const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element:
 declare function saveTextToFile(text: string, filename: string): void;
 declare function shortenFloat(num: number, decimalPlaces: number): number;
 declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
+/**
+ * 获取一串数字的第？分位数
+ */
+declare function getPercentile(sorted: number[], percentile: number): number;
 declare const PROJECT_NAME = "kpa";
 declare class ChartMetadata {
     name: string;

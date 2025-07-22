@@ -1,6 +1,37 @@
 ## Changelog
 
 
+### [v1.5.0](https://github.com/Zes-Minkey-Young/kpa/compare/v1.4.0...v1.5.0) - 22 July 2025
+
+#### 新增功能
+- 添加参数方程和贝塞尔缓动的编辑
+- 支持了音符的yOffset和visibleTime，并重新标准化了这两个属性的语义
+
+#### New Features
+- Added parameter equations and bezier easing
+- Supported yOffset and visibleTime for Notes, and normalized their semantics
+
+#### 重构
+- 大幅修改网格逻辑，现在网格可以自适应调整，也可通过输入框指定范围和数值吸附线
+- 重构NNLists部分以适应yOffset
+
+#### Refactor
+- Major changes to the grid logic, now the grid can adjust itself, and can be specified through input boxes to specify the range and value of the grid
+- Refactored NNLists to adapt to yOffset
+
+#### 修复
+- 修复了谱面读取后原JSON数据未垃圾回收的问题
+- 修复了缓动读取问题
+
+#### Fixes
+- Fixed a problem where the original JSON data was not garbage collected after reading the chart
+- Fixed a problem with reading easing
+
+#### 一般更改
+- 添加了一条Tips
+
+#### General Changes
+- Added a tip
 
 
 ### [v1.2.0](https://github.com/Zes-Minkey-Young/kpa/compare/v1.1.0...v1.2.0) -  12 June 2025 

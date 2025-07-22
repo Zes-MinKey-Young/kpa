@@ -341,7 +341,7 @@ class BezierEasing extends Easing {
         const { x: cp2x, y: cp2y } = this.cp2;
         const delta = endY - startY;
         const timeDelta = endX - startX;
-        drawBezierCurve(context, startX, startY, endX, endY, startX + cp1x * timeDelta, startY + cp1y * delta, endX + cp2x * timeDelta, endY + cp2y * delta);
+        drawBezierCurve(context, startX, startY, endX, endY, startX + cp1x * timeDelta, startY + cp1y * delta, startX + cp2x * timeDelta, startY + cp2y * delta);
     }
 }
 /**
@@ -385,11 +385,13 @@ class TemplateEasing extends Easing {
 class ParametricEquationEasing extends Easing {
     constructor(equation) {
         super();
+        this.equation = equation;
         // @ts-ignore
         this._getValue = new Function("t", equation);
     }
     getValue(t) {
-        return this._getValue(t);
+        var _a;
+        return (_a = this._getValue(t)) !== null && _a !== void 0 ? _a : 0;
     }
 }
 /**
@@ -801,6 +803,7 @@ class Pointer {
 /**
  * @author Zes M Young
  */
+const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 const node2string = (node) => {
     if (!node) {
         return "" + node;
@@ -833,17 +836,22 @@ class Note {
     // posPreviousSibling?: Note;
     // posNextSibling: Note;
     constructor(data) {
+        var _a, _b, _c, _d;
         this.above = data.above === 1;
-        this.alpha = data.alpha || 255;
+        this.alpha = (_a = data.alpha) !== null && _a !== void 0 ? _a : 255;
         this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
-        this.size = data.size || 1.0;
-        this.speed = data.speed || 1.0;
+        this.size = (_b = data.size) !== null && _b !== void 0 ? _b : 1.0;
+        this.speed = (_c = data.speed) !== null && _c !== void 0 ? _c : 1.0;
         this.startTime = data.startTime;
         this.type = data.type;
         this.visibleTime = data.visibleTime;
-        this.yOffset = data.yOffset;
+        // @ts-expect-error
+        this.yOffset = (_d = data.absoluteYOffset) !== null && _d !== void 0 ? _d : data.yOffset * this.speed;
+        // @ts-expect-error 若data是RPE数据，则为undefined，无影响。
+        // 当然也有可能是KPA数据但是就是没有给
+        this.visibleBeats = data.visibleBeats;
         /*
         this.previous = null;
         this.next = null;
@@ -851,13 +859,31 @@ class Note {
         this.nextSibling = null;
         */
     }
+    static fromKPAJSON(data, timeCalculator) {
+        const note = new Note(data);
+        if (!note.visibleBeats) {
+            note.computeVisibleBeats(timeCalculator);
+        }
+        return note;
+    }
+    computeVisibleBeats(timeCalculator) {
+        if (!this.visibleTime || this.visibleTime >= 90000) {
+            this.visibleBeats = Infinity;
+            return;
+        }
+        const hitBeats = TimeCalculator.toBeats(this.startTime);
+        const hitSeconds = timeCalculator.toSeconds(hitBeats);
+        const visabilityChangeSeconds = hitSeconds - this.visibleTime;
+        const visabilityChangeBeats = timeCalculator.secondsToBeats(visabilityChangeSeconds);
+        this.visibleBeats = hitBeats - visabilityChangeBeats;
+    }
     /**
      *
      * @param offset
      * @returns
      */
     clone(offset) {
-        const data = this.dumpRPE();
+        const data = this.dumpKPA();
         data.startTime = TimeCalculator.add(data.startTime, offset);
         data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
         return new Note(data);
@@ -872,7 +898,15 @@ class Note {
         note2.posPrevious = note1;
     }
     */
-    dumpRPE() {
+    dumpRPE(timeCalculator) {
+        let visibleTime;
+        if (this.visibleBeats !== Infinity) {
+            const beats = TimeCalculator.toBeats(this.startTime);
+            this.visibleBeats = timeCalculator.segmentToSeconds(beats - this.visibleBeats, beats);
+        }
+        else {
+            visibleTime = 99999.0;
+        }
         return {
             above: this.above ? 1 : 0,
             alpha: this.alpha,
@@ -882,12 +916,28 @@ class Note {
             size: this.size,
             startTime: this.startTime,
             type: this.type,
-            visibleTime: this.visibleTime,
-            yOffset: this.yOffset,
+            visibleTime: visibleTime,
+            yOffset: this.yOffset / this.speed,
             speed: this.speed
         };
     }
     dumpKPA() {
+        return {
+            above: this.above ? 1 : 0,
+            alpha: this.alpha,
+            endTime: this.endTime,
+            isFake: this.isFake ? 1 : 0,
+            positionX: this.positionX,
+            size: this.size,
+            startTime: this.startTime,
+            type: this.type,
+            visibleBeats: this.visibleBeats,
+            yOffset: this.yOffset / this.speed,
+            /** 新KPAJSON认为YOffset就应该是个绝对的值，不受速度影响 */
+            /** 但是有历史包袱，所以加字段 */
+            absoluteYOffset: this.yOffset,
+            speed: this.speed
+        };
     }
 }
 class NoteNode {
@@ -908,10 +958,10 @@ class NoteNode {
         this.notes = [];
         this.id = NoteNode.count++;
     }
-    static fromKPAJSON(data) {
+    static fromKPAJSON(data, timeCalculator) {
         const node = new NoteNode(data.startTime);
         for (let noteData of data.notes) {
-            const note = new Note(noteData);
+            const note = Note.fromKPAJSON(noteData, timeCalculator);
             node.add(note);
         }
         return node;
@@ -999,15 +1049,16 @@ class NoteNode {
     }
     dump() {
         return {
-            notes: this.notes.map(note => note.dumpRPE()),
+            notes: this.notes.map(note => note.dumpKPA()),
             startTime: this.startTime
         };
     }
 }
 NoteNode.count = 0;
 class NNList {
-    constructor(speed, effectiveBeats) {
+    constructor(speed, medianYOffset = 0, effectiveBeats) {
         this.speed = speed;
+        this.medianYOffset = medianYOffset;
         this.head = {
             heading: true,
             next: null,
@@ -1028,13 +1079,14 @@ class NNList {
         */
         this.effectiveBeats = effectiveBeats;
     }
-    static fromKPAJSON(isHold, effectiveBeats, data, nnnList) {
-        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats);
+    /** 此方法永远用于最新KPAJSON */
+    static fromKPAJSON(isHold, effectiveBeats, data, nnnList, timeCalculator) {
+        const list = isHold ? new HNList(data.speed, data.medianYOffset, effectiveBeats) : new NNList(data.speed, data.medianYOffset, effectiveBeats);
         const nnlength = data.noteNodes.length;
         let cur = list.head;
         for (let i = 0; i < nnlength; i++) {
             const nnData = data.noteNodes[i];
-            const nn = NoteNode.fromKPAJSON(nnData);
+            const nn = NoteNode.fromKPAJSON(nnData, timeCalculator);
             NoteNode.connect(cur, nn);
             cur = nn;
             nnnList.addNoteNode(nn);
@@ -1263,8 +1315,8 @@ class NNList {
  * A NN that contains holds (a type of note) is a HN.
  */
 class HNList extends NNList {
-    constructor(speed, effectiveBeats) {
-        super(speed, effectiveBeats);
+    constructor(speed, medianYOffset, effectiveBeats) {
+        super(speed, medianYOffset, effectiveBeats);
     }
     initJump() {
         super.initJump();
@@ -1448,6 +1500,14 @@ class NNNList {
         this.getNode(noteNode.startTime).add(noteNode);
     }
 }
+/**
+ * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
+ * @param yOffset
+ * @returns
+ */
+const getRangeMedian = (yOffset) => {
+    return (Math.floor((Math.abs(yOffset) - NNLIST_Y_OFFSET_HALF_SPAN) / NNLIST_Y_OFFSET_HALF_SPAN / 2) * (NNLIST_Y_OFFSET_HALF_SPAN * 2) + NNLIST_Y_OFFSET_HALF_SPAN * 2) * Math.sign(yOffset);
+};
 class JudgeLine {
     constructor(chart) {
         this.hnLists = new Map();
@@ -1482,7 +1542,11 @@ class JudgeLine {
             // let comboInfoEntity: ComboInfoEntity;
             for (let i = 0; i < len; i++) {
                 const note = new Note(notes[i]);
-                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false);
+                note.computeVisibleBeats(timeCalculator);
+                if (note.speed === 0) {
+                    debugger;
+                }
+                const tree = line.getNNList(note.speed, note.yOffset, note.type === NoteType.hold, false);
                 const cur = tree.currentPoint;
                 const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -1533,7 +1597,7 @@ class JudgeLine {
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
-    static fromKPAJSON(chart, id, data, templates, timeCalculator) {
+    static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1544,14 +1608,19 @@ class JudgeLine {
             const lists = data[key];
             for (let name in lists) {
                 const listData = lists[name];
-                const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
-                list.parentLine = line;
-                list.id = name;
-                line[key].set(name, list);
+                if (!isOld) {
+                    const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                    list.parentLine = line;
+                    list.id = name;
+                    line[key].set(name, list);
+                }
+                else {
+                    line.getNNListFromOldKPAJSON(line[key], name, isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                }
             }
         }
         for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
+            line.children.push(JudgeLine.fromKPAJSON(isOld, chart, id, child, templates, timeCalculator));
         }
         for (let eventLayerData of data.eventLayers) {
             let eventLayer = {};
@@ -1563,6 +1632,52 @@ class JudgeLine {
         }
         chart.judgeLines.push(line);
         return line;
+    }
+    getNNListFromOldKPAJSON(lists, namePrefix, isHold, effectiveBeats, listData, nnnList, timeCalculator) {
+        const speed = listData.speed;
+        const constructor = isHold ? HNList : NNList;
+        const createdLists = new Set();
+        const getOrCreateNNList = (median, name) => {
+            if (lists.has(name)) {
+                return lists.get(name);
+            }
+            const list = new constructor(speed, median, effectiveBeats);
+            list.id = name;
+            list.parentLine = this;
+            lists.set(name, list);
+            createdLists.add(list);
+            return list;
+        };
+        const nns = listData.noteNodes;
+        const len = nns.length;
+        for (let i = 0; i < len; i++) {
+            const nodeData = nns[i];
+            const l = nodeData.notes.length;
+            for (let j = 0; j < l; j++) {
+                const noteData = nodeData.notes[j];
+                const note = new Note(noteData);
+                const median = getRangeMedian(note.yOffset);
+                const list = getOrCreateNNList(median, namePrefix + "o" + median);
+                const cur = list.currentPoint;
+                if (!note.visibleBeats) {
+                    note.computeVisibleBeats(timeCalculator);
+                }
+                if (!("heading" in cur) && TC.eq(noteData.startTime, cur.startTime)) {
+                    cur.add(note);
+                }
+                else {
+                    const node = new NoteNode(noteData.startTime);
+                    node.add(note);
+                    nnnList.addNoteNode(node);
+                    NoteNode.connect(cur, node);
+                    list.currentPoint = node;
+                }
+            }
+        }
+        for (const list of createdLists) {
+            NoteNode.connect(list.currentPoint, list.tail);
+            list.initJump();
+        }
     }
     updateSpeedIntegralFrom(beats, timeCalculator) {
         var _a;
@@ -1760,27 +1875,29 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNNList(speed, isHold, initsJump) {
+    getNNList(speed, yOffset, isHold, initsJump) {
         const lists = isHold ? this.hnLists : this.nnLists;
+        const medianYOffset = getRangeMedian(yOffset);
         for (const [_, list] of lists) {
-            if (list.speed == speed) {
+            if (list.speed === speed && list.medianYOffset === medianYOffset) {
                 return list;
             }
         }
-        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
+        const list = isHold ? new HNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
         list.parentLine = this;
         NoteNode.connect(list.head, list.tail);
         if (initsJump)
             list.initJump();
-        const id = (isHold ? "$" : "#") + speed;
+        const id = (isHold ? "$" : "#") + speed + "o" + medianYOffset;
         lists.set(id, list);
         list.id = id;
         return list;
     }
     getNode(note, initsJump) {
         const speed = note.speed;
+        const yOffset = note.yOffset;
         const isHold = note.type === NoteType.hold;
-        const tree = this.getNNList(speed, isHold, initsJump);
+        const tree = this.getNNList(speed, yOffset, isHold, initsJump);
         return tree.getNodeOf(note.startTime);
     }
     /**
@@ -1842,6 +1959,7 @@ class JudgeLine {
         }
     }
 }
+const VERSION = 150;
 var EventType;
 (function (EventType) {
     EventType[EventType["moveX"] = 0] = "moveX";
@@ -1998,8 +2116,9 @@ class Chart {
             chart.templateEasingLib.implement(easingData.name, chart.sequenceMap.get(easingData.content));
         }
         chart.templateEasingLib.check();
+        const isOld = !data.version || data.version < 150;
         for (let lineData of data.orphanLines) {
-            const line = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
+            const line = JudgeLine.fromKPAJSON(isOld, chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
             chart.orphanLines.push(line);
         }
         return chart;
@@ -2028,6 +2147,7 @@ class Chart {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
+            version: VERSION,
             duration: this.duration,
             bpmList: this.timeCalculator.dump(),
             envEasings: envEasings,
@@ -2149,7 +2269,7 @@ function arrEq(arr1, arr2) {
 class EventNode {
     constructor(time, value) {
         this.time = time;
-        this.value = value;
+        this.value = value !== null && value !== void 0 ? value : 0;
         this.previous = null;
         this.next = null;
         this.easing = linearEasing;
@@ -2385,6 +2505,7 @@ class EventStartNode extends EventNode {
      * @returns
      */
     dump() {
+        var _a;
         const endNode = this.next;
         const isSegmented = this.easingIsSegmented;
         const easing = isSegmented ? this.easing.easing : this.easing;
@@ -2399,9 +2520,9 @@ class EventStartNode extends EventNode {
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
-                    easing.rpeId :
+                    (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
                     null,
-            end: endNode.value,
+            end: easing === fixedEasing ? this.value : endNode.value,
             endTime: endNode.time,
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
@@ -2508,6 +2629,25 @@ class EventStartNode extends EventNode {
         return startNode;
     }
     ;
+    drawCurve(context, startX, startY, endX, endY, matrix) {
+        if (!(this.easing instanceof ParametricEquationEasing)) {
+            return this.easing.drawCurve(context, startX, startY, endX, endY);
+        }
+        const getValue = (ratio) => {
+            return matrix.ymul(0, this.easing.getValue(ratio));
+        };
+        const timeDelta = endX - startX;
+        let last = startY;
+        context.beginPath();
+        context.moveTo(startX, last);
+        for (let t = 4; t <= timeDelta; t += 4) {
+            const ratio = t / timeDelta;
+            const curPosY = getValue(ratio);
+            context.lineTo(startX + t, curPosY);
+            last = curPosY;
+        }
+        context.stroke();
+    }
 }
 /*
 type AnyStartNode = EventStartNode<EventNodeType.first>
@@ -3904,16 +4044,20 @@ class Player {
         const toCenter = [-transformedX, -transformedY];
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
-        const distance = Math.abs(innerProduct(toCenter, nVector));
-        let startY, endY;
-        if (distance < RENDER_SCOPE) {
-            startY = 0;
-            endY = distance + RENDER_SCOPE;
-        }
-        else {
-            startY = distance - RENDER_SCOPE;
-            endY = distance + RENDER_SCOPE;
-        }
+        const innerProd = innerProduct(toCenter, nVector);
+        const getYs = (offset) => {
+            const distance = Math.abs(innerProd + offset);
+            let startY, endY;
+            if (distance < RENDER_SCOPE) {
+                startY = 0;
+                endY = distance + RENDER_SCOPE;
+            }
+            else {
+                startY = distance - RENDER_SCOPE;
+                endY = distance + RENDER_SCOPE;
+            }
+            return [startY, endY];
+        };
         const drawScope = (y) => {
             if (y <= 1e-6)
                 return;
@@ -3937,7 +4081,8 @@ class Player {
                 if (DRAWS_NOTES) {
                     // debugger
                     // 渲染音符
-                    const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                    const [startY, endY] = getYs(list.medianYOffset);
+                    const timeRanges = speedVal !== 0 ? judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal) : [[0, Infinity]];
                     list.timeRanges = timeRanges;
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
@@ -3972,7 +4117,6 @@ class Player {
                 }
             }
         }
-        drawScope(endY);
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
             const speed = parseFloat(eachSpeed)
@@ -4006,6 +4150,9 @@ class Player {
             const notes = node.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator));
             }
             node = node.previous;
@@ -4027,8 +4174,12 @@ class Player {
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 const posX = note.positionX;
-                const x = bx + posX * vx, y = by + posX * vy;
+                const yo = note.yOffset * (note.above ? 1 : -1);
+                const x = bx + posX * vx + yo * vy, y = by + posX * vy + yo * vx;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
             }
@@ -4064,6 +4215,9 @@ class Player {
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 if (startBeats > TimeCalculator.toBeats(note.endTime)) {
                     continue;
                 }
@@ -4098,8 +4252,15 @@ class Player {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
+        if (TimeCalculator.toBeats(note.startTime) - note.visibleBeats > this.beats) {
+            return;
+        }
         let image = getImageFromType(note.type);
         const context = this.context;
+        if (note.yOffset) {
+            positionY += note.yOffset;
+            endpositionY += note.yOffset;
+        }
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY;
@@ -4115,7 +4276,7 @@ class Player {
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, this.noteSize, length);
+            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, size, length);
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height);
         if (chord) {
@@ -4354,6 +4515,12 @@ function changeAudioTime(audio, delta) {
     else {
         audio.currentTime = time;
     }
+}
+/**
+ * 获取一串数字的第？分位数
+ */
+function getPercentile(sorted, percentile) {
+    return sorted[Math.floor(sorted.length * percentile)];
 }
 const PROJECT_NAME = "kpa";
 class ChartMetadata {

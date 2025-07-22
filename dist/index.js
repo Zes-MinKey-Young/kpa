@@ -198,7 +198,7 @@ class BezierEasing extends Easing {
         const { x: cp2x, y: cp2y } = this.cp2;
         const delta = endY - startY;
         const timeDelta = endX - startX;
-        drawBezierCurve(context, startX, startY, endX, endY, startX + cp1x * timeDelta, startY + cp1y * delta, endX + cp2x * timeDelta, endY + cp2y * delta);
+        drawBezierCurve(context, startX, startY, endX, endY, startX + cp1x * timeDelta, startY + cp1y * delta, startX + cp2x * timeDelta, startY + cp2y * delta);
     }
 }
 /**
@@ -242,11 +242,13 @@ class TemplateEasing extends Easing {
 class ParametricEquationEasing extends Easing {
     constructor(equation) {
         super();
+        this.equation = equation;
         // @ts-ignore
         this._getValue = new Function("t", equation);
     }
     getValue(t) {
-        return this._getValue(t);
+        var _a;
+        return (_a = this._getValue(t)) !== null && _a !== void 0 ? _a : 0;
     }
 }
 /**
@@ -658,6 +660,7 @@ class Pointer {
 /**
  * @author Zes M Young
  */
+const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 const node2string = (node) => {
     if (!node) {
         return "" + node;
@@ -690,17 +693,22 @@ class Note {
     // posPreviousSibling?: Note;
     // posNextSibling: Note;
     constructor(data) {
+        var _a, _b, _c, _d;
         this.above = data.above === 1;
-        this.alpha = data.alpha || 255;
+        this.alpha = (_a = data.alpha) !== null && _a !== void 0 ? _a : 255;
         this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
-        this.size = data.size || 1.0;
-        this.speed = data.speed || 1.0;
+        this.size = (_b = data.size) !== null && _b !== void 0 ? _b : 1.0;
+        this.speed = (_c = data.speed) !== null && _c !== void 0 ? _c : 1.0;
         this.startTime = data.startTime;
         this.type = data.type;
         this.visibleTime = data.visibleTime;
-        this.yOffset = data.yOffset;
+        // @ts-expect-error
+        this.yOffset = (_d = data.absoluteYOffset) !== null && _d !== void 0 ? _d : data.yOffset * this.speed;
+        // @ts-expect-error 若data是RPE数据，则为undefined，无影响。
+        // 当然也有可能是KPA数据但是就是没有给
+        this.visibleBeats = data.visibleBeats;
         /*
         this.previous = null;
         this.next = null;
@@ -708,13 +716,31 @@ class Note {
         this.nextSibling = null;
         */
     }
+    static fromKPAJSON(data, timeCalculator) {
+        const note = new Note(data);
+        if (!note.visibleBeats) {
+            note.computeVisibleBeats(timeCalculator);
+        }
+        return note;
+    }
+    computeVisibleBeats(timeCalculator) {
+        if (!this.visibleTime || this.visibleTime >= 90000) {
+            this.visibleBeats = Infinity;
+            return;
+        }
+        const hitBeats = TimeCalculator.toBeats(this.startTime);
+        const hitSeconds = timeCalculator.toSeconds(hitBeats);
+        const visabilityChangeSeconds = hitSeconds - this.visibleTime;
+        const visabilityChangeBeats = timeCalculator.secondsToBeats(visabilityChangeSeconds);
+        this.visibleBeats = hitBeats - visabilityChangeBeats;
+    }
     /**
      *
      * @param offset
      * @returns
      */
     clone(offset) {
-        const data = this.dumpRPE();
+        const data = this.dumpKPA();
         data.startTime = TimeCalculator.add(data.startTime, offset);
         data.endTime = TimeCalculator.add(data.endTime, offset); // 踩坑
         return new Note(data);
@@ -729,7 +755,15 @@ class Note {
         note2.posPrevious = note1;
     }
     */
-    dumpRPE() {
+    dumpRPE(timeCalculator) {
+        let visibleTime;
+        if (this.visibleBeats !== Infinity) {
+            const beats = TimeCalculator.toBeats(this.startTime);
+            this.visibleBeats = timeCalculator.segmentToSeconds(beats - this.visibleBeats, beats);
+        }
+        else {
+            visibleTime = 99999.0;
+        }
         return {
             above: this.above ? 1 : 0,
             alpha: this.alpha,
@@ -739,12 +773,28 @@ class Note {
             size: this.size,
             startTime: this.startTime,
             type: this.type,
-            visibleTime: this.visibleTime,
-            yOffset: this.yOffset,
+            visibleTime: visibleTime,
+            yOffset: this.yOffset / this.speed,
             speed: this.speed
         };
     }
     dumpKPA() {
+        return {
+            above: this.above ? 1 : 0,
+            alpha: this.alpha,
+            endTime: this.endTime,
+            isFake: this.isFake ? 1 : 0,
+            positionX: this.positionX,
+            size: this.size,
+            startTime: this.startTime,
+            type: this.type,
+            visibleBeats: this.visibleBeats,
+            yOffset: this.yOffset / this.speed,
+            /** 新KPAJSON认为YOffset就应该是个绝对的值，不受速度影响 */
+            /** 但是有历史包袱，所以加字段 */
+            absoluteYOffset: this.yOffset,
+            speed: this.speed
+        };
     }
 }
 class NoteNode {
@@ -765,10 +815,10 @@ class NoteNode {
         this.notes = [];
         this.id = NoteNode.count++;
     }
-    static fromKPAJSON(data) {
+    static fromKPAJSON(data, timeCalculator) {
         const node = new NoteNode(data.startTime);
         for (let noteData of data.notes) {
-            const note = new Note(noteData);
+            const note = Note.fromKPAJSON(noteData, timeCalculator);
             node.add(note);
         }
         return node;
@@ -856,15 +906,16 @@ class NoteNode {
     }
     dump() {
         return {
-            notes: this.notes.map(note => note.dumpRPE()),
+            notes: this.notes.map(note => note.dumpKPA()),
             startTime: this.startTime
         };
     }
 }
 NoteNode.count = 0;
 class NNList {
-    constructor(speed, effectiveBeats) {
+    constructor(speed, medianYOffset = 0, effectiveBeats) {
         this.speed = speed;
+        this.medianYOffset = medianYOffset;
         this.head = {
             heading: true,
             next: null,
@@ -885,13 +936,14 @@ class NNList {
         */
         this.effectiveBeats = effectiveBeats;
     }
-    static fromKPAJSON(isHold, effectiveBeats, data, nnnList) {
-        const list = isHold ? new HNList(data.speed, effectiveBeats) : new NNList(data.speed, effectiveBeats);
+    /** 此方法永远用于最新KPAJSON */
+    static fromKPAJSON(isHold, effectiveBeats, data, nnnList, timeCalculator) {
+        const list = isHold ? new HNList(data.speed, data.medianYOffset, effectiveBeats) : new NNList(data.speed, data.medianYOffset, effectiveBeats);
         const nnlength = data.noteNodes.length;
         let cur = list.head;
         for (let i = 0; i < nnlength; i++) {
             const nnData = data.noteNodes[i];
-            const nn = NoteNode.fromKPAJSON(nnData);
+            const nn = NoteNode.fromKPAJSON(nnData, timeCalculator);
             NoteNode.connect(cur, nn);
             cur = nn;
             nnnList.addNoteNode(nn);
@@ -1120,8 +1172,8 @@ class NNList {
  * A NN that contains holds (a type of note) is a HN.
  */
 class HNList extends NNList {
-    constructor(speed, effectiveBeats) {
-        super(speed, effectiveBeats);
+    constructor(speed, medianYOffset, effectiveBeats) {
+        super(speed, medianYOffset, effectiveBeats);
     }
     initJump() {
         super.initJump();
@@ -1305,6 +1357,14 @@ class NNNList {
         this.getNode(noteNode.startTime).add(noteNode);
     }
 }
+/**
+ * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
+ * @param yOffset
+ * @returns
+ */
+const getRangeMedian = (yOffset) => {
+    return (Math.floor((Math.abs(yOffset) - NNLIST_Y_OFFSET_HALF_SPAN) / NNLIST_Y_OFFSET_HALF_SPAN / 2) * (NNLIST_Y_OFFSET_HALF_SPAN * 2) + NNLIST_Y_OFFSET_HALF_SPAN * 2) * Math.sign(yOffset);
+};
 class JudgeLine {
     constructor(chart) {
         this.hnLists = new Map();
@@ -1339,7 +1399,11 @@ class JudgeLine {
             // let comboInfoEntity: ComboInfoEntity;
             for (let i = 0; i < len; i++) {
                 const note = new Note(notes[i]);
-                const tree = line.getNNList(note.speed, note.type === NoteType.hold, false);
+                note.computeVisibleBeats(timeCalculator);
+                if (note.speed === 0) {
+                    debugger;
+                }
+                const tree = line.getNNList(note.speed, note.yOffset, note.type === NoteType.hold, false);
                 const cur = tree.currentPoint;
                 const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
@@ -1390,7 +1454,7 @@ class JudgeLine {
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
-    static fromKPAJSON(chart, id, data, templates, timeCalculator) {
+    static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1401,14 +1465,19 @@ class JudgeLine {
             const lists = data[key];
             for (let name in lists) {
                 const listData = lists[name];
-                const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList);
-                list.parentLine = line;
-                list.id = name;
-                line[key].set(name, list);
+                if (!isOld) {
+                    const list = NNList.fromKPAJSON(isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                    list.parentLine = line;
+                    list.id = name;
+                    line[key].set(name, list);
+                }
+                else {
+                    line.getNNListFromOldKPAJSON(line[key], name, isHold, chart.effectiveBeats, listData, nnnList, timeCalculator);
+                }
             }
         }
         for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(chart, id, child, templates, timeCalculator));
+            line.children.push(JudgeLine.fromKPAJSON(isOld, chart, id, child, templates, timeCalculator));
         }
         for (let eventLayerData of data.eventLayers) {
             let eventLayer = {};
@@ -1420,6 +1489,52 @@ class JudgeLine {
         }
         chart.judgeLines.push(line);
         return line;
+    }
+    getNNListFromOldKPAJSON(lists, namePrefix, isHold, effectiveBeats, listData, nnnList, timeCalculator) {
+        const speed = listData.speed;
+        const constructor = isHold ? HNList : NNList;
+        const createdLists = new Set();
+        const getOrCreateNNList = (median, name) => {
+            if (lists.has(name)) {
+                return lists.get(name);
+            }
+            const list = new constructor(speed, median, effectiveBeats);
+            list.id = name;
+            list.parentLine = this;
+            lists.set(name, list);
+            createdLists.add(list);
+            return list;
+        };
+        const nns = listData.noteNodes;
+        const len = nns.length;
+        for (let i = 0; i < len; i++) {
+            const nodeData = nns[i];
+            const l = nodeData.notes.length;
+            for (let j = 0; j < l; j++) {
+                const noteData = nodeData.notes[j];
+                const note = new Note(noteData);
+                const median = getRangeMedian(note.yOffset);
+                const list = getOrCreateNNList(median, namePrefix + "o" + median);
+                const cur = list.currentPoint;
+                if (!note.visibleBeats) {
+                    note.computeVisibleBeats(timeCalculator);
+                }
+                if (!("heading" in cur) && TC.eq(noteData.startTime, cur.startTime)) {
+                    cur.add(note);
+                }
+                else {
+                    const node = new NoteNode(noteData.startTime);
+                    node.add(note);
+                    nnnList.addNoteNode(node);
+                    NoteNode.connect(cur, node);
+                    list.currentPoint = node;
+                }
+            }
+        }
+        for (const list of createdLists) {
+            NoteNode.connect(list.currentPoint, list.tail);
+            list.initJump();
+        }
     }
     updateSpeedIntegralFrom(beats, timeCalculator) {
         var _a;
@@ -1617,27 +1732,29 @@ class JudgeLine {
     /**
      * 获取对应速度和类型的Note树,没有则创建
      */
-    getNNList(speed, isHold, initsJump) {
+    getNNList(speed, yOffset, isHold, initsJump) {
         const lists = isHold ? this.hnLists : this.nnLists;
+        const medianYOffset = getRangeMedian(yOffset);
         for (const [_, list] of lists) {
-            if (list.speed == speed) {
+            if (list.speed === speed && list.medianYOffset === medianYOffset) {
                 return list;
             }
         }
-        const list = isHold ? new HNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
+        const list = isHold ? new HNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration)) : new NNList(speed, medianYOffset, this.chart.timeCalculator.secondsToBeats(editor.player.audio.duration));
         list.parentLine = this;
         NoteNode.connect(list.head, list.tail);
         if (initsJump)
             list.initJump();
-        const id = (isHold ? "$" : "#") + speed;
+        const id = (isHold ? "$" : "#") + speed + "o" + medianYOffset;
         lists.set(id, list);
         list.id = id;
         return list;
     }
     getNode(note, initsJump) {
         const speed = note.speed;
+        const yOffset = note.yOffset;
         const isHold = note.type === NoteType.hold;
-        const tree = this.getNNList(speed, isHold, initsJump);
+        const tree = this.getNNList(speed, yOffset, isHold, initsJump);
         return tree.getNodeOf(note.startTime);
     }
     /**
@@ -1699,6 +1816,7 @@ class JudgeLine {
         }
     }
 }
+const VERSION = 150;
 var EventType;
 (function (EventType) {
     EventType[EventType["moveX"] = 0] = "moveX";
@@ -1855,8 +1973,9 @@ class Chart {
             chart.templateEasingLib.implement(easingData.name, chart.sequenceMap.get(easingData.content));
         }
         chart.templateEasingLib.check();
+        const isOld = !data.version || data.version < 150;
         for (let lineData of data.orphanLines) {
-            const line = JudgeLine.fromKPAJSON(chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
+            const line = JudgeLine.fromKPAJSON(isOld, chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
             chart.orphanLines.push(line);
         }
         return chart;
@@ -1885,6 +2004,7 @@ class Chart {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
+            version: VERSION,
             duration: this.duration,
             bpmList: this.timeCalculator.dump(),
             envEasings: envEasings,
@@ -2006,7 +2126,7 @@ function arrEq(arr1, arr2) {
 class EventNode {
     constructor(time, value) {
         this.time = time;
-        this.value = value;
+        this.value = value !== null && value !== void 0 ? value : 0;
         this.previous = null;
         this.next = null;
         this.easing = linearEasing;
@@ -2242,6 +2362,7 @@ class EventStartNode extends EventNode {
      * @returns
      */
     dump() {
+        var _a;
         const endNode = this.next;
         const isSegmented = this.easingIsSegmented;
         const easing = isSegmented ? this.easing.easing : this.easing;
@@ -2256,9 +2377,9 @@ class EventStartNode extends EventNode {
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
-                    easing.rpeId :
+                    (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
                     null,
-            end: endNode.value,
+            end: easing === fixedEasing ? this.value : endNode.value,
             endTime: endNode.time,
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
@@ -2365,6 +2486,25 @@ class EventStartNode extends EventNode {
         return startNode;
     }
     ;
+    drawCurve(context, startX, startY, endX, endY, matrix) {
+        if (!(this.easing instanceof ParametricEquationEasing)) {
+            return this.easing.drawCurve(context, startX, startY, endX, endY);
+        }
+        const getValue = (ratio) => {
+            return matrix.ymul(0, this.easing.getValue(ratio));
+        };
+        const timeDelta = endX - startX;
+        let last = startY;
+        context.beginPath();
+        context.moveTo(startX, last);
+        for (let t = 4; t <= timeDelta; t += 4) {
+            const ratio = t / timeDelta;
+            const curPosY = getValue(ratio);
+            context.lineTo(startX + t, curPosY);
+            last = curPosY;
+        }
+        context.stroke();
+    }
 }
 /*
 type AnyStartNode = EventStartNode<EventNodeType.first>
@@ -3707,6 +3847,12 @@ function changeAudioTime(audio, delta) {
         audio.currentTime = time;
     }
 }
+/**
+ * 获取一串数字的第？分位数
+ */
+function getPercentile(sorted, percentile) {
+    return sorted[Math.floor(sorted.length * percentile)];
+}
 class OperationList extends EventTarget {
     constructor(parentChart) {
         super();
@@ -4014,7 +4160,18 @@ class HoldEndTimeChangeOperation extends NoteValueChangeOperation {
 class NoteSpeedChangeOperation extends ComplexOperation {
     constructor(note, value, line) {
         const valueChange = new NoteValueChangeOperation(note, "speed", value);
-        const tree = line.getNNList(value, note.type === NoteType.hold, true);
+        const tree = line.getNNList(value, note.yOffset, note.type === NoteType.hold, true);
+        const node = tree.getNodeOf(note.startTime);
+        const removal = new NoteRemoveOperation(note);
+        const insert = new NoteAddOperation(note, node);
+        super(valueChange, removal, insert);
+        this.updatesEditor = true;
+    }
+}
+class NoteYOffsetChangeOperation extends ComplexOperation {
+    constructor(note, value, line) {
+        const valueChange = new NoteValueChangeOperation(note, "yOffset", value);
+        const tree = line.getNNList(note.speed, value, note.type === NoteType.hold, true);
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
         const insert = new NoteAddOperation(note, node);
@@ -4028,7 +4185,7 @@ class NoteTypeChangeOperation extends ComplexOperation {
         const isHold = note.type === NoteType.hold;
         const valueChange = new NoteValueChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
-            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, !isHold, true);
+            const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, note.yOffset, !isHold, true);
             const node = tree.getNodeOf(note.startTime);
             const removal = new NoteRemoveOperation(note);
             const insert = new NoteAddOperation(note, node);
@@ -4308,6 +4465,125 @@ function encapsule(templateEasingLib, sourceSequence, sourceNodes, name) {
     new MultiNodeAddOperation(nodeArray, sequence).do();
     return new EncapsuleOperation(oldArray, easing);
 }
+const BEZIER_POINT_SIZE = 20;
+const HALF_BEZIER_POINT_SIZE = BEZIER_POINT_SIZE / 2;
+var BezierEditorState;
+(function (BezierEditorState) {
+    BezierEditorState[BezierEditorState["select"] = 0] = "select";
+    BezierEditorState[BezierEditorState["selectingStart"] = 1] = "selectingStart";
+    BezierEditorState[BezierEditorState["selectingEnd"] = 2] = "selectingEnd";
+})(BezierEditorState || (BezierEditorState = {}));
+/** 编辑三次贝塞尔曲线 */
+class BezierEditor extends Z {
+    constructor(size) {
+        super("div");
+        this.size = size;
+        this.canvas = document.createElement("canvas");
+        this.selectionManager = new SelectionManager();
+        this.startPoint = new Coordinate(0, 0);
+        this.endPoint = new Coordinate(0, 0);
+        this.state = BezierEditorState.select;
+        this.drawn = false;
+        this.canvas.width = this.canvas.height = size;
+        this.context = this.canvas.getContext("2d");
+        this.element.appendChild(this.canvas);
+        on(["mousedown", "touchstart"], this.canvas, (e) => {
+            this.downHandler(e);
+            this.update();
+        });
+        on(["mousemove", "touchmove"], this.canvas, (e) => {
+            this.moveHandler(e);
+            this.update();
+        });
+        on(["mouseup", "touchend"], this.canvas, (e) => {
+            this.upHandler(e);
+            this.update();
+        });
+    }
+    update() {
+        this.updateMatrix();
+        this.selectionManager.refresh();
+        const { context, size, startPoint, endPoint, selectionManager } = this;
+        const { x: sx, y: sy } = startPoint.mul(this.matrix);
+        const { x: ex, y: ey } = endPoint.mul(this.matrix);
+        context.fillStyle = "#222";
+        context.fillRect(0, 0, size, size);
+        context.fillStyle = "#EEE";
+        context.fillText(`${sx} ${sy} ${ex} ${ey} ${BezierEditorState[this.state]}`, 5, 20);
+        context.strokeStyle = "#EE7";
+        context.lineWidth = 5;
+        drawBezierCurve(context, 0, size, size, 0, sx, sy, ex, ey);
+        context.drawImage(NODE_START, sx - HALF_BEZIER_POINT_SIZE, sy - HALF_BEZIER_POINT_SIZE, BEZIER_POINT_SIZE, BEZIER_POINT_SIZE);
+        context.drawImage(NODE_END, ex - HALF_BEZIER_POINT_SIZE, ey - HALF_BEZIER_POINT_SIZE, BEZIER_POINT_SIZE, BEZIER_POINT_SIZE);
+        selectionManager.add({
+            centerX: sx,
+            centerY: sy,
+            width: BEZIER_POINT_SIZE,
+            height: BEZIER_POINT_SIZE,
+            priority: 1,
+            target: "start"
+        });
+        selectionManager.add({
+            centerX: ex,
+            centerY: ey,
+            width: BEZIER_POINT_SIZE,
+            height: BEZIER_POINT_SIZE,
+            priority: 0,
+            target: "end"
+        });
+    }
+    updateMatrix() {
+        const size = this.size;
+        this.matrix = identity.translate(0, size).scale(size, -size);
+        this.invertedMatrix = this.matrix.invert();
+    }
+    downHandler(event) {
+        const [x, y] = getOffsetCoordFromEvent(event, this.canvas);
+        const tar = this.selectionManager.click(x, y);
+        if (!tar) {
+            return;
+        }
+        if (tar.target === "start") {
+            this.state = BezierEditorState.selectingStart;
+        }
+        else if (tar.target === "end") {
+            this.state = BezierEditorState.selectingEnd;
+        }
+    }
+    moveHandler(event) {
+        if (this.state === BezierEditorState.select) {
+            return;
+        }
+        const [x, y] = getOffsetCoordFromEvent(event, this.canvas);
+        const coord = new Coordinate(x, y).mul(this.invertedMatrix);
+        if (this.state === BezierEditorState.selectingStart) {
+            this.startPoint = coord;
+        }
+        else if (this.state === BezierEditorState.selectingEnd) {
+            this.endPoint = coord;
+        }
+    }
+    upHandler(event) {
+        if (this.state === BezierEditorState.selectingStart || this.state === BezierEditorState.selectingEnd) {
+            this.dispatchEvent(new ZValueChangeEvent());
+        }
+        this.state = BezierEditorState.select;
+    }
+    getValue() {
+        const easing = new BezierEasing();
+        easing.cp1 = this.startPoint;
+        easing.cp2 = this.endPoint;
+        return easing;
+    }
+    setValue(easing) {
+        this.startPoint = easing.cp1;
+        this.endPoint = easing.cp2;
+        this.update();
+    }
+    whenValueChange(fn) {
+        this.addEventListener("valueChange", fn);
+    }
+}
 class SideEditor extends Z {
     get target() {
         var _a;
@@ -4326,16 +4602,17 @@ class SideEditor extends Z {
     }
 }
 class NoteEditor extends SideEditor {
+    ;
+    ;
+    ;
     constructor() {
         super();
-        this.noteTypeOptions = arrayForIn([
-            "tap", "hold", "flick", "drag"
-        ], (v) => new BoxOption(v, () => {
-            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]));
-        }));
         this.aboveOption = new BoxOption("above", () => this.target.above = true);
         this.belowOption = new BoxOption("below", () => this.target.above = false);
-        this.$title.text("Note");
+        this.noteTypeOptions = ["tap", "hold", "flick", "drag"]
+            .map((v) => new BoxOption(v, () => {
+            editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]));
+        }));
         this.$time = new ZFractionInput();
         this.$endTime = new ZFractionInput();
         this.$type = new ZDropdownOptionBox(this.noteTypeOptions);
@@ -4344,8 +4621,11 @@ class NoteEditor extends SideEditor {
         this.$speed = new ZInputBox();
         this.$alpha = new ZInputBox();
         this.$size = new ZInputBox();
+        this.$yOffset = new ZInputBox();
+        this.$visibleBeats = new ZInputBox();
         this.$delete = new ZButton("Delete").addClass("destructive");
-        this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("del"), this.$delete);
+        this.$title.text("Note");
+        this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("AbsYOffset"), this.$yOffset, $("span").text("visibleBeats"), this.$visibleBeats, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
             editor.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)));
             if (this.target.type !== NoteType.hold) {
@@ -4367,6 +4647,12 @@ class NoteEditor extends SideEditor {
         });
         this.$size.whenValueChange(() => {
             editor.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()));
+        });
+        this.$yOffset.whenValueChange(() => {
+            editor.operationList.do(new NoteYOffsetChangeOperation(this.target, this.$yOffset.getNum(), this.target.parentNode.parentSeq.parentLine));
+        });
+        this.$visibleBeats.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "visibleBeats", this.$visibleBeats.getNum()));
         });
         this.$delete.onClick(() => {
             editor.operationList.do(new NoteDeleteOperation(this.target));
@@ -4391,6 +4677,8 @@ class NoteEditor extends SideEditor {
         this.$dir.value = note.above ? this.aboveOption : this.belowOption;
         this.$speed.setValue(note.speed + "");
         this.$alpha.setValue(note.alpha + "");
+        this.$yOffset.setValue(note.yOffset + "");
+        this.$visibleBeats.setValue(note.visibleBeats + "");
         this.$size.setValue(note.size + "");
     }
 }
@@ -4431,15 +4719,20 @@ class MultiNodeEditor extends SideEditor {
 class EventEditor extends SideEditor {
     constructor() {
         super();
-        this.$title.text("Event");
-        this.addClass("event-editor");
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
         this.$easing = new ZEasingBox();
         this.$templateEasing = new ZInputBox().addClass("template-easing-box");
+        this.$parametric = new ZInputBox();
+        this.$bezierEditor = new BezierEditor(window.innerWidth * 0.2);
+        this.$title.text("Event");
+        this.addClass("event-editor");
+        this.$bezierEditor;
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$easing,
-            "Template": this.$templateEasing
+            "Template": this.$templateEasing,
+            "Bezier": this.$bezierEditor,
+            "Parametric": this.$parametric
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
@@ -4452,15 +4745,27 @@ class EventEditor extends SideEditor {
         });
         this.$easing.onChange((id) => this.setNormalEasing(id));
         this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name));
+        this.$bezierEditor.whenValueChange(() => {
+            this.setBezierEasing(this.$bezierEditor.getValue());
+        });
+        this.$parametric.whenValueChange(() => {
+            this.setParametricEasing(this.$parametric.getValue());
+        });
         this.$radioTabs.$radioBox.onChange((id) => {
-            if (id === 0) {
+            if (id === 0) { // Normal
                 this.setNormalEasing(this.$easing.value);
             }
-            else if (id === 1) {
+            else if (id === 1) { // Template
                 if (!this.$templateEasing.getValue()) {
                     return;
                 }
                 this.setTemplateEasing(this.$templateEasing.getValue());
+            }
+            else if (id === 2) { // Bezier
+                this.setBezierEasing(this.$bezierEditor.getValue());
+            }
+            else if (id === 3) { // Parametric
+                this.setParametricEasing(this.$parametric.getValue());
             }
         });
     }
@@ -4472,6 +4777,12 @@ class EventEditor extends SideEditor {
         const chart = editor.chart;
         const easing = chart.templateEasingLib.getOrNew(name);
         editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing));
+    }
+    setBezierEasing(easing) {
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easing));
+    }
+    setParametricEasing(expression) {
+        editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, new ParametricEquationEasing(expression)));
     }
     update() {
         const eventNode = this.target;
@@ -4486,6 +4797,15 @@ class EventEditor extends SideEditor {
         }
         else if (eventNode.innerEasing instanceof TemplateEasing) {
             this.$radioTabs.switchTo(1);
+            this.$templateEasing.setValue(eventNode.innerEasing.name);
+        }
+        else if (eventNode.innerEasing instanceof BezierEasing) {
+            this.$radioTabs.switchTo(2);
+            this.$bezierEditor.setValue(eventNode.innerEasing);
+        }
+        else if (eventNode.innerEasing instanceof ParametricEquationEasing) {
+            this.$radioTabs.switchTo(3);
+            this.$parametric.setValue(eventNode.innerEasing.equation);
         }
     }
 }
@@ -4568,39 +4888,32 @@ class SelectionManager {
 // ** TODO: Charting time stats
 const eventTypeMap = [
     {
-        basis: 0,
         valueGridSpan: 135,
-        valueRange: 1350
+        valueRange: [-675, 675]
     },
     {
-        basis: 0,
         valueGridSpan: 180,
-        valueRange: 900
+        valueRange: [-450, 450]
     },
     {
-        basis: 0,
         valueGridSpan: 90,
-        valueRange: 720
+        valueRange: [-360, 360]
     },
     {
-        basis: -0.5,
         valueGridSpan: 17,
-        valueRange: 255
+        valueRange: [0, 255]
     },
     {
-        basis: -0.25,
         valueGridSpan: 2,
-        valueRange: 20
+        valueRange: [-5, 15]
     },
     {
-        basis: 0,
         valueGridSpan: 270,
-        valueRange: 1350
+        valueRange: [-675, 675]
     },
     {
-        basis: -0.5,
         valueGridSpan: 40,
-        valueRange: 300
+        valueRange: [0, 400]
     }
 ];
 var NewNodeState;
@@ -4627,6 +4940,7 @@ class EventCurveEditors extends Z {
         this.$timeSpanInput = new ZInputBox("4").attr("size", "3");
         this.$editSwitch = new ZSwitch("Edit");
         this.$easingBox = new ZEasingBox(true);
+        this.$rangeInput = new ZInputBox().attr("size", "6");
         this.easingBeats = 0;
         this._selectedLayer = "0";
         this.addClass("event-curve-editors");
@@ -4639,6 +4953,19 @@ class EventCurveEditors extends Z {
             }
             // @ts-expect-error 上面已经排除（我也不知道什么时候会出这种）
             this.selectedLayer = val;
+        });
+        this.$rangeInput.whenValueChange((content) => {
+            if (content === "auto" || content === "") {
+                this.selectedEditor.autoRangeEnabled = true;
+            }
+            const parts = content.split(",");
+            if (parts.length !== 2) {
+                notify("Invalid range");
+                this.updateAdjustmentOptions(this.selectedEditor);
+                return;
+            }
+            this.selectedEditor.valueRange = [parseFloat(parts[0]), parseFloat(parts[1])];
+            this.selectedEditor.autoRangeEnabled = false;
         });
         this.$easingBox.onChange(id => {
             for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
@@ -4686,7 +5013,7 @@ class EventCurveEditors extends Z {
                 editor.update();
             }
         });
-        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$timeSpanInput, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect, this.$templateNameInput, this.$encapsuleBtn);
+        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$timeSpanInput, this.$rangeInput, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect, this.$templateNameInput, this.$encapsuleBtn);
         this.append(this.$bar);
         this.nodesSelection = new Set();
     }
@@ -4709,6 +5036,7 @@ class EventCurveEditors extends Z {
             this._selectedEditor.active = false;
         this._selectedEditor = val;
         val.active = true;
+        this.updateAdjustmentOptions(val);
         this.nodesSelection = new Set();
         this.draw();
     }
@@ -4739,6 +5067,9 @@ class EventCurveEditors extends Z {
         this.target = target;
         this.draw();
     }
+    updateAdjustmentOptions(editor) {
+        this.$rangeInput.setValue(editor.autoRangeEnabled ? "auto" : editor.valueRange.join("，"));
+    }
 }
 var EventCurveEditorState;
 (function (EventCurveEditorState) {
@@ -4749,6 +5080,81 @@ var EventCurveEditorState;
     EventCurveEditorState[EventCurveEditorState["selectScope"] = 4] = "selectScope";
     EventCurveEditorState[EventCurveEditorState["selectingScope"] = 5] = "selectingScope";
 })(EventCurveEditorState || (EventCurveEditorState = {}));
+const lengthOf = (range) => range[1] - range[0];
+const medianOf = (range) => (range[0] + range[1]) / 2;
+const percentileOf = (range, percent) => range[0] + lengthOf(range) * percent;
+/**
+ * 对于一个值，在一系列可吸附值上寻找最接近的值
+ * @param sortedAttachable
+ * @param value
+ * @returns
+ */
+const computeAttach = (sortedAttachable, value) => {
+    const len = sortedAttachable.length;
+    if (len === 0)
+        return value;
+    if (value < sortedAttachable[0]) {
+        return sortedAttachable[0];
+    }
+    for (let i = 0; i < len - 1; i++) {
+        const cur = sortedAttachable[i];
+        if (value === cur) {
+            return cur;
+        }
+        const next = sortedAttachable[i + 1];
+        if (value > cur && value < next) {
+            return (value - cur) < (next - value) ? cur : next;
+        }
+    }
+    if (value > sortedAttachable[len - 1]) {
+        return sortedAttachable[len - 1];
+    }
+};
+/**
+ * 生成可吸附值
+ * @param linear 一次函数的两个系数
+ * @param range 显示范围
+ */
+function generateAttachable(linear, range) {
+    const k = linear[0], b = linear[1];
+    if (k <= 0) {
+        debugger;
+    }
+    const left = range[0], right = range[1];
+    const startingX = Math.floor((left - b) / k);
+    const attachable = [];
+    for (let i = startingX;; i++) {
+        const val = k * i + b;
+        attachable.push(k * i + b);
+        if (val > right)
+            break;
+    }
+    return attachable;
+}
+function divideOrMul(gridSpan, maximum) {
+    const m = Math.floor(maximum);
+    if (m === 0) {
+        const times = Math.floor(1 / maximum);
+        return gridSpan * times;
+    }
+    if (isNaN(gridSpan) || isNaN(m)) {
+        debugger;
+    }
+    if (!Number.isInteger(gridSpan)) {
+        return gridSpan / m;
+    }
+    else {
+        // 有的时候maximum莫名其妙整的特大，采取这种方式
+        if (gridSpan < maximum) {
+            return 1;
+        }
+        for (let i = m; i >= 1; i--) {
+            if (gridSpan % i === 0) {
+                return gridSpan / i;
+            }
+        }
+    }
+}
 class EventCurveEditor {
     get selectedNode() {
         if (!this._selectedNode) {
@@ -4779,9 +5185,14 @@ class EventCurveEditor {
         }
     }
     constructor(type, height, width, parent) {
-        this.newNodeState = NewNodeState.controlsBoth;
-        const config = eventTypeMap[type];
         this.type = type;
+        this.attachableValues = [];
+        this.newNodeState = NewNodeState.controlsBoth;
+        this.autoRangeEnabled = true;
+        const config = eventTypeMap[type];
+        if (type === EventType.alpha) {
+            this.autoRangeEnabled = false;
+        }
         this.parentEditorSet = parent;
         this._active = true;
         this.$element = $("div");
@@ -4797,14 +5208,13 @@ class EventCurveEditor {
         this.innerHeight = this.canvas.height - this.padding * 2;
         this.innerWidth = this.canvas.width - this.padding * 2;
         this.context = this.canvas.getContext("2d");
-        this.timeRange = 4;
+        this.timeSpan = 4;
         // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
-        this.valueBasis = config.basis;
-        this.valueRatio = this.innerHeight / this.valueRange;
-        this.timeRatio = this.innerWidth / this.timeRange;
+        this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
+        this.attachableValues = generateAttachable([config.valueGridSpan, 0], this.valueRange);
+        this.timeRatio = this.innerWidth / this.timeSpan;
         this.timeGridSpan = 1;
-        this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
         this.valueGridColor = [255, 170, 120];
         this.initContext();
@@ -4815,7 +5225,7 @@ class EventCurveEditor {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
         });
         parent.$timeSpanInput.whenValueChange((val) => {
-            this.timeRange = parent.$timeSpanInput.getNum();
+            this.timeSpan = parent.$timeSpanInput.getNum();
             this.draw();
         });
         on(["mousemove", "touchmove"], this.canvas, (event) => {
@@ -4824,7 +5234,7 @@ class EventCurveEditor {
             const { x, y } = coord;
             const { padding } = this;
             const { x: beats, y: value } = coord.mul(this.invertedMatrix);
-            this.pointedValue = Math.round(value / this.valueGridSpan) * this.valueGridSpan;
+            this.pointedValue = computeAttach(this.attachableValues, value);
             const accurateBeats = beats + this.lastBeats;
             this.pointedBeats = Math.floor(accurateBeats);
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor);
@@ -4917,10 +5327,10 @@ class EventCurveEditor {
         // #endregion
     }
     updateMatrix() {
-        this.valueRatio = this.innerHeight / this.valueRange;
-        this.timeRatio = this.innerWidth / this.timeRange;
-        const { timeRange, valueRange, timeRatio, valueRatio, valueBasis } = this;
-        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
+        this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
+        this.timeRatio = this.innerWidth / this.timeSpan;
+        const { timeSpan: timeRange, valueRange, timeRatio, valueRatio } = this;
+        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, -medianOf(valueRange));
         this.invertedMatrix = this.matrix.invert();
         // console.log(this.matrix);
         // console.log(identity.translate(0, -valueBasis * valueRange))
@@ -5041,27 +5451,27 @@ class EventCurveEditor {
     drawCoordination(beats) {
         const { height: canvasHeight, width: canvasWidth } = this.canvas;
         const { innerHeight, innerWidth } = this;
-        const { timeGridSpan, valueGridSpan, valueRatio, timeRatio, context } = this;
+        const { attachableValues, timeGridSpan, valueRange, valueRatio, timeRatio, context } = this;
         const timeDivisor = editor.timeDivisor;
         context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
-        const basis = this.valueBasis * this.innerHeight;
+        const basis = -medianOf(valueRange) / lengthOf(valueRange) * this.innerHeight;
         // 计算上下界
         context.save();
         context.fillStyle = "#EEE";
-        const upperEnd = Math.ceil((innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan;
-        const lowerEnd = Math.ceil((-innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan;
         context.strokeStyle = rgb(...this.valueGridColor);
         context.lineWidth = 1;
-        for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
-            const positionY = value * valueRatio + basis;
-            drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
-            context.fillText(value + "", -innerWidth / 2, -positionY);
+        const len = attachableValues.length;
+        for (let i = 0; i < len; i++) {
+            const value = attachableValues[i];
+            const positionY = this.matrix.ymul(0, value);
+            drawLine(context, -canvasWidth / 2, positionY, canvasWidth, positionY);
+            context.fillText(value + "", -innerWidth / 2, positionY);
         }
         context.strokeStyle = rgb(...this.timeGridColor);
-        const stopBeats = Math.ceil((beats + this.timeRange / 2) / timeGridSpan) * timeGridSpan;
-        const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan - 1) * timeGridSpan;
+        const stopBeats = Math.ceil((beats + this.timeSpan / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeSpan / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionX = (time - beats) * timeRatio;
             drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
@@ -5086,7 +5496,7 @@ class EventCurveEditor {
         beats = beats || this.lastBeats || 0;
         this.updateMatrix();
         const { height, width } = this.canvas;
-        const { timeRatio, valueRatio, valueBasis: basis, context, selectionManager, matrix } = this;
+        const { timeRatio, valueRatio, context, selectionManager, matrix } = this;
         selectionManager.refresh();
         this.drawCoordination(beats);
         context.save();
@@ -5102,10 +5512,12 @@ class EventCurveEditor {
             this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
         }
         context.restore();
-        const startBeats = beats - this.timeRange / 2;
-        const endBeats = beats + this.timeRange / 2;
+        const startBeats = beats - this.timeSpan / 2;
+        const endBeats = beats + this.timeSpan / 2;
         let previousEndNode = this.target.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || this.target.head; // 有点奇怪的操作
         let previousTime = "heading" in previousEndNode ? 0 : TimeCalculator.toBeats(previousEndNode.time);
+        // 该数组用于自动调整网格
+        const valueArray = [];
         while (previousTime < endBeats) {
             const startNode = previousEndNode.next;
             const endNode = startNode.next;
@@ -5116,6 +5528,7 @@ class EventCurveEditor {
             const endTime = TimeCalculator.toBeats(endNode.time);
             const startValue = startNode.value;
             const endValue = endNode.value;
+            valueArray.push(startValue, endValue);
             const { x: startX, y: startY } = new Coordinate(startTime - beats, startValue).mul(matrix);
             // console.log("startXY", startX, startY);
             // console.log(Matrix.fromDOMMatrix(context.getTransform()))
@@ -5143,7 +5556,7 @@ class EventCurveEditor {
                 context.save();
                 context.strokeStyle = 'cyan';
             }
-            startNode.easing.drawCurve(context, startX, startY, endX, endY);
+            startNode.drawCurve(context, startX, startY, endX, endY, matrix);
             if (selected) {
                 context.restore();
             }
@@ -5185,6 +5598,7 @@ class EventCurveEditor {
                 priority: 1
             }).annotate(context, startX, topY);
         }
+        this.adjust(valueArray);
         if (this.state === EventCurveEditorState.selectingScope) {
             const { startingCanvasPoint, canvasPoint } = this;
             context.save();
@@ -5193,6 +5607,66 @@ class EventCurveEditor {
             context.restore();
         }
         this.lastBeats = beats;
+    }
+    adjust(values) {
+        if (this.state !== EventCurveEditorState.select) {
+            return;
+        }
+        const valueRange = this.valueRange;
+        const distinctValueCount = new Set(values).size;
+        if (distinctValueCount < 2 && valueRange[0] < values[0] && values[0] < valueRange[1]) {
+            return;
+        }
+        if (this.autoRangeEnabled) {
+            const sorted = values.sort((a, b) => a - b);
+            const lengthOfValue = lengthOf(valueRange);
+            // 如果上四分位数超出了valueRange，则扩大valueRange右边界valueRange长度的一半。
+            // 如果上四分位数不及valueRange的2/3处位置，则缩小valueRange右边界valueRange长度的一半。
+            // 下四分位数同理
+            const upper = getPercentile(sorted, 0.95);
+            const lower = getPercentile(sorted, 0.05);
+            const pos1Third = percentileOf(valueRange, 0.34);
+            const pos2Third = percentileOf(valueRange, 0.66);
+            const range = [...this.valueRange];
+            if (upper > valueRange[1]) {
+                range[1] = valueRange[1] + lengthOfValue / 2;
+            }
+            else if (upper < pos2Third) {
+                range[1] = valueRange[1] - lengthOfValue / 3;
+            }
+            if (lower < valueRange[0]) {
+                range[0] = valueRange[0] - lengthOfValue / 2;
+            }
+            else if (lower > pos1Third) {
+                range[0] = valueRange[0] + lengthOfValue / 3;
+            }
+            this.valueRange = range;
+        }
+        // 计算合适的valueGridSpan
+        // 根据这个值能够整除多少个值。
+        let priority = 0;
+        let valueGridSpan = eventTypeMap[this.type].valueGridSpan;
+        const len = values.length;
+        for (let i = 0; i < len; i++) {
+            const v = values[i];
+            if (v === 0) {
+                continue;
+            }
+            const p = values.reduce((acc, cur) => {
+                return cur % v === 0 ? acc + 1 : acc;
+            });
+            if (p > priority * 1.2) {
+                priority = p;
+                valueGridSpan = v;
+            }
+        }
+        valueGridSpan = divideOrMul(valueGridSpan, 10 / (lengthOf(this.valueRange) / valueGridSpan));
+        if (distinctValueCount > 10) {
+            this.attachableValues = generateAttachable([valueGridSpan, 0], this.valueRange);
+        }
+        else {
+            this.attachableValues = Array.from(new Set([...generateAttachable([valueGridSpan, 0], this.valueRange), ...values])).sort((a, b) => a - b);
+        }
     }
     changeTarget(line, index) {
         if (this.type === EventType.easing) {
@@ -5993,6 +6467,7 @@ const tips = [
     "本制谱器没有使用lchzh3473的sim-phi制作",
     "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
     "[露出了6号缓动]",
+    "本软件是“奇谱发生器”，不是“八股谱发生器”更不是“粪谱发生器”",
     "撤销重做、复制粘贴不需要Ctrl，直接按Z/Y/C/V即可",
     "天苍苍，野茫茫，风吹草低见牛羊",
     "闊靛緥婧愮偣",
@@ -6265,6 +6740,7 @@ class Editor extends EventTarget {
             this.operationList = new OperationList(chart);
             this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle);
             this.dispatchEvent(new Event("chartloaded"));
+            this.chartData = null; // 这个内存量其实挺恐怖的
         };
         if (this.chartType === "rpejson") {
             // 若为1.6.0版本以后，元数据中有时长信息，直接使用以建立谱面
@@ -6867,16 +7343,20 @@ class Player {
         const toCenter = [-transformedX, -transformedY];
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
-        const distance = Math.abs(innerProduct(toCenter, nVector));
-        let startY, endY;
-        if (distance < RENDER_SCOPE) {
-            startY = 0;
-            endY = distance + RENDER_SCOPE;
-        }
-        else {
-            startY = distance - RENDER_SCOPE;
-            endY = distance + RENDER_SCOPE;
-        }
+        const innerProd = innerProduct(toCenter, nVector);
+        const getYs = (offset) => {
+            const distance = Math.abs(innerProd + offset);
+            let startY, endY;
+            if (distance < RENDER_SCOPE) {
+                startY = 0;
+                endY = distance + RENDER_SCOPE;
+            }
+            else {
+                startY = distance - RENDER_SCOPE;
+                endY = distance + RENDER_SCOPE;
+            }
+            return [startY, endY];
+        };
         const drawScope = (y) => {
             if (y <= 1e-6)
                 return;
@@ -6900,7 +7380,8 @@ class Player {
                 if (DRAWS_NOTES) {
                     // debugger
                     // 渲染音符
-                    const timeRanges = judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal);
+                    const [startY, endY] = getYs(list.medianYOffset);
+                    const timeRanges = speedVal !== 0 ? judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal) : [[0, Infinity]];
                     list.timeRanges = timeRanges;
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
@@ -6935,7 +7416,6 @@ class Player {
                 }
             }
         }
-        drawScope(endY);
         /*
         for (let eachSpeed in judgeLine.noteSpeeds) {
             const speed = parseFloat(eachSpeed)
@@ -6969,6 +7449,9 @@ class Player {
             const notes = node.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator));
             }
             node = node.previous;
@@ -6990,8 +7473,12 @@ class Player {
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 const posX = note.positionX;
-                const x = bx + posX * vx, y = by + posX * vy;
+                const yo = note.yOffset * (note.above ? 1 : -1);
+                const x = bx + posX * vx + yo * vy, y = by + posX * vy + yo * vx;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
             }
@@ -7027,6 +7514,9 @@ class Player {
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
+                if (note.isFake) {
+                    continue;
+                }
                 if (startBeats > TimeCalculator.toBeats(note.endTime)) {
                     continue;
                 }
@@ -7061,8 +7551,15 @@ class Player {
         if (TimeCalculator.toBeats(note.endTime) < this.beats) {
             return;
         }
+        if (TimeCalculator.toBeats(note.startTime) - note.visibleBeats > this.beats) {
+            return;
+        }
         let image = getImageFromType(note.type);
         const context = this.context;
+        if (note.yOffset) {
+            positionY += note.yOffset;
+            endpositionY += note.yOffset;
+        }
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY;
@@ -7078,7 +7575,7 @@ class Player {
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, this.noteSize, length);
+            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, size, length);
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height);
         if (chord) {

@@ -135,6 +135,7 @@ declare class TemplateEasing extends Easing {
  * We do not segment it until the chart is converted to an RPEJSON.
  */
 declare class ParametricEquationEasing extends Easing {
+    equation: string;
     _getValue: (x: number) => number;
     constructor(equation: string);
     getValue(t: number): number;
@@ -599,6 +600,7 @@ declare class JudgeLine {
     dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     updateEffectiveBeats(EB: number): void;
 }
+declare const VERSION = 150;
 declare enum EventType {
     moveX = 0,
     moveY = 1,
@@ -802,6 +804,7 @@ declare class EventStartNode extends EventNode {
     isLastStart(): boolean;
     clone(offset?: TimeT): EventStartNode;
     clonePair(offset: TimeT): EventStartNode;
+    drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number, matrix: Matrix): void;
 }
 declare class EventEndNode extends EventNode {
     next: EventStartNode;
@@ -1293,6 +1296,10 @@ declare const getOffsetCoordFromEvent: (event: MouseEvent | TouchEvent, element:
 declare function saveTextToFile(text: string, filename: string): void;
 declare function shortenFloat(num: number, decimalPlaces: number): number;
 declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
+/**
+ * 获取一串数字的第？分位数
+ */
+declare function getPercentile(sorted: number[], percentile: number): number;
 declare class OperationList extends EventTarget {
     parentChart: Chart;
     operations: Operation[];
@@ -1317,7 +1324,7 @@ declare class ComplexOperation<T extends Operation[]> extends Operation {
     do(): void;
     undo(): void;
 }
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size";
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset";
 declare class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
     note: Note;
@@ -1375,6 +1382,13 @@ declare class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTi
     rewrite(operation: HoldEndTimeChangeOperation): boolean;
 }
 declare class NoteSpeedChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
+    updatesEditor: boolean;
+    originalTree: NNList;
+    judgeLine: JudgeLine;
+    targetTree: NNList;
+    constructor(note: Note, value: number, line: JudgeLine);
+}
+declare class NoteYOffsetChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"yOffset">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor: boolean;
     originalTree: NNList;
     judgeLine: JudgeLine;
@@ -1506,6 +1520,35 @@ declare enum EncapsuleErrorType {
  * @param sourceNodes
  */
 declare function encapsule(templateEasingLib: TemplateEasingLib, sourceSequence: EventNodeSequence, sourceNodes: Set<EventStartNode>, name: string): EncapsuleErrorType | EncapsuleOperation;
+declare const BEZIER_POINT_SIZE = 20;
+declare const HALF_BEZIER_POINT_SIZE: number;
+declare enum BezierEditorState {
+    select = 0,
+    selectingStart = 1,
+    selectingEnd = 2
+}
+/** 编辑三次贝塞尔曲线 */
+declare class BezierEditor extends Z<"div"> {
+    size: number;
+    context: CanvasRenderingContext2D;
+    canvas: HTMLCanvasElement;
+    selectionManager: SelectionManager<"end" | "start">;
+    startPoint: Coordinate;
+    endPoint: Coordinate;
+    state: BezierEditorState;
+    drawn: boolean;
+    constructor(size: number);
+    update(): void;
+    matrix: Matrix;
+    invertedMatrix: Matrix;
+    updateMatrix(): void;
+    downHandler(event: MouseEvent | TouchEvent): void;
+    moveHandler(event: MouseEvent | TouchEvent): void;
+    upHandler(event: TouchEvent | MouseEvent): void;
+    getValue(): BezierEasing;
+    setValue(easing: BezierEasing): void;
+    whenValueChange(fn: () => void): void;
+}
 declare abstract class SideEditor<T extends object> extends Z<"div"> {
     element: HTMLDivElement;
     $title: Z<"div">;
@@ -1517,6 +1560,9 @@ declare abstract class SideEditor<T extends object> extends Z<"div"> {
     constructor();
 }
 declare class NoteEditor extends SideEditor<Note> {
+    aboveOption: BoxOption;
+    belowOption: BoxOption;
+    noteTypeOptions: BoxOption[];
     $time: ZFractionInput;
     $endTime: ZFractionInput;
     $type: ZDropdownOptionBox;
@@ -1526,10 +1572,8 @@ declare class NoteEditor extends SideEditor<Note> {
     $alpha: ZInputBox;
     $size: ZInputBox;
     $yOffset: ZInputBox;
+    $visibleBeats: ZInputBox;
     $delete: ZButton;
-    aboveOption: BoxOption;
-    belowOption: BoxOption;
-    noteTypeOptions: BoxOption[];
     constructor();
     update(): void;
 }
@@ -1549,12 +1593,16 @@ declare class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     $time: ZFractionInput;
     $value: ZInputBox;
     $easing: ZEasingBox;
-    $radioTabs: ZRadioTabs;
     $templateEasing: ZInputBox;
+    $parametric: ZInputBox;
+    $bezierEditor: BezierEditor;
     $delete: ZButton;
+    $radioTabs: ZRadioTabs;
     constructor();
     setNormalEasing(id: number): void;
     setTemplateEasing(name: string): void;
+    setBezierEasing(easing: BezierEasing): void;
+    setParametricEasing(expression: string): void;
     update(): void;
 }
 type PositionEntity<T> = {
@@ -1595,9 +1643,8 @@ declare class SelectionManager<T> {
     selectScope(top: number, left: number, bottom: number, right: number): PositionEntity<T>[];
 }
 declare const eventTypeMap: {
-    basis: number;
     valueGridSpan: number;
-    valueRange: number;
+    valueRange: [number, number];
 }[];
 type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
 declare enum NewNodeState {
@@ -1616,6 +1663,7 @@ declare class EventCurveEditors extends Z<"div"> {
     $newNodeStateSelect: ZDropdownOptionBox;
     $encapsuleBtn: ZButton;
     $templateNameInput: ZInputBox;
+    $rangeInput: ZInputBox;
     $selectOption: ZDropdownOptionBox;
     selectState: SelectState;
     $copyButton: ZButton;
@@ -1642,6 +1690,7 @@ declare class EventCurveEditors extends Z<"div"> {
     draw(beats?: number): void;
     target: JudgeLine;
     changeTarget(target: JudgeLine): void;
+    updateAdjustmentOptions(editor: EventCurveEditor): void;
 }
 type NodePosition = {
     node: EventNode;
@@ -1656,6 +1705,23 @@ declare enum EventCurveEditorState {
     selectScope = 4,
     selectingScope = 5
 }
+declare const lengthOf: (range: readonly [number, number]) => number;
+declare const medianOf: (range: readonly [number, number]) => number;
+declare const percentileOf: (range: readonly [number, number], percent: number) => number;
+/**
+ * 对于一个值，在一系列可吸附值上寻找最接近的值
+ * @param sortedAttachable
+ * @param value
+ * @returns
+ */
+declare const computeAttach: (sortedAttachable: number[], value: number) => number;
+/**
+ * 生成可吸附值
+ * @param linear 一次函数的两个系数
+ * @param range 显示范围
+ */
+declare function generateAttachable(linear: [k: number, b: number], range: readonly [number, number]): number[];
+declare function divideOrMul(gridSpan: number, maximum: number): number;
 declare class EventCurveEditor {
     type: EventType;
     target: EventNodeSequence;
@@ -1669,14 +1735,10 @@ declare class EventCurveEditor {
     context: CanvasRenderingContext2D;
     valueRatio: number;
     timeRatio: number;
-    valueRange: number;
-    /**
-     * (distance from the horizontal axis to the middle axis) / height
-     */
-    valueBasis: number;
-    timeRange: number;
+    valueRange: readonly [number, number];
+    timeSpan: number;
     timeGridSpan: number;
-    valueGridSpan: number;
+    attachableValues: number[];
     timeGridColor: RGB;
     valueGridColor: RGB;
     padding: number;
@@ -1715,6 +1777,8 @@ declare class EventCurveEditor {
     initContext(): void;
     drawCoordination(beats: number): void;
     draw(beats?: number): void;
+    autoRangeEnabled: boolean;
+    adjust(values: number[]): void;
     changeTarget(line: JudgeLine, index: number): void;
     paste(): void;
     copy(): void;
