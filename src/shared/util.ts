@@ -183,3 +183,10 @@ function changeAudioTime(audio: HTMLAudioElement, delta: number) {
 }
 
 
+/**
+ * 获取一串数字的第？分位数
+ */
+function getPercentile(sorted: number[], percentile: number): number {
+    return sorted[Math.floor(sorted.length * percentile)]
+}
+

@@ -1,41 +1,34 @@
 
 const eventTypeMap = [
     { // moveX
-        basis: 0,
         valueGridSpan: 135,
-        valueRange: 1350
+        valueRange: [-675, 675]
     },
     { // moveY
-        basis: 0,
         valueGridSpan: 180,
-        valueRange: 900
+        valueRange: [-450, 450]
     },
     { // rotate
-        basis: 0,
         valueGridSpan: 90,
-        valueRange: 720
+        valueRange: [-360, 360]
     },
     { // alpha
-        basis: -0.5,
         valueGridSpan: 17,
-        valueRange: 255
+        valueRange: [0, 255]
     },
     { // speed
-        basis: -0.25,
         valueGridSpan: 2,
-        valueRange: 20
+        valueRange: [-5, 15]
     },
     { // easing
-        basis: 0,
         valueGridSpan: 270,
-        valueRange: 1350
+        valueRange: [-675, 675]
     },
     { // bpm
-        basis: -0.5,
         valueGridSpan: 40,
-        valueRange: 300
+        valueRange: [0, 400]
     }
-]
+] satisfies {valueGridSpan: number, valueRange: [number, number]}[];
 
 type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
 
@@ -64,6 +57,7 @@ class EventCurveEditors extends Z<"div"> {
     $newNodeStateSelect: ZDropdownOptionBox;
     $encapsuleBtn: ZButton;
     $templateNameInput: ZInputBox;
+    $rangeInput = new ZInputBox().attr("size", "6");
     $selectOption: ZDropdownOptionBox;
     selectState: SelectState;
     $copyButton: ZButton;
@@ -98,6 +92,19 @@ class EventCurveEditors extends Z<"div"> {
             // @ts-expect-error 上面已经排除（我也不知道什么时候会出这种）
             this.selectedLayer = val;
         });
+        this.$rangeInput.whenValueChange((content) => {
+            if (content === "auto" || content === "") {
+                this.selectedEditor.autoRangeEnabled = true;
+            }
+            const parts = content.split(",");
+            if (parts.length !== 2) {
+                notify("Invalid range");
+                this.updateAdjustmentOptions(this.selectedEditor);
+                return;
+            }
+            this.selectedEditor.valueRange = [parseFloat(parts[0]), parseFloat(parts[1])];
+            this.selectedEditor.autoRangeEnabled = false;
+        })
         this.$easingBox.onChange(id => {
             for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"] as const) {
                 this[type].easing = rpeEasingArray[id];
@@ -151,6 +158,7 @@ class EventCurveEditors extends Z<"div"> {
             this.$typeSelect,
             this.$layerSelect,
             this.$timeSpanInput,
+            this.$rangeInput,
             this.$selectOption,
             this.$editSwitch,
             this.$copyButton,
@@ -184,6 +192,7 @@ class EventCurveEditors extends Z<"div"> {
         if (this._selectedEditor) this._selectedEditor.active = false;
         this._selectedEditor = val;
         val.active = true;
+        this.updateAdjustmentOptions(val);
         this.nodesSelection = new Set<EventStartNode>();
         this.draw()
     }
@@ -216,6 +225,9 @@ class EventCurveEditors extends Z<"div"> {
         this.target = target;
         this.draw()
     }
+    updateAdjustmentOptions(editor: EventCurveEditor) {
+        this.$rangeInput.setValue(editor.autoRangeEnabled ? "auto" : editor.valueRange.join("，"))
+    }
 }
 
 type NodePosition = {
@@ -233,8 +245,79 @@ enum EventCurveEditorState {
     selectingScope
 }
 
+const lengthOf = (range: readonly [number, number]) => range[1] - range[0];
+const medianOf = (range: readonly [number, number]) => (range[0] + range[1]) / 2;
+const percentileOf = (range: readonly [number, number], percent: number) => range[0] + lengthOf(range) * percent;
+/**
+ * 对于一个值，在一系列可吸附值上寻找最接近的值
+ * @param sortedAttachable 
+ * @param value 
+ * @returns 
+ */
+const computeAttach = (sortedAttachable: number[], value: number) => {
+    const len = sortedAttachable.length;
+    if (len === 0) return value;
+    if (value < sortedAttachable[0]) {
+        return sortedAttachable[0];
+    }
+    for (let i = 0; i < len - 1; i++) {
+        const cur = sortedAttachable[i];
+        if (value === cur) {
+            return cur;
+        }
+        const next = sortedAttachable[i + 1];
+        if (value > cur && value < next) {
+            return (value - cur) < (next - value) ? cur : next;
+        }
+    }
+    if (value > sortedAttachable[len - 1]) {
+        return sortedAttachable[len - 1];
+    }
+}
+/**
+ * 生成可吸附值
+ * @param linear 一次函数的两个系数
+ * @param range 显示范围
+ */
+function generateAttachable (linear: [k: number, b: number], range: readonly [number, number])  {
+    const k = linear[0], b = linear[1];
+    if (k <= 0) {
+        debugger;
+    }
+    const left = range[0], right = range[1];
+    const startingX = Math.floor((left - b) / k);
+    const attachable: number[] = [];
+    for (let i = startingX; ; i++) {
+        const val = k * i + b;
+        attachable.push(k * i + b);
+        if (val > right) break;
+    }
+    return attachable;
+}
+
+function divideOrMul(gridSpan: number, maximum: number)  {
+    const m = Math.floor(maximum);
+    if (m === 0) {
+        const times = Math.floor(1 / maximum);
+        return gridSpan * times;
+    }
+    if (isNaN(gridSpan) || isNaN(m)) { debugger;}
+    if (!Number.isInteger(gridSpan)) {
+        return gridSpan / m;
+    } else {
+        // 有的时候maximum莫名其妙整的特大，采取这种方式
+        if (gridSpan < maximum) {
+            return 1;
+        }
+        for (let i = m; i >= 1; i--) {
+            if (gridSpan % i === 0) {
+                return gridSpan / i;
+            }
+        }
+    }
+}
+
 class EventCurveEditor {
-    type: EventType
     target: EventNodeSequence;
     targetEasing?: TemplateEasing;
     parentEditorSet: EventCurveEditors;
@@ -249,14 +332,11 @@ class EventCurveEditor {
     // halfCent: number;
     valueRatio: number;
     timeRatio: number;
-    valueRange: number;
-    /**
-     * (distance from the horizontal axis to the middle axis) / height
-     */
-    valueBasis: number;
-    timeRange: number;
+    valueRange: readonly [number, number];
+
+    timeSpan: number;
     timeGridSpan: number;
-    valueGridSpan: number;
+    attachableValues: number[] = [];
 
     timeGridColor: RGB;
     valueGridColor: RGB;
@@ -311,9 +391,11 @@ class EventCurveEditor {
             this.element.style.display = "none";
         }
     }
-    constructor(type: EventType, height: number, width: number, parent: EventCurveEditors) {
+    constructor(public type: EventType, height: number, width: number, parent: EventCurveEditors) {
         const config = eventTypeMap[type]
-        this.type = type
+        if (type === EventType.alpha) {
+            this.autoRangeEnabled = false;
+        }
         this.parentEditorSet = parent
         this._active = true;
         this.$element = $("div")
@@ -335,14 +417,13 @@ class EventCurveEditor {
         this.context = this.canvas.getContext("2d");
 
 
-        this.timeRange = 4
+        this.timeSpan = 4
         // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
-        this.valueBasis = config.basis;
-        this.valueRatio = this.innerHeight / this.valueRange;
-        this.timeRatio = this.innerWidth / this.timeRange;
+        this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
+        this.attachableValues = generateAttachable([config.valueGridSpan, 0], this.valueRange);
+        this.timeRatio = this.innerWidth / this.timeSpan;
         this.timeGridSpan = 1;
-        this.valueGridSpan = config.valueGridSpan;
         this.timeGridColor = [120, 255, 170];
         this.valueGridColor = [255, 170, 120];
         this.initContext()
@@ -355,7 +436,7 @@ class EventCurveEditor {
             this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
         })
         parent.$timeSpanInput.whenValueChange((val) => {
-            this.timeRange = parent.$timeSpanInput.getNum();
+            this.timeSpan = parent.$timeSpanInput.getNum();
             this.draw();
         })
         
@@ -367,7 +448,7 @@ class EventCurveEditor {
             const {x, y} = coord;
             const {padding} = this;
             const {x: beats, y: value} = coord.mul(this.invertedMatrix);
-            this.pointedValue = Math.round(value / this.valueGridSpan) * this.valueGridSpan
+            this.pointedValue = computeAttach(this.attachableValues, value);
             const accurateBeats = beats + this.lastBeats
             this.pointedBeats = Math.floor(accurateBeats)
             this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor)
@@ -466,16 +547,15 @@ class EventCurveEditor {
     canvasMatrix: Matrix;
     invertedCanvasMatrix: Matrix;
     updateMatrix() {
-        this.valueRatio = this.innerHeight / this.valueRange;
-        this.timeRatio = this.innerWidth / this.timeRange;
+        this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
+        this.timeRatio = this.innerWidth / this.timeSpan;
         const {
-            timeRange,
+            timeSpan: timeRange,
             valueRange,
             timeRatio,
-            valueRatio,
-            valueBasis
+            valueRatio
         } = this;
-        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, valueBasis * valueRange);
+        this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, -medianOf(valueRange));
         this.invertedMatrix = this.matrix.invert();
         // console.log(this.matrix);
         // console.log(identity.translate(0, -valueBasis * valueRange))
@@ -596,30 +676,31 @@ class EventCurveEditor {
         const {height: canvasHeight, width: canvasWidth} = this.canvas;
         const {innerHeight, innerWidth} = this;
         const {
-            timeGridSpan, valueGridSpan,
+            attachableValues,
+            timeGridSpan, valueRange,
             valueRatio, timeRatio, context} = this;
         const timeDivisor = editor.timeDivisor
         context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight)
         // const beatCents = beats * 100
         // const middleValue = Math.round(-this.basis / this.valueRatio)
-        const basis = this.valueBasis * this.innerHeight;
+        const basis = -medianOf(valueRange) / lengthOf(valueRange) * this.innerHeight;
         // 计算上下界
         context.save()
         context.fillStyle = "#EEE";
-        const upperEnd = Math.ceil((innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan
-        const lowerEnd = Math.ceil((-innerHeight / 2 - basis) / valueGridSpan / valueRatio) * valueGridSpan
         context.strokeStyle = rgb(...this.valueGridColor)
         context.lineWidth = 1;
 
-        for (let value = lowerEnd; value < upperEnd; value += valueGridSpan) {
-            const positionY = value * valueRatio + basis;
-            drawLine(context, -canvasWidth / 2, -positionY, canvasWidth, -positionY);
-            context.fillText(value + "", -innerWidth / 2, -positionY)
+        const len = attachableValues.length;
+        for (let i = 0; i < len; i++) {
+            const value = attachableValues[i];
+            const positionY = this.matrix.ymul(0, value);
+            drawLine(context, -canvasWidth / 2, positionY, canvasWidth, positionY);
+            context.fillText(value + "", -innerWidth / 2, positionY)
         }
         context.strokeStyle = rgb(...this.timeGridColor)
         
-        const stopBeats = Math.ceil((beats + this.timeRange / 2) / timeGridSpan) * timeGridSpan;
-        const startBeats = Math.ceil((beats - this.timeRange / 2) / timeGridSpan - 1) * timeGridSpan;
+        const stopBeats = Math.ceil((beats + this.timeSpan / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeSpan / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionX = (time - beats)  * timeRatio
             drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
@@ -648,7 +729,6 @@ class EventCurveEditor {
         const {height, width} = this.canvas;
         const {
             timeRatio, valueRatio,
-            valueBasis: basis,
             context,
             selectionManager,
             matrix
@@ -669,10 +749,12 @@ class EventCurveEditor {
             this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90)
         }
         context.restore()
-        const startBeats = beats - this.timeRange / 2;
-        const endBeats = beats + this.timeRange / 2;
+        const startBeats = beats - this.timeSpan / 2;
+        const endBeats = beats + this.timeSpan / 2;
         let previousEndNode: EventEndNode | Header<EventStartNode> = this.target.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || this.target.head; // 有点奇怪的操作
         let previousTime = "heading" in previousEndNode ? 0: TimeCalculator.toBeats(previousEndNode.time);
+        // 该数组用于自动调整网格
+        const valueArray = [];
         while (previousTime < endBeats) {
             const startNode = previousEndNode.next;
             const endNode = startNode.next;
@@ -683,6 +765,7 @@ class EventCurveEditor {
             const endTime = TimeCalculator.toBeats(endNode.time);
             const startValue = startNode.value;
             const endValue   = endNode.value;
+            valueArray.push(startValue, endValue);
             const {x: startX, y: startY} = new Coordinate(startTime - beats, startValue).mul(matrix);
             // console.log("startXY", startX, startY);
             // console.log(Matrix.fromDOMMatrix(context.getTransform()))
@@ -758,6 +841,7 @@ class EventCurveEditor {
             }).annotate(context, startX, topY);
 
         }
+        this.adjust(valueArray);
         
         if (this.state === EventCurveEditorState.selectingScope) {
             const {startingCanvasPoint, canvasPoint} = this;
@@ -767,6 +851,68 @@ class EventCurveEditor {
             context.restore()
         }
         this.lastBeats = beats;
+    }
+
+    autoRangeEnabled: boolean = true;
+    adjust(values: number[]): void {
+        if (this.state !== EventCurveEditorState.select) {
+            return;
+        }
+        const valueRange = this.valueRange;
+        const distinctValueCount = new Set(values).size;
+        if (distinctValueCount < 2 && valueRange[0] < values[0] && values[0] < valueRange[1]) {
+            return;
+        }
+        if (this.autoRangeEnabled) {
+            
+            const sorted = values.sort((a, b) => a - b);
+            const lengthOfValue = lengthOf(valueRange);
+            // 如果上四分位数超出了valueRange，则扩大valueRange右边界valueRange长度的一半。
+            // 如果上四分位数不及valueRange的2/3处位置，则缩小valueRange右边界valueRange长度的一半。
+            // 下四分位数同理
+            const upper = getPercentile(sorted, 0.95);
+            const lower = getPercentile(sorted, 0.05);
+            const pos1Third = percentileOf(valueRange, 0.34);
+            const pos2Third = percentileOf(valueRange, 0.66);
+            const range: [number, number] = [...this.valueRange];
+            if (upper > valueRange[1]) {
+                range[1] = valueRange[1] + lengthOfValue / 2;
+            } else if (upper < pos2Third) {
+                range[1] = valueRange[1] - lengthOfValue / 3;
+            }
+            if (lower < valueRange[0]) {
+                range[0] = valueRange[0] - lengthOfValue / 2;
+            } else if (lower > pos1Third) {
+                range[0] = valueRange[0] + lengthOfValue / 3;
+            }
+            this.valueRange = range;
+        }
+
+        // 计算合适的valueGridSpan
+        // 根据这个值能够整除多少个值。
+        let priority = 0;
+        let valueGridSpan = eventTypeMap[this.type].valueGridSpan;
+        const len = values.length;
+        for (let i = 0; i < len; i++) {
+            const v = values[i];
+            if (v === 0) {
+                continue;
+            }
+            const p = values.reduce((acc, cur) => {
+                return cur % v === 0 ? acc + 1 : acc
+            });
+            if (p > priority * 1.2) {
+                priority = p;
+                valueGridSpan = v;
+            }
+        }
+        valueGridSpan = divideOrMul(valueGridSpan, 10 / (lengthOf(this.valueRange) / valueGridSpan));
+        if (distinctValueCount > 10) {
+            this.attachableValues = generateAttachable([valueGridSpan, 0], this.valueRange);
+        } else {
+                
+            this.attachableValues = Array.from(new Set([...generateAttachable([valueGridSpan, 0], this.valueRange), ...values])).sort((a, b) => a - b);
+        }
     }
     changeTarget(line: JudgeLine, index: number) {
         if (this.type === EventType.easing) {

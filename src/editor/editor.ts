@@ -152,6 +152,7 @@ const tips = [
     "本制谱器没有使用lchzh3473的sim-phi制作",
     "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
     "[露出了6号缓动]",
+    "本软件是“奇谱发生器”，不是“八股谱发生器”更不是“粪谱发生器”",
 
     "撤销重做、复制粘贴不需要Ctrl，直接按Z/Y/C/V即可",
 
@@ -478,6 +479,7 @@ class Editor extends EventTarget {
             this.operationList = new OperationList(chart);
             this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle)
             this.dispatchEvent(new Event("chartloaded"))
+            this.chartData = null; // 这个内存量其实挺恐怖的
         }
         if (this.chartType === "rpejson") {
             // 若为1.6.0版本以后，元数据中有时长信息，直接使用以建立谱面

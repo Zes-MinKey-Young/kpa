@@ -45,7 +45,7 @@ abstract class EventNode {
     abstract parentSeq: EventNodeSequence;
     constructor(time: TimeT, value: number) {
         this.time = time;
-        this.value = value;
+        this.value = value ?? 0;
         this.previous = null;
         this.next = null;
         this.easing = linearEasing
@@ -298,9 +298,9 @@ class EventStartNode extends EventNode {
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
-                    easing.rpeId :
+                    easing.rpeId ?? 1 :
                     null,
-            end: endNode.value,
+            end: easing === fixedEasing ? this.value : endNode.value,
             endTime: endNode.time,
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
