@@ -1,3 +1,4 @@
+import { resolve } from "path";
 import { isccDirectory, outPutDir } from "./constants"
 
 const versionFile = Bun.file("../VERSION");
@@ -10,8 +11,9 @@ async function runProgramAndPrintToConsole(cmd: string[], cwd?: string) {
     console.log(`运行：${cmd.join(" ")}`);
     const proc = Bun.spawn(cmd, {cwd});
     for await (const chunk of proc.stdout) {
-        console.log(chunk.toString());
+        process.stdout.write(chunk);
     }
+
 }
 
 const nextVersion: string | null = prompt("输入新版本号");
@@ -21,39 +23,43 @@ if (!nextVersion) {
 }
 
 console.log("编译一下server/index.ts");
-await runProgramAndPrintToConsole(["bun", "build", "server/index.ts", "--compile"]);
+await runProgramAndPrintToConsole(["bun", "build", "../server/index.ts", "--compile"]);
 
 
 const versionTsFileText = await versionTsFile.text();
 const versionInTs = /^\s*const VERSION = "([\.\d]+)";\s+$/.exec(versionTsFileText)
 
-if (!versionInTs || versionInTs[1] !== version) {
-    console.log("version.ts里不是这个呀，我帮你改一下？");
+if (!versionInTs || versionInTs[1] !== nextVersion) {
+    prompt("version.ts里不是这个呀，我帮你改一下？");
 
-    const target = `const VERSION = "${version}";\n`
+    const target = `const VERSION = "${nextVersion}";\n`
     
     await Bun.write(versionTsFile, target);
     console.log(`已将${versionTsFileText}修改为${target}。`)
 } else {
     console.log("嗯，version.ts里是这个。");
-    console.log(`版本号是${version}。`);
+    console.log(`版本号是${nextVersion}。`);
     console.log(`\x1b[32m${versionTsFileText}\x1b[0m`);
 }
 
+prompt("回车以继续。");
+
 const innoSetupFileText = await innoSetupFile.text()
-const matchResult = innoSetupFileText.match(/AppVersion=([0-9\.]+])/);
+const matchResult = innoSetupFileText.match(/AppVersion=([0-9\.]+)/);
 const versionInIss = matchResult ? matchResult[1] : null;
-if (versionInIss !== version) {
-    console.log("InnoSetup里不是这个呀，我帮你改一下？");
-    const lines = innoSetupFileText.split("\n");
-    lines.map((line) => {
+console.log("Inno Setup Script里是" + versionInIss)
+if (versionInIss !== nextVersion) {
+    prompt("InnoSetup里不是这个呀，我帮你改一下？");
+    let lines = innoSetupFileText.split("\r\n");
+    lines = lines.map((line) => {
         if (line.startsWith("AppVersion=")) {
-            line = `AppVersion=${version}`;
+            line = `AppVersion=${nextVersion}`;
         } else if (line.startsWith("OutputBaseFilename=")) {
-            line = `OutputBaseFilename=KPA_Setup_v${version}`;
+            line = `OutputBaseFilename=KPA_Setup_v${nextVersion}`;
         }
+        return line;
     });
-    const edited =  lines.join("\n")
+    const edited =  lines.join("\r\n")
     await Bun.write(innoSetupFile, edited);
     console.log("改好了，内容如下：");
     console.log(edited);
@@ -62,11 +68,17 @@ if (versionInIss !== version) {
     console.log(`\x1b[32m${innoSetupFileText}\x1b[0m`)
 }
 
-console.log("现在可以运行.iss文件了");
-await runProgramAndPrintToConsole(["ISCC", "/O", outPutDir], isccDirectory);
+prompt("现在可以运行.iss文件了");
+await runProgramAndPrintToConsole([resolve(isccDirectory, "ISCC.exe"), "/O" + outPutDir, "install.iss"], "..");
 console.log("编译完成，结果在：", outPutDir);
 
-console.log("现在可以提交了");
-await runProgramAndPrintToConsole(["git", "add", "."]);
-await runProgramAndPrintToConsole(["git", "commit", "-m", `chore: bump to ${version}`]);
+prompt("最后把VERSION修改");
+await Bun.write(versionFile, nextVersion);
+
+prompt("现在可以提交了");
+await runProgramAndPrintToConsole(["git", "add", ".."]);
+await runProgramAndPrintToConsole(["git", "commit", "-m", `chore: bump to ${nextVersion}`]);
+
+prompt("现在可以tag了");
+await runProgramAndPrintToConsole(["git", "tag", "v" + nextVersion]);
 
