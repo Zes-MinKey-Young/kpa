@@ -68,13 +68,17 @@ declare abstract class Easing {
 }
 type TupleCoordinate = [number, number];
 type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number) => void;
+/**
+ * @immutable
+ */
 declare class SegmentedEasing extends Easing {
-    easing: Easing;
-    left: number;
-    right: number;
+    readonly easing: Easing;
+    readonly left: number;
+    readonly right: number;
     getter: (t: number) => number;
     constructor(easing: Easing, left: number, right: number);
     getValue(t: number): number;
+    replace(easing: Easing): Easing;
 }
 /**
  * 普通缓动
@@ -300,6 +304,8 @@ declare class Pointer<T extends TwoDirectionNode> {
  */
 declare const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 declare const node2string: (node: NoteNode | Tailer<NoteNode>) => string;
+declare const rgb2hex: (rgb: RGB) => number;
+declare const hex2rgb: (hex: number) => RGB;
 /**
  * 音符
  * Basic element in music game.
@@ -327,6 +333,9 @@ declare class Note {
     visibleBeats: number;
     yOffset: number;
     parentNode: NoteNode;
+    tint: HEX;
+    tintHitEffects: HEX;
+    judgeSize: number;
     constructor(data: NoteDataRPE);
     static fromKPAJSON(data: NoteDataKPA, timeCalculator: TimeCalculator): Note;
     computeVisibleBeats(timeCalculator: TimeCalculator): void;
@@ -542,7 +551,7 @@ declare class JudgeLine {
     nnLists: Map<string, NNList>;
     eventLayers: EventLayer[];
     father: JudgeLine;
-    children: JudgeLine[];
+    children: Set<JudgeLine>;
     moveX: number;
     moveY: number;
     rotate: number;
@@ -571,20 +580,7 @@ declare class JudgeLine {
      * @returns
      */
     getValues(beats: number, usePrev?: boolean): [x: number, y: number, theta: number, alpha: number];
-    /**
-     * 求该时刻坐标，不考虑父线
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getThisCoordinate(beats: number, usePrev?: boolean): TupleCoordinate;
-    /**
-     * 求父线锚点坐标，无父线返回原点
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getBaseCoordinate(beats: number, usePrev?: boolean): TupleCoordinate;
+    getMatrix(beats: number, usePrev?: boolean): void;
     getStackedValue(type: keyof EventLayer, beats: number, usePrev?: boolean): number;
     getStackedIntegral(beats: number, timeCalculator: TimeCalculator): number;
     /**
@@ -599,8 +595,8 @@ declare class JudgeLine {
      */
     dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     updateEffectiveBeats(EB: number): void;
+    static checkinterdependency(judgeLine: JudgeLine, toBeFather: JudgeLine): boolean;
 }
-declare const VERSION = 150;
 declare enum EventType {
     moveX = 0,
     moveY = 1,
@@ -672,9 +668,10 @@ declare class Chart {
 }
 declare class JudgeLineGroup {
     name: string;
-    constructor(name: string);
-    addJudgeLine(judgeLine: JudgeLine): void;
     judgeLines: JudgeLine[];
+    constructor(name: string);
+    add(judgeLine: JudgeLine): void;
+    remove(judgeLine: JudgeLine): void;
 }
 /**
  * To compare two arrays
@@ -961,6 +958,7 @@ declare class TimeCalculator {
 }
 declare const TC: typeof TimeCalculator;
 type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" | "item" | "getPropertyValue" | "getPropertyPriority" | "setProperty" | "removeProperty">;
+type HTMLElementTagName = keyof HTMLElementTagNameMap;
 /**
  * Z is just like jQuery, but it's much simpler.
  * It only contains one element, which is enough in most cases.
@@ -973,7 +971,7 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" |
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
+declare class Z<K extends HTMLElementTagName> extends EventTarget {
     element: HTMLElementTagNameMap[K];
     get parent(): Z<keyof HTMLElementTagNameMap>;
     constructor(type: K, newElement?: boolean);
@@ -988,6 +986,10 @@ declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     attr(name: string, value: string): this;
     css(name: CSSStyleName, value: string): void;
     append(...$elements: (Z<any> | HTMLElement)[]): this;
+    after($e: Z<keyof HTMLElementTagNameMap>): void;
+    before($e: Z<keyof HTMLElementTagNameMap>): void;
+    insertAfter($e: Z<keyof HTMLElementTagNameMap>): void;
+    insertBefore($e: Z<keyof HTMLElementTagNameMap>): void;
     appendTo(element: HTMLElement | Z<keyof HTMLElementTagNameMap>): this;
     onClick(callback: (e: Event) => any): this;
     onInput(callback: (e: Event) => any): this;
@@ -1003,6 +1005,7 @@ declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     hide(): void;
     remove(): void;
     static from<K extends keyof HTMLElementTagNameMap>(element: HTMLElementTagNameMap[K]): Z<K>;
+    appendMass(callback: () => void): this;
 }
 declare const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>;
 declare class ZButton extends Z<"div"> {
@@ -1032,6 +1035,7 @@ declare class ZInputBox extends Z<"input"> {
     getInt(): number;
     getNum(): number;
     setValue(val: string): this;
+    private _lastValue;
     whenValueChange(callback: (content: string, e: Event) => any): this;
 }
 /**
@@ -1063,10 +1067,10 @@ declare class ZFractionInput extends Z<"span"> {
     onChange(callback: (result: TimeT) => void): void;
 }
 declare class BoxOption {
+    onChangedTo?: (option: BoxOption) => void;
+    onChanged?: (option: BoxOption) => void;
     $elementMap: Map<ZDropdownOptionBox, Z<"div">>;
     text: string;
-    onChangedTo: (option: BoxOption) => void;
-    onChanged: (option: BoxOption) => void;
     constructor(text: string, onChangedTo?: (option: BoxOption) => void, onChanged?: (option: BoxOption) => void);
     getElement(box: ZDropdownOptionBox): Z<"div">;
 }
@@ -1216,6 +1220,21 @@ declare class ZNotification extends Z<"div"> {
     constructor(text: string, timeout?: number);
 }
 declare function notify(message: string): void;
+declare class ZTextArea extends Z<"textarea"> {
+    constructor(rows?: number, cols?: number);
+    getValue(): string;
+    setValue(value: string): this;
+    get value(): string;
+    set value(value: string);
+}
+declare class ZCollapseController extends Z<"div"> {
+    private _folded;
+    targets: Z<HTMLElementTagName>[];
+    constructor(_folded: boolean, stopsPropagation?: boolean);
+    get folded(): boolean;
+    set folded(value: boolean);
+    attach($element: Z<HTMLElementTagName>): void;
+}
 interface ListNode<T> {
     next: ListNode<T> | null;
     value: T;
@@ -1300,6 +1319,11 @@ declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
  * 获取一串数字的第？分位数
  */
 declare function getPercentile(sorted: number[], percentile: number): number;
+declare const isAllDigits: (str: string) => boolean;
+declare class NeedsReflowEvent extends Event {
+    condition: number;
+    constructor(condition: number);
+}
 declare class OperationList extends EventTarget {
     parentChart: Chart;
     operations: Operation[];
@@ -1308,10 +1332,12 @@ declare class OperationList extends EventTarget {
     undo(): void;
     redo(): void;
     do(operation: Operation): void;
+    clear(): void;
 }
 declare abstract class Operation {
     ineffective: boolean;
     updatesEditor: boolean;
+    reflows: number;
     constructor();
     abstract do(): void;
     abstract undo(): void;
@@ -1324,7 +1350,8 @@ declare class ComplexOperation<T extends Operation[]> extends Operation {
     do(): void;
     undo(): void;
 }
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset";
+type NoteValueFieldPhiZone = "judgeSize" | "tint" | "tintHitEffects";
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset" | NoteValueFieldPhiZone;
 declare class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
     note: Note;
@@ -1520,6 +1547,52 @@ declare enum EncapsuleErrorType {
  * @param sourceNodes
  */
 declare function encapsule(templateEasingLib: TemplateEasingLib, sourceSequence: EventNodeSequence, sourceNodes: Set<EventStartNode>, name: string): EncapsuleErrorType | EncapsuleOperation;
+declare class JudgeLineInheritanceChangeOperation extends Operation {
+    chart: Chart;
+    judgeLine: JudgeLine;
+    value: JudgeLine | null;
+    originalValue: JudgeLine | null;
+    updatesEditor: boolean;
+    reflows: JudgeLinesEditorLayoutType;
+    constructor(chart: Chart, judgeLine: JudgeLine, value: JudgeLine | null);
+    do(): void;
+    undo(): void;
+}
+declare class JudgeLineRenameOperation extends Operation {
+    judgeLine: JudgeLine;
+    value: string;
+    updatesEditor: boolean;
+    originalValue: string;
+    constructor(judgeLine: JudgeLine, value: string);
+    do(): void;
+    undo(): void;
+}
+declare class JudgeLineRegroupOperation extends Operation {
+    judgeLine: JudgeLine;
+    value: JudgeLineGroup;
+    updatesEditor: boolean;
+    reflows: JudgeLinesEditorLayoutType;
+    originalValue: JudgeLineGroup;
+    constructor(judgeLine: JudgeLine, value: JudgeLineGroup);
+    do(): void;
+    undo(): void;
+}
+declare class JudgeLineCreateOperation extends Operation {
+    chart: Chart;
+    judgeLine: JudgeLine;
+    reflows: number;
+    constructor(chart: Chart, judgeLine: JudgeLine);
+    do(): void;
+    undo(): void;
+}
+declare class JudgeLineDeleteOperation extends Operation {
+    chart: Chart;
+    judgeLine: JudgeLine;
+    readonly originalGroup: JudgeLineGroup;
+    constructor(chart: Chart, judgeLine: JudgeLine);
+    do(): void;
+    undo(): void;
+}
 declare const BEZIER_POINT_SIZE = 20;
 declare const HALF_BEZIER_POINT_SIZE: number;
 declare enum BezierEditorState {
@@ -1549,19 +1622,25 @@ declare class BezierEditor extends Z<"div"> {
     setValue(easing: BezierEasing): void;
     whenValueChange(fn: () => void): void;
 }
-declare abstract class SideEditor<T extends object> extends Z<"div"> {
+declare abstract class SideEditor extends Z<"div"> {
     element: HTMLDivElement;
     $title: Z<"div">;
     $body: Z<"div">;
+    constructor();
+    abstract update(): void;
+}
+declare abstract class SideEntityEditor<T extends object> extends SideEditor {
     _target: WeakRef<T>;
     get target(): T;
     set target(val: T);
     abstract update(): void;
     constructor();
 }
-declare class NoteEditor extends SideEditor<Note> {
+declare class NoteEditor extends SideEntityEditor<Note> {
     aboveOption: BoxOption;
     belowOption: BoxOption;
+    realOption: BoxOption;
+    fakeOption: BoxOption;
     noteTypeOptions: BoxOption[];
     $time: ZFractionInput;
     $endTime: ZFractionInput;
@@ -1569,31 +1648,41 @@ declare class NoteEditor extends SideEditor<Note> {
     $position: ZInputBox;
     $dir: ZDropdownOptionBox;
     $speed: ZInputBox;
+    $fake: ZDropdownOptionBox;
     $alpha: ZInputBox;
     $size: ZInputBox;
     $yOffset: ZInputBox;
     $visibleBeats: ZInputBox;
+    $tint: ZInputBox;
+    $tintHitEffect: ZInputBox;
+    $judgeSize: ZInputBox;
     $delete: ZButton;
     constructor();
     update(): void;
 }
-declare class MultiNoteEditor extends SideEditor<Set<Note>> {
+declare class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
     $reverse: ZButton;
     $delete: ZButton;
     constructor();
     update(): void;
 }
-declare class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
+declare class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     $reverse: ZButton;
     $delete: ZButton;
     constructor();
     update(): void;
 }
-declare class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
+declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     $time: ZFractionInput;
     $value: ZInputBox;
+    $normalOuter: Z<"div">;
+    $normalLeft: ZInputBox;
+    $normalRight: ZInputBox;
     $easing: ZEasingBox;
+    $templateOuter: Z<"div">;
     $templateEasing: ZInputBox;
+    $templateLeft: ZInputBox;
+    $templateRight: ZInputBox;
     $parametric: ZInputBox;
     $bezierEditor: BezierEditor;
     $delete: ZButton;
@@ -1603,6 +1692,23 @@ declare class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
     setTemplateEasing(name: string): void;
     setBezierEasing(easing: BezierEasing): void;
     setParametricEasing(expression: string): void;
+    update(): void;
+}
+declare class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
+    readonly $father: ZInputBox;
+    readonly $group: ZDropdownOptionBox;
+    readonly $newGroup: ZInputBox;
+    readonly $createGroup: ZButton;
+    readonly $createLine: ZButton;
+    readonly $del: ZButton;
+    constructor();
+    update(): void;
+    updateGroups(groups: JudgeLineGroup[]): void;
+}
+declare class UserScriptEditor extends SideEditor {
+    $script: ZTextArea;
+    $runBtn: ZButton;
+    constructor();
     update(): void;
 }
 type PositionEntity<T> = {
@@ -1886,22 +1992,38 @@ declare const NODE_WIDTH = 20;
 declare const NODE_HEIGHT = 20;
 declare const NOTE_WIDTH = 54;
 declare const NOTE_HEIGHT = 6;
-declare const round: (n: number, r: number) => string;
-declare class JudgeLinesEditor {
+declare enum JudgeLinesEditorLayoutType {
+    ordered = 1,
+    tree = 2,
+    grouped = 4
+}
+declare class JudgeLinesEditor extends Z<"div"> {
     editor: Editor;
     chart: Chart;
     element: HTMLDivElement;
-    editors: JudgeLineEditor[];
+    editors: Map<JudgeLine, JudgeLineEditor>;
     metaLineAdded: boolean;
+    layoutType: JudgeLinesEditorLayoutType;
     constructor(editor: Editor, element: HTMLDivElement);
-    _selectedLine: JudgeLineEditor;
-    get selectedLine(): JudgeLineEditor;
-    set selectedLine(lineEditor: JudgeLineEditor);
-    addJudgeLine(judgeLine: JudgeLine): void;
+    private _selectedLine;
+    get selectedLine(): JudgeLine;
+    set selectedLine(line: JudgeLine);
+    private orderedLayout;
+    private collapseStack;
+    private treeLayout;
+    private addIndentedLineEditor;
+    private groupedLayout;
+    registerEditor(editor: JudgeLineEditor): void;
     update(): void;
+    reflow(type?: JudgeLinesEditorLayoutType): void;
 }
-declare class JudgeLineEditor {
-    linesEditor: JudgeLinesEditor;
+declare class GroupEditor extends Z<"div"> {
+    target: JudgeLineGroup;
+    $collapse: ZCollapseController;
+    constructor(target: JudgeLineGroup);
+}
+declare class JudgeLineEditor extends Z<"div"> {
+    readonly linesEditor: JudgeLinesEditor;
     element: HTMLDivElement;
     judgeLine: JudgeLine;
     $id: Z<"div">;
@@ -1910,12 +2032,13 @@ declare class JudgeLineEditor {
     $ySpan: Z<"span">;
     $thetaSpan: Z<"span">;
     $alphaSpan: Z<"span">;
-    constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine);
+    constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine, $collapse?: Z<"div">);
     update(): void;
 }
 declare class SaveDialog extends ZDialog {
     $message: ZInputBox;
     chartData: ChartDataKPA;
+    $clearsOperationList: ZSwitch;
     constructor();
 }
 declare const tips: string[];
@@ -1927,37 +2050,41 @@ declare class Editor extends EventTarget {
     imageInitialized: boolean;
     player: Player;
     notesEditor: NotesEditor;
-    eventEditor: EventEditor;
     chart: Chart;
     operationList?: OperationList;
     chartType: "rpejson" | "kpajson";
     chartData: ChartDataRPE | ChartDataKPA;
     progressBar: ZProgressBar;
     eventCurveEditors: EventCurveEditors;
-    $topbar: Z<"div">;
-    $preview: Z<"div">;
-    $noteInfo: Z<"div">;
-    $eventSequence: Z<"div">;
-    lineInfoEle: HTMLDivElement;
-    playButton: HTMLButtonElement;
-    $timeDivisor: ZArrowInputBox;
+    readonly $topbar: Z<"div">;
+    readonly $preview: Z<"div">;
+    readonly $noteInfo: Z<"div">;
+    readonly $eventSequence: Z<"div">;
+    readonly lineInfoEle: HTMLDivElement;
+    readonly playButton: HTMLButtonElement;
+    readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number;
-    $saveButton: ZButton;
-    $compileButton: ZButton;
-    $playbackRate: ZDropdownOptionBox;
-    $offsetInput: ZInputBox;
-    $tipsLabel: Z<"div">;
+    readonly $saveButton: ZButton;
+    readonly $compileButton: ZButton;
+    readonly $playbackRate: ZDropdownOptionBox;
+    readonly $offsetInput: ZInputBox;
+    readonly $switchButton: ZButton;
+    readonly $judgeLinesEditorLayoutSelector: ZDropdownOptionBox;
+    readonly $tipsLabel: Z<"div">;
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
+    eventEditor: EventEditor;
+    judgeLineInfoEditor: JudgeLineInfoEditor;
+    userScriptEditor: UserScriptEditor;
     multiNoteEditor: MultiNoteEditor;
     multiNodeEditor: MultiNodeEditor;
     renderingTime: number;
     lastRenderingTime: number;
     $saveDialog: SaveDialog;
     constructor();
-    shownSideEditor: SideEditor<any>;
-    switchSide(editor: SideEditor<any>): void;
+    shownSideEditor: SideEditor;
+    switchSide(editr: SideEditor): void;
     checkAndInit(): void;
     addListenerForPlayer(): void;
     readChart(file: Blob): void;
@@ -2040,6 +2167,7 @@ declare class AudioProcessor {
     play(buffer: AudioBuffer): void;
     playNoteSound(type: NoteType): void;
 }
+declare const HIT_FX_SIZE = 1024;
 declare const TAP: HTMLImageElement;
 declare const DRAG: HTMLImageElement;
 declare const FLICK: HTMLImageElement;
@@ -2055,7 +2183,7 @@ declare const HIT_FX: HTMLImageElement;
 declare const SELECT_NOTE: HTMLImageElement;
 declare const TRUCK: HTMLImageElement;
 declare const fetchImage: () => void;
-declare const drawNthFrame: (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
+declare const drawNthFrame: (context: CanvasRenderingContext2D, source: CanvasImageSource, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
 declare const getImageFromType: (noteType: NoteType) => HTMLImageElement;
 declare const ENABLE_PLAYER = true;
 declare const DRAWS_NOTES = true;
@@ -2066,6 +2194,7 @@ declare const HIT_EFFECT_SIZE = 200;
 declare const HALF_HIT: number;
 declare const RENDER_SCOPE = 900;
 declare const getVector: (theta: number) => [Vector, Vector];
+type HEX = number;
 declare class Player {
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
@@ -2081,6 +2210,8 @@ declare class Player {
     noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number;
+    tintNotesMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
+    tintEffectMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
     greenLine: number;
     constructor(canvas: HTMLCanvasElement);
     get time(): number;
@@ -2090,9 +2221,9 @@ declare class Player {
     renderGreyScreen(): void;
     initGreyScreen(): void;
     render(): void;
-    renderLine(baseX: number, baseY: number, judgeLine: JudgeLine): void;
+    renderLine(matrix: Matrix, judgeLine: JudgeLine): void;
     renderSounds(tree: NNList, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator): void;
-    renderHitEffects(judgeLine: JudgeLine, tree: NNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;
     /**
      *
      * @param judgeLine
@@ -2100,13 +2231,14 @@ declare class Player {
      * @param beats 当前拍数
      * @param startBeats
      * @param endBeats 截止拍数
-     * @param hitContext
      * @param timeCalculator
      * @returns
      */
-    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    renderHoldHitEffects(matrix: Matrix, tree: HNList, beats: number, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;
     renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator): void;
     renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number): void;
+    getTintNote(tint: HEX, type: NoteType): OffscreenCanvas | ImageBitmap;
+    getTintHitEffect(tint: HEX): OffscreenCanvas | ImageBitmap;
     private update;
     play(): void;
     pause(): void;

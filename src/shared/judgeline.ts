@@ -26,7 +26,7 @@ class JudgeLine {
     alpha: number;
 
     id: number;
-    name: string;
+    name: string = "Untitled";
     readonly chart: Chart;
     constructor(chart: Chart) {
         //this.notes = [];
@@ -460,5 +460,16 @@ class JudgeLine {
                 list.effectiveBeats = EB;
             }
         }
+    }
+    static checkinterdependency(judgeLine: JudgeLine, toBeFather: JudgeLine) { 
+        let descendantsAndSelf = new Set<JudgeLine>();
+        const add = (line: JudgeLine) => {
+            descendantsAndSelf.add(line);
+            for (let child of line.children) {
+                add(child);
+            }
+        }
+        add(judgeLine);
+        return descendantsAndSelf.has(toBeFather);
     }
 }

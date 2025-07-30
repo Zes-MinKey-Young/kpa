@@ -4,6 +4,7 @@
         "outFile": "../dist/diff.js"
     },
     "include": [
+        "version.ts",
         
         "shared/set.ts",
         "shared/chartTypes.d.ts", 

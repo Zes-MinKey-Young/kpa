@@ -18,6 +18,7 @@ declare class AudioProcessor {
     play(buffer: AudioBuffer): void;
     playNoteSound(type: NoteType): void;
 }
+declare const HIT_FX_SIZE = 1024;
 declare const TAP: HTMLImageElement;
 declare const DRAG: HTMLImageElement;
 declare const FLICK: HTMLImageElement;
@@ -33,7 +34,7 @@ declare const HIT_FX: HTMLImageElement;
 declare const SELECT_NOTE: HTMLImageElement;
 declare const TRUCK: HTMLImageElement;
 declare const fetchImage: () => void;
-declare const drawNthFrame: (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
+declare const drawNthFrame: (context: CanvasRenderingContext2D, source: CanvasImageSource, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
 declare const getImageFromType: (noteType: NoteType) => HTMLImageElement;
 declare class Coordinate {
     readonly x: number;
@@ -125,13 +126,17 @@ declare abstract class Easing {
 }
 type TupleCoordinate = [number, number];
 type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number) => void;
+/**
+ * @immutable
+ */
 declare class SegmentedEasing extends Easing {
-    easing: Easing;
-    left: number;
-    right: number;
+    readonly easing: Easing;
+    readonly left: number;
+    readonly right: number;
     getter: (t: number) => number;
     constructor(easing: Easing, left: number, right: number);
     getValue(t: number): number;
+    replace(easing: Easing): Easing;
 }
 /**
  * 普通缓动
@@ -357,6 +362,8 @@ declare class Pointer<T extends TwoDirectionNode> {
  */
 declare const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 declare const node2string: (node: NoteNode | Tailer<NoteNode>) => string;
+declare const rgb2hex: (rgb: RGB) => number;
+declare const hex2rgb: (hex: number) => RGB;
 /**
  * 音符
  * Basic element in music game.
@@ -384,6 +391,9 @@ declare class Note {
     visibleBeats: number;
     yOffset: number;
     parentNode: NoteNode;
+    tint: HEX;
+    tintHitEffects: HEX;
+    judgeSize: number;
     constructor(data: NoteDataRPE);
     static fromKPAJSON(data: NoteDataKPA, timeCalculator: TimeCalculator): Note;
     computeVisibleBeats(timeCalculator: TimeCalculator): void;
@@ -599,7 +609,7 @@ declare class JudgeLine {
     nnLists: Map<string, NNList>;
     eventLayers: EventLayer[];
     father: JudgeLine;
-    children: JudgeLine[];
+    children: Set<JudgeLine>;
     moveX: number;
     moveY: number;
     rotate: number;
@@ -628,20 +638,7 @@ declare class JudgeLine {
      * @returns
      */
     getValues(beats: number, usePrev?: boolean): [x: number, y: number, theta: number, alpha: number];
-    /**
-     * 求该时刻坐标，不考虑父线
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getThisCoordinate(beats: number, usePrev?: boolean): TupleCoordinate;
-    /**
-     * 求父线锚点坐标，无父线返回原点
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getBaseCoordinate(beats: number, usePrev?: boolean): TupleCoordinate;
+    getMatrix(beats: number, usePrev?: boolean): void;
     getStackedValue(type: keyof EventLayer, beats: number, usePrev?: boolean): number;
     getStackedIntegral(beats: number, timeCalculator: TimeCalculator): number;
     /**
@@ -656,8 +653,8 @@ declare class JudgeLine {
      */
     dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     updateEffectiveBeats(EB: number): void;
+    static checkinterdependency(judgeLine: JudgeLine, toBeFather: JudgeLine): boolean;
 }
-declare const VERSION = 150;
 declare enum EventType {
     moveX = 0,
     moveY = 1,
@@ -729,9 +726,10 @@ declare class Chart {
 }
 declare class JudgeLineGroup {
     name: string;
-    constructor(name: string);
-    addJudgeLine(judgeLine: JudgeLine): void;
     judgeLines: JudgeLine[];
+    constructor(name: string);
+    add(judgeLine: JudgeLine): void;
+    remove(judgeLine: JudgeLine): void;
 }
 /**
  * To compare two arrays
@@ -1018,6 +1016,7 @@ declare class TimeCalculator {
 }
 declare const TC: typeof TimeCalculator;
 type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" | "item" | "getPropertyValue" | "getPropertyPriority" | "setProperty" | "removeProperty">;
+type HTMLElementTagName = keyof HTMLElementTagNameMap;
 /**
  * Z is just like jQuery, but it's much simpler.
  * It only contains one element, which is enough in most cases.
@@ -1030,7 +1029,7 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" |
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
+declare class Z<K extends HTMLElementTagName> extends EventTarget {
     element: HTMLElementTagNameMap[K];
     get parent(): Z<keyof HTMLElementTagNameMap>;
     constructor(type: K, newElement?: boolean);
@@ -1045,6 +1044,10 @@ declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     attr(name: string, value: string): this;
     css(name: CSSStyleName, value: string): void;
     append(...$elements: (Z<any> | HTMLElement)[]): this;
+    after($e: Z<keyof HTMLElementTagNameMap>): void;
+    before($e: Z<keyof HTMLElementTagNameMap>): void;
+    insertAfter($e: Z<keyof HTMLElementTagNameMap>): void;
+    insertBefore($e: Z<keyof HTMLElementTagNameMap>): void;
     appendTo(element: HTMLElement | Z<keyof HTMLElementTagNameMap>): this;
     onClick(callback: (e: Event) => any): this;
     onInput(callback: (e: Event) => any): this;
@@ -1060,6 +1063,7 @@ declare class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
     hide(): void;
     remove(): void;
     static from<K extends keyof HTMLElementTagNameMap>(element: HTMLElementTagNameMap[K]): Z<K>;
+    appendMass(callback: () => void): this;
 }
 declare const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>;
 declare class ZButton extends Z<"div"> {
@@ -1089,6 +1093,7 @@ declare class ZInputBox extends Z<"input"> {
     getInt(): number;
     getNum(): number;
     setValue(val: string): this;
+    private _lastValue;
     whenValueChange(callback: (content: string, e: Event) => any): this;
 }
 /**
@@ -1120,10 +1125,10 @@ declare class ZFractionInput extends Z<"span"> {
     onChange(callback: (result: TimeT) => void): void;
 }
 declare class BoxOption {
+    onChangedTo?: (option: BoxOption) => void;
+    onChanged?: (option: BoxOption) => void;
     $elementMap: Map<ZDropdownOptionBox, Z<"div">>;
     text: string;
-    onChangedTo: (option: BoxOption) => void;
-    onChanged: (option: BoxOption) => void;
     constructor(text: string, onChangedTo?: (option: BoxOption) => void, onChanged?: (option: BoxOption) => void);
     getElement(box: ZDropdownOptionBox): Z<"div">;
 }
@@ -1273,6 +1278,21 @@ declare class ZNotification extends Z<"div"> {
     constructor(text: string, timeout?: number);
 }
 declare function notify(message: string): void;
+declare class ZTextArea extends Z<"textarea"> {
+    constructor(rows?: number, cols?: number);
+    getValue(): string;
+    setValue(value: string): this;
+    get value(): string;
+    set value(value: string);
+}
+declare class ZCollapseController extends Z<"div"> {
+    private _folded;
+    targets: Z<HTMLElementTagName>[];
+    constructor(_folded: boolean, stopsPropagation?: boolean);
+    get folded(): boolean;
+    set folded(value: boolean);
+    attach($element: Z<HTMLElementTagName>): void;
+}
 declare const ENABLE_PLAYER = true;
 declare const DRAWS_NOTES = true;
 declare const DEFAULT_ASPECT_RATIO: number;
@@ -1282,6 +1302,7 @@ declare const HIT_EFFECT_SIZE = 200;
 declare const HALF_HIT: number;
 declare const RENDER_SCOPE = 900;
 declare const getVector: (theta: number) => [Vector, Vector];
+type HEX = number;
 declare class Player {
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
@@ -1297,6 +1318,8 @@ declare class Player {
     noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number;
+    tintNotesMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
+    tintEffectMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
     greenLine: number;
     constructor(canvas: HTMLCanvasElement);
     get time(): number;
@@ -1306,9 +1329,9 @@ declare class Player {
     renderGreyScreen(): void;
     initGreyScreen(): void;
     render(): void;
-    renderLine(baseX: number, baseY: number, judgeLine: JudgeLine): void;
+    renderLine(matrix: Matrix, judgeLine: JudgeLine): void;
     renderSounds(tree: NNList, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator): void;
-    renderHitEffects(judgeLine: JudgeLine, tree: NNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;
     /**
      *
      * @param judgeLine
@@ -1316,13 +1339,14 @@ declare class Player {
      * @param beats 当前拍数
      * @param startBeats
      * @param endBeats 截止拍数
-     * @param hitContext
      * @param timeCalculator
      * @returns
      */
-    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator): void;
+    renderHoldHitEffects(matrix: Matrix, tree: HNList, beats: number, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;
     renderSameTimeNotes(noteNode: NoteNode, chord: boolean, judgeLine: JudgeLine, timeCalculator: TimeCalculator): void;
     renderNote(note: Note, chord: boolean, positionY: number, endpositionY?: number): void;
+    getTintNote(tint: HEX, type: NoteType): OffscreenCanvas | ImageBitmap;
+    getTintHitEffect(tint: HEX): OffscreenCanvas | ImageBitmap;
     private update;
     play(): void;
     pause(): void;
@@ -1422,6 +1446,7 @@ declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
  * 获取一串数字的第？分位数
  */
 declare function getPercentile(sorted: number[], percentile: number): number;
+declare const isAllDigits: (str: string) => boolean;
 declare const PROJECT_NAME = "kpa";
 declare class ChartMetadata {
     name: string;

@@ -343,9 +343,10 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $newGroup    = new ZInputBox("");
     readonly $createGroup = new ZButton("Create");
     readonly $createLine  = new ZButton("Create");
-    readonly $del         = new ZButton("Delete");
+    readonly $del         = new ZButton("Delete").addClass("destructive");
     constructor() {
         super();
+        this.$title.text("Judge Line");
         this.$body.append(
             $("span").text("Father"), this.$father,
             $("span").text("Group"), this.$group,
@@ -359,7 +360,7 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
                 return;
             }
             if (content === "-1") {
-                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, null));
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, null));
             }
             if (isAllDigits(content)) {
                 const lineId = parseInt(content);
@@ -368,14 +369,14 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
                     notify("Line ID out of range");
                     return false;
                 }
-                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, father));
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, father));
             } else {
                 const father = editor.chart.judgeLines.find(line => line.name === content);
                 if (!father) {
                     notify("Line name not found");
                     return false;
                 }
-                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, father));
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, father));
             }
         });
         this.$createGroup.onClick(() => {
@@ -397,10 +398,14 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
             editor.operationList.do(new JudgeLineRegroupOperation(this.target, group))
         });
         this.$createLine.onClick(() => {
+            // 等重排了再说，重排之前没有这个线的编辑器，会出错
+            editor.judgeLinesEditor.addEventListener("reflow", () => {
+                console.log("reflow event")
+                editor.judgeLinesEditor.selectedLine = line
+            }, {once: true});
             const line = new JudgeLine(editor.chart);
             editor.operationList.do(new JudgeLineCreateOperation(editor.chart, line));
             this.target = line;
-            editor.judgeLinesEditor.selectedLine = line;
         })
         this.$del.onClick(() => {
             if (!this.target) {

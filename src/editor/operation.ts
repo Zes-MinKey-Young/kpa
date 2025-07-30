@@ -63,15 +63,19 @@ class OperationList extends EventTarget {
             if (operation.constructor === lastOp.constructor) {
                 if (lastOp.rewrite(operation)) {
                     if (operation.updatesEditor) {
-                        editor.update()
+                        this.dispatchEvent(new Event("needupdate"));
                     }
                     return;
                 }
             }
         }
-        operation.do()
+        operation.do();
         if (operation.updatesEditor) {
-            editor.update()
+            this.dispatchEvent(new Event("needupdate"));
+        }
+        if (operation.reflows) {
+            console.log(operation.reflows)
+            this.dispatchEvent(new NeedsReflowEvent(operation.reflows))
         }
         this.operations.push(operation);
     }
@@ -728,27 +732,44 @@ class JudgeLineInheritanceChangeOperation extends Operation {
     originalValue: JudgeLine | null;
     updatesEditor = true;
     reflows = JudgeLinesEditorLayoutType.tree;
-    constructor(public judgeLine: JudgeLine, public value: JudgeLine | null) {
+    constructor(public chart: Chart, public judgeLine: JudgeLine, public value: JudgeLine | null) {
         super();
         this.originalValue = judgeLine.father;
+        // 这里只会让它静默失败，外面调用的时候能够在判断一次并抛错误才是最好的
+        if (JudgeLine.checkinterdependency(judgeLine, value)) {
+            this.ineffective = true;
+        }
     }
     do() {
         const line = this.judgeLine;
         line.father = this.value;
         if (this.originalValue) {
             this.originalValue.children.delete(line);
+        } else {
+            const index = this.chart.orphanLines.indexOf(line);
+            if (index >= 0) // Impossible to be false, theoretically
+                this.chart.orphanLines.splice(index, 1)
         }
         if (this.value) {
             this.value.children.add(line);
+        } else {
+            this.chart.orphanLines.push(line);
         }
     }
     undo() {
-        this.judgeLine.father = this.originalValue;
+        const line = this.judgeLine;
+        line.father = this.originalValue;
         if (this.originalValue) {
-            this.originalValue.children.add(this.judgeLine);
+            this.originalValue.children.add(line);
+        } else {
+            this.chart.orphanLines.push(line);
         }
         if (this.value) {
-            this.value.children.delete(this.judgeLine);
+            this.value.children.delete(line);
+        } else {
+            const index = this.chart.orphanLines.indexOf(line);
+            if (index >= 0) // Impossible to be false, theoretically
+                this.chart.orphanLines.splice(index, 1)
         }
     }
 }
@@ -789,10 +810,14 @@ class JudgeLineRegroupOperation extends Operation {
 }
 
 class JudgeLineCreateOperation extends Operation {
+    reflows = JudgeLinesEditorLayoutType.grouped | JudgeLinesEditorLayoutType.tree | JudgeLinesEditorLayoutType.ordered;
+    // 之前把=写成了:半天不知道咋错了
     constructor(public chart: Chart, public judgeLine: JudgeLine) {
         super();
     }
     do() {
+        const id = this.chart.judgeLines.length;
+        this.judgeLine.id = id;
         this.chart.judgeLines.push(this.judgeLine);
         this.chart.orphanLines.push(this.judgeLine);
         this.chart.judgeLineGroups[0].add(this.judgeLine);

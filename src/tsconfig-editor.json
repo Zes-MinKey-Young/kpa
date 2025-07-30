@@ -4,6 +4,8 @@
         "outFile": "../dist/index.js"
     },
     "include": [
+        "version.ts",
+
         "shared/set.ts",
         "shared/chartTypes.d.ts",
         "shared/easing.ts", "shared/jumparray.ts", "shared/note.ts", "shared/judgeline.ts", "shared/chart.ts", "shared/event.ts", "shared/time.ts",

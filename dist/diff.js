@@ -64,6 +64,7 @@ class AudioProcessor {
         this.play([this.tap, this.tap, this.flick, this.drag][type - 1]);
     }
 }
+const HIT_FX_SIZE = 1024;
 const TAP = new Image(135);
 const DRAG = new Image(135);
 const FLICK = new Image(135);
@@ -75,7 +76,7 @@ const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
-const HIT_FX = new Image(1024, 1024);
+const HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
 const SELECT_NOTE = new Image(135);
 const TRUCK = new Image(135);
 const fetchImage = () => {
@@ -94,10 +95,10 @@ const fetchImage = () => {
     SELECT_NOTE.src = serverApi.resolvePath("/img/selectNote.png");
     TRUCK.src = serverApi.resolvePath("/img/Truck.png");
 };
-const drawNthFrame = (context, nth, dx, dy, dw, dh) => {
+const drawNthFrame = (context, source, nth, dx, dy, dw, dh) => {
     const x = nth % 4;
     const y = (nth - x) / 4;
-    context.drawImage(HIT_FX, x * 256, y * 256, 256, 256, dx, dy, dw, dh);
+    context.drawImage(source, x * 256, y * 256, 256, 256, dx, dy, dw, dh);
 };
 const getImageFromType = (noteType) => {
     switch (noteType) {
@@ -256,7 +257,10 @@ class Easing {
     segmentedValueGetter(easingLeft, easingRight) {
         const leftValue = this.getValue(easingLeft);
         const rightValue = this.getValue(easingRight);
-        return (t) => (this.getValue(t) - leftValue) / (rightValue - leftValue);
+        const timeDelta = easingRight - easingLeft;
+        const delta = rightValue - leftValue;
+        console.log("lr", easingLeft, leftValue, easingRight, rightValue);
+        return (t) => (this.getValue(easingLeft + timeDelta * t) - leftValue) / delta;
     }
     drawCurve(context, startX, startY, endX, endY) {
         const delta = endY - startY;
@@ -273,6 +277,9 @@ class Easing {
         context.stroke();
     }
 }
+/**
+ * @immutable
+ */
 class SegmentedEasing extends Easing {
     constructor(easing, left, right) {
         super();
@@ -283,6 +290,9 @@ class SegmentedEasing extends Easing {
     }
     getValue(t) {
         return this.getter(t);
+    }
+    replace(easing) {
+        return new SegmentedEasing(easing, this.left, this.right);
     }
 }
 /**
@@ -816,6 +826,12 @@ const node2string = (node) => {
     }
     return `NN(${node.notes.length}) at ${node.startTime}`;
 };
+const rgb2hex = (rgb) => {
+    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+};
+const hex2rgb = (hex) => {
+    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
+};
 /**
  * 音符
  * Basic element in music game.
@@ -836,7 +852,7 @@ class Note {
     // posPreviousSibling?: Note;
     // posNextSibling: Note;
     constructor(data) {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         this.above = data.above === 1;
         this.alpha = (_a = data.alpha) !== null && _a !== void 0 ? _a : 255;
         this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
@@ -852,6 +868,9 @@ class Note {
         // @ts-expect-error 若data是RPE数据，则为undefined，无影响。
         // 当然也有可能是KPA数据但是就是没有给
         this.visibleBeats = data.visibleBeats;
+        this.tint = data.tint ? rgb2hex(data.tint) : undefined;
+        this.tintHitEffects = data.tintHitEffects ? rgb2hex(data.tintHitEffects) : undefined;
+        this.judgeSize = (_e = data.judgeSize) !== null && _e !== void 0 ? _e : this.size;
         /*
         this.previous = null;
         this.next = null;
@@ -918,7 +937,9 @@ class Note {
             type: this.type,
             visibleTime: visibleTime,
             yOffset: this.yOffset / this.speed,
-            speed: this.speed
+            speed: this.speed,
+            tint: this.tint !== undefined ? hex2rgb(this.tint) : undefined,
+            tintHitEffects: this.tint !== undefined ? hex2rgb(this.tintHitEffects) : undefined
         };
     }
     dumpKPA() {
@@ -936,7 +957,10 @@ class Note {
             /** 新KPAJSON认为YOffset就应该是个绝对的值，不受速度影响 */
             /** 但是有历史包袱，所以加字段 */
             absoluteYOffset: this.yOffset,
-            speed: this.speed
+            speed: this.speed,
+            tint: this.tint !== undefined ? hex2rgb(this.tint) : undefined,
+            tintHitEffects: this.tint !== undefined ? hex2rgb(this.tintHitEffects) : undefined,
+            judgeSize: this.judgeSize && this.judgeSize !== 1.0 ? this.judgeSize : undefined,
         };
     }
 }
@@ -1512,10 +1536,11 @@ class JudgeLine {
     constructor(chart) {
         this.hnLists = new Map();
         this.nnLists = new Map();
+        this.eventLayers = [];
+        this.children = new Set();
+        this.name = "Untitled";
         //this.notes = [];
         this.chart = chart;
-        this.eventLayers = [];
-        this.children = [];
         this.texture = "line.png";
         this.cover = true;
         // this.noteSpeeds = {};
@@ -1524,7 +1549,7 @@ class JudgeLine {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
-        chart.judgeLineGroups[data.Group].addJudgeLine(line);
+        chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
         const noteNodeTree = chart.nnnList;
         if (data.notes) {
@@ -1601,7 +1626,7 @@ class JudgeLine {
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
-        chart.judgeLineGroups[data.group].addJudgeLine(line);
+        chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
             const key = `${isHold ? "hn" : "nn"}Lists`;
@@ -1620,7 +1645,7 @@ class JudgeLine {
             }
         }
         for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(isOld, chart, id, child, templates, timeCalculator));
+            line.children.add(JudgeLine.fromKPAJSON(isOld, chart, child.id, child, templates, timeCalculator));
         }
         for (let eventLayerData of data.eventLayers) {
             let eventLayer = {};
@@ -1823,29 +1848,9 @@ class JudgeLine {
             this.getStackedValue("alpha", beats, usePrev),
         ];
     }
-    /**
-     * 求该时刻坐标，不考虑父线
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getThisCoordinate(beats, usePrev = false) {
-        return [this.getStackedValue("moveX", beats, usePrev),
-            this.getStackedValue("moveY", beats, usePrev)];
-    }
-    /**
-     * 求父线锚点坐标，无父线返回原点
-     * @param beats
-     * @param usePrev
-     * @returns
-     */
-    getBaseCoordinate(beats, usePrev = false) {
-        if (!this.father) {
-            return [0, 0];
-        }
-        const baseBase = this.father.getBaseCoordinate(beats, usePrev);
-        const base = this.father.getThisCoordinate(beats, usePrev);
-        return [baseBase[0] + base[0], baseBase[1] + base[1]];
+    getMatrix(beats, usePrev = false) {
+        const base = this.father.getMatrix(beats, usePrev);
+        const x = this;
     }
     getStackedValue(type, beats, usePrev = false) {
         const length = this.eventLayers.length;
@@ -1958,8 +1963,18 @@ class JudgeLine {
             }
         }
     }
+    static checkinterdependency(judgeLine, toBeFather) {
+        let descendantsAndSelf = new Set();
+        const add = (line) => {
+            descendantsAndSelf.add(line);
+            for (let child of line.children) {
+                add(child);
+            }
+        };
+        add(judgeLine);
+        return descendantsAndSelf.has(toBeFather);
+    }
 }
-const VERSION = 150;
 var EventType;
 (function (EventType) {
     EventType[EventType["moveX"] = 0] = "moveX";
@@ -2052,35 +2067,20 @@ class Chart {
         }
         */
         // let line = data.judgeLineList[0];
-        const judgeLineList = data.judgeLineList;
+        const judgeLineDataList = data.judgeLineList;
+        const judgeLineList = judgeLineDataList.map((lineData, id) => JudgeLine.fromRPEJSON(chart, id, lineData, chart.templateEasingLib, chart.timeCalculator));
         const length = judgeLineList.length;
-        const orphanLines = [];
+        chart.judgeLines = judgeLineList;
         for (let i = 0; i < length; i++) {
-            const lineData = data.judgeLineList[i];
-            lineData._id = i;
-            if (lineData.father === -1) {
-                orphanLines.push(lineData);
-                continue;
+            const data = judgeLineDataList[i];
+            const line = judgeLineList[i];
+            const father = data.father === -1 ? null : judgeLineList[data.father];
+            if (father) {
+                father.children.add(line);
             }
-            const father = data.judgeLineList[lineData.father];
-            const children = father.children || (father.children = []);
-            children.push(i);
-        }
-        const readOne = (lineData) => {
-            const line = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator);
-            chart.judgeLines.push(line);
-            if (lineData.children) {
-                for (let each of lineData.children) {
-                    const child = readOne(judgeLineList[each]);
-                    child.father = line;
-                    line.children.push(child);
-                }
+            else {
+                chart.orphanLines.push(line);
             }
-            return line;
-        };
-        for (let lineData of judgeLineList) {
-            const line = readOne(lineData);
-            chart.orphanLines.push(line);
         }
         return chart;
     }
@@ -2121,6 +2121,7 @@ class Chart {
             const line = JudgeLine.fromKPAJSON(isOld, chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator);
             chart.orphanLines.push(line);
         }
+        chart.judgeLines.sort((a, b) => a.id - b.id);
         return chart;
     }
     updateCalculator() {
@@ -2186,9 +2187,28 @@ class JudgeLineGroup {
         this.name = name;
         this.judgeLines = [];
     }
-    addJudgeLine(judgeLine) {
-        this.judgeLines.push(judgeLine);
+    add(judgeLine) {
+        // 加入之前已经按照ID升序排列
+        // 加入时将新判定线插入到正确位置
+        if (judgeLine.group) {
+            judgeLine.group.remove(judgeLine);
+        }
         judgeLine.group = this;
+        // 找到正确的位置插入，保持按ID升序排列
+        for (let i = 0; i < this.judgeLines.length; i++) {
+            if (this.judgeLines[i].id > judgeLine.id) {
+                this.judgeLines.splice(i, 0, judgeLine);
+                return;
+            }
+        }
+        // 如果没有找到比它大的ID，则插入到末尾
+        this.judgeLines.push(judgeLine);
+    }
+    remove(judgeLine) {
+        const index = this.judgeLines.indexOf(judgeLine);
+        if (index !== -1) {
+            this.judgeLines.splice(index, 1);
+        }
     }
 }
 /*
@@ -2467,7 +2487,7 @@ class EventNode {
      */
     set innerEasing(easing) {
         if (this.easing instanceof SegmentedEasing) {
-            this.easing.easing = easing;
+            this.easing.replace(easing);
         }
         else {
             this.easing = easing;
@@ -3234,6 +3254,18 @@ class Z extends EventTarget {
         this.element.append(...elements);
         return this;
     }
+    after($e) {
+        this.parent.element.insertBefore($e.element, this.element.nextSibling);
+    }
+    before($e) {
+        this.parent.element.insertBefore($e.element, this.element);
+    }
+    insertAfter($e) {
+        this.parent.element.insertBefore(this.element, $e.element.nextSibling);
+    }
+    insertBefore($e) {
+        this.parent.element.insertBefore(this.element, $e.element);
+    }
     appendTo(element) {
         element.append(this.element);
         return this;
@@ -3263,6 +3295,18 @@ class Z extends EventTarget {
         const $ele = new Z(element.localName);
         $ele.element = element;
         return $ele;
+    }
+    appendMass(callback) {
+        const originalAppend = this.append;
+        const fragment = document.createDocumentFragment();
+        this.append = (...$elements) => {
+            fragment.append(...$elements.map(element => element instanceof Z ? element.element : element));
+            return this;
+        };
+        callback();
+        this.append = originalAppend;
+        this.element.append(fragment);
+        return this;
     }
 }
 const $ = (strOrEle) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from(strOrEle);
@@ -3366,7 +3410,13 @@ class ZInputBox extends Z {
     }
     whenValueChange(callback) {
         this.addEventListener("valueChange", (event) => {
-            callback(this.getValue(), event);
+            const changesValue = callback(this.getValue(), event) !== false;
+            if (!changesValue) {
+                this.element.value = this._lastValue;
+            }
+            else {
+                this._lastValue = this.element.value;
+            }
         });
         return this;
     }
@@ -3457,10 +3507,10 @@ class ZFractionInput extends Z {
 }
 class BoxOption {
     constructor(text, onChangedTo, onChanged) {
-        this.$elementMap = new Map();
-        this.text = text;
         this.onChangedTo = onChangedTo;
         this.onChanged = onChanged;
+        this.$elementMap = new Map();
+        this.text = text;
     }
     getElement(box) {
         if (!this.$elementMap.has(box)) {
@@ -3863,6 +3913,70 @@ class ZNotification extends Z {
 function notify(message) {
     $(document.body).append(new ZNotification(message));
 }
+class ZTextArea extends Z {
+    constructor(rows = 20, cols = 40) {
+        super("textarea");
+        this.attr("rows", rows + "");
+        this.attr("cols", cols + "");
+    }
+    getValue() {
+        return this.element.value;
+    }
+    setValue(value) {
+        this.element.value = value;
+        return this;
+    }
+    get value() {
+        return this.element.value;
+    }
+    set value(value) {
+        this.element.value = value;
+    }
+}
+class ZCollapseController extends Z {
+    constructor(_folded, stopsPropagation = true) {
+        super("div");
+        this._folded = _folded;
+        this.targets = [];
+        if (_folded) {
+            this.addClass("collapse-folded");
+        }
+        else {
+            this.addClass("collapse-unfolded");
+        }
+        this.onClick((e) => {
+            if (stopsPropagation)
+                e.stopPropagation();
+            this.folded = !this.folded;
+        });
+    }
+    get folded() {
+        return this._folded;
+    }
+    set folded(value) {
+        if (value === this._folded) {
+            return;
+        }
+        this._folded = value;
+        if (value) {
+            this.removeClass("collapse-unfolded");
+            this.addClass("collapse-folded");
+            for (const $target of this.targets) {
+                $target.hide();
+            }
+        }
+        else {
+            this.addClass("collapse-unfolded");
+            this.removeClass("collapse-folded");
+            for (const $target of this.targets) {
+                $target.show();
+            }
+        }
+    }
+    attach($element) {
+        this.targets.push($element);
+    }
+}
 const ENABLE_PLAYER = true;
 const DRAWS_NOTES = true;
 const DEFAULT_ASPECT_RATIO = 3 / 2;
@@ -3875,6 +3989,8 @@ const RENDER_SCOPE = 900;
 const getVector = (theta) => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]];
 class Player {
     constructor(canvas) {
+        this.tintNotesMapping = new Map();
+        this.tintEffectMapping = new Map();
         this.greenLine = 0;
         this.canvas = canvas;
         this.context = canvas.getContext("2d");
@@ -3910,15 +4026,10 @@ class Player {
         hitCanvas.width = width;
         const RATIO = 1.0;
         // 计算最终的变换矩阵
-        const sx1 = width / 1350;
-        const sy1 = height / 900;
-        const sx = sx1 * RATIO;
-        const sy = (-sy1) * RATIO;
         const tx = width / 2;
         const ty = height / 2;
         // 设置变换矩阵
-        context.setTransform(sx, 0, 0, sy, tx, ty);
-        hitContext.setTransform(sx1, 0, 0, sy1, tx, ty);
+        context.setTransform(RATIO, 0, 0, RATIO, tx, ty);
         //hitContext.scale(0.5, 0.5)
         context.save();
         hitContext.save();
@@ -3926,7 +4037,6 @@ class Player {
     }
     renderDropScreen() {
         const { canvas, context } = this;
-        context.scale(1, -1);
         context.fillStyle = "#6cf";
         context.fillRect(-675, -450, 1350, 900);
         context.fillStyle = "#444";
@@ -3938,7 +4048,6 @@ class Player {
     }
     renderGreyScreen() {
         const { canvas, context } = this;
-        context.scale(1, -1);
         context.fillStyle = "#AAA";
         context.fillRect(-675, -450, 1350, 900);
         context.fillStyle = "#444";
@@ -3959,8 +4068,7 @@ class Player {
         // console.time("render")
         const context = this.context;
         const hitContext = this.hitContext;
-        hitContext.clearRect(675, -450, -1350, 900);
-        context.scale(1, -1);
+        hitContext.clearRect(0, 0, 1350, 900);
         context.drawImage(this.background, -675, -450, 1350, 900);
         // 涂灰色（背景变暗）
         context.fillStyle = "#2227";
@@ -3976,17 +4084,18 @@ class Player {
         drawLine(context, 0, 900, 0, -900);
         // console.log("rendering")
         for (let line of this.chart.orphanLines) {
-            this.renderLine(0, 0, line);
+            this.renderLine(identity.translate(675, 450).scale(1, -1), line);
             context.restore();
             context.save();
         }
-        context.scale(1, -1);
+        hitContext.strokeStyle = "#66ccff";
+        hitContext.lineWidth = 5;
+        drawLine(hitContext, 0, 900, 1350, 0);
         context.drawImage(this.hitCanvas, -675, -450, 1350, 900);
         context.restore();
         context.save();
         const showInfo = settings.get("playerShowInfo");
         if (showInfo) {
-            context.scale(1, -1);
             context.fillStyle = "#ddd";
             context.font = "50px phigros";
             const chart = this.chart;
@@ -4011,7 +4120,7 @@ class Player {
         this.soundQueue = [];
         // console.timeEnd("render")
     }
-    renderLine(baseX, baseY, judgeLine) {
+    renderLine(matrix, judgeLine) {
         const context = this.context;
         const timeCalculator = this.chart.timeCalculator;
         const beats = this.beats;
@@ -4022,17 +4131,18 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         // console.log(x, y, theta, alpha);
-        context.translate(x, y);
-        const transformedX = x + baseX;
-        const transformedY = y + baseY;
-        if (judgeLine.children.length !== 0) {
-            context.save();
+        const { x: transformedX, y: transformedY } = new Coordinate(x, y).mul(matrix);
+        console.log(judgeLine.id, x, y, transformedX, transformedY);
+        const MyMatrix = identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
+        context.setTransform(MyMatrix);
+        console.log(judgeLine.id, MyMatrix);
+        if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
-                this.renderLine(transformedX, transformedY, line);
+                context.save();
+                this.renderLine(MyMatrix, line);
+                context.restore();
             }
-            context.restore();
         }
-        context.rotate(-theta);
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
         const lineColor = settings.get("lineColor");
@@ -4041,7 +4151,7 @@ class Player {
         context.drawImage(ANCHOR, -10, -10);
         /** 判定线的法向量 */
         const nVector = getVector(theta)[1]; // 奇变偶不变，符号看象限(
-        const toCenter = [-transformedX, -transformedY];
+        const toCenter = [675 - transformedX, 450 - transformedY];
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
         const innerProd = innerProduct(toCenter, nVector);
@@ -4109,10 +4219,10 @@ class Player {
                 // 打击特效
                 if (beats > 0) {
                     if (list instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, list, beats, hitRenderLimit, beats, this.hitContext, timeCalculator);
+                        this.renderHoldHitEffects(MyMatrix, list, beats, hitRenderLimit, beats, timeCalculator);
                     }
                     else {
-                        this.renderHitEffects(judgeLine, list, hitRenderLimit, beats, this.hitContext, timeCalculator);
+                        this.renderHitEffects(MyMatrix, list, hitRenderLimit, beats, timeCalculator);
                     }
                 }
             }
@@ -4158,19 +4268,16 @@ class Player {
             node = node.previous;
         }
     }
-    renderHitEffects(judgeLine, tree, startBeats, endBeats, hitContext, timeCalculator) {
+    renderHitEffects(matrix, tree, startBeats, endBeats, timeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
+        const { hitContext } = this;
+        console.log(hitContext.getTransform());
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
         }
         while (noteNode !== end) {
             const beats = TimeCalculator.toBeats(noteNode.startTime);
-            const base = judgeLine.getBaseCoordinate(beats);
-            const thisCoord = judgeLine.getThisCoordinate(beats);
-            const bx = base[0] + thisCoord[0];
-            const by = base[1] + thisCoord[1];
-            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
@@ -4179,9 +4286,11 @@ class Player {
                 }
                 const posX = note.positionX;
                 const yo = note.yOffset * (note.above ? 1 : -1);
-                const x = bx + posX * vx + yo * vy, y = by + posX * vy + yo * vx;
+                const { x, y } = new Coordinate(posX, yo).mul(matrix);
+                console.log("he", x, y);
+                const he = note.tintHitEffects;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
-                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
+                drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
             }
             noteNode = noteNode.next;
         }
@@ -4193,12 +4302,12 @@ class Player {
      * @param beats 当前拍数
      * @param startBeats
      * @param endBeats 截止拍数
-     * @param hitContext
      * @param timeCalculator
      * @returns
      */
-    renderHoldHitEffects(judgeLine, tree, beats, startBeats, endBeats, hitContext, timeCalculator) {
+    renderHoldHitEffects(matrix, tree, beats, startBeats, endBeats, timeCalculator) {
         const start = tree.getNodeAt(startBeats, true);
+        const { hitContext } = this;
         let noteNode = start;
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
@@ -4207,11 +4316,6 @@ class Player {
         if (noteNode !== end)
             console.log("start", start, startBeats, endBeats);
         while (noteNode !== end) {
-            const base = judgeLine.getBaseCoordinate(beats);
-            const thisCoord = judgeLine.getThisCoordinate(beats);
-            const bx = base[0] + thisCoord[0];
-            const by = base[1] + thisCoord[1];
-            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
             const notes = noteNode.notes, len = notes.length;
             for (let i = 0; i < len; i++) {
                 const note = notes[i];
@@ -4222,9 +4326,11 @@ class Player {
                     continue;
                 }
                 const posX = note.positionX;
-                const x = bx + posX * vx, y = by + posX * vy;
+                const yo = note.yOffset * (note.above ? 1 : -1);
+                const { x, y } = new Coordinate(posX, yo).mul(matrix);
                 const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
-                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
+                const he = note.tintHitEffects;
+                drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
             }
             noteNode = noteNode.next;
         }
@@ -4255,7 +4361,7 @@ class Player {
         if (TimeCalculator.toBeats(note.startTime) - note.visibleBeats > this.beats) {
             return;
         }
-        let image = getImageFromType(note.type);
+        let image = note.tint ? this.getTintNote(note.tint, note.type) : getImageFromType(note.type);
         const context = this.context;
         if (note.yOffset) {
             positionY += note.yOffset;
@@ -4276,6 +4382,9 @@ class Player {
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {
+            const isJudging = TimeCalculator.toBeats(note.startTime) <= this.beats;
+            positionY = isJudging ? 0 : positionY;
+            length = isJudging ? (endpositionY) : length;
             context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, size, length);
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height);
@@ -4288,6 +4397,47 @@ class Player {
         if (opac) {
             context.restore();
         }
+    }
+    getTintNote(tint, type) {
+        const map = this.tintNotesMapping;
+        const key = tint | type << 24; // 25位整形表示一个类型的Note贴图
+        const canBeSource = map.get(key);
+        if (canBeSource) {
+            return canBeSource;
+        }
+        const source = new OffscreenCanvas(NOTE_WIDTH, NOTE_HEIGHT);
+        const context = source.getContext('2d');
+        context.drawImage(getImageFromType(type), 0, 0, NOTE_WIDTH, NOTE_HEIGHT);
+        context.globalCompositeOperation = 'multiply';
+        context.fillStyle = "#" + tint.toString(16).padStart(6, "0");
+        context.fillRect(0, 0, NOTE_WIDTH, NOTE_HEIGHT);
+        map.set(key, source); // 在ImageBitmap创建完成之前，先使用Canvas临时代替
+        createImageBitmap(source).then((bmp) => {
+            map.set(key, bmp);
+        });
+        return source;
+    }
+    getTintHitEffect(tint) {
+        const map = this.tintEffectMapping;
+        const key = tint;
+        const canBeSource = map.get(key);
+        if (canBeSource) {
+            return canBeSource;
+        }
+        const source = new OffscreenCanvas(HIT_FX_SIZE, HIT_FX_SIZE);
+        const context = source.getContext('2d');
+        context.clearRect(0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        context.drawImage(HIT_FX, 0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        context.globalCompositeOperation = 'source-in';
+        context.fillStyle = "#" + tint.toString(16);
+        context.fillRect(0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        context.globalCompositeOperation = 'multiply';
+        context.drawImage(HIT_FX, 0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        map.set(key, source);
+        createImageBitmap(source).then((bmp) => {
+            map.set(key, bmp);
+        });
+        return source;
     }
     update() {
         if (!this.playing) {
@@ -4522,6 +4672,7 @@ function changeAudioTime(audio, delta) {
 function getPercentile(sorted, percentile) {
     return sorted[Math.floor(sorted.length * percentile)];
 }
+const isAllDigits = (str) => /^\d+$/.test(str);
 const PROJECT_NAME = "kpa";
 class ChartMetadata {
     constructor(name, song, picture, chart) {

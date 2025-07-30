@@ -1,5 +1,4 @@
 
-const VERSION = 150;
 
 enum EventType {
     moveX,

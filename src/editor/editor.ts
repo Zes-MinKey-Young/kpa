@@ -49,7 +49,7 @@ class JudgeLinesEditor extends Z<"div"> {
         this.editor.eventCurveEditors.draw();
         this.editor.notesEditor.draw();
     }
-    orderedLayout() {
+    private orderedLayout() {
         this._selectedLine = null; // Set as null first so that the editor is correctly selected
         // 用这个减少回流（内部实现用了文档碎片）
         this.appendMass(() => {
@@ -64,7 +64,7 @@ class JudgeLinesEditor extends Z<"div"> {
         this.selectedLine = this.chart.judgeLines[0];
     }
     private collapseStack: Array<ZCollapseController>;
-    treeLayout() {
+    private treeLayout() {
         this._selectedLine = null;
         this.appendMass(() => {
             this.html("");
@@ -76,7 +76,7 @@ class JudgeLinesEditor extends Z<"div"> {
         });
         this.selectedLine = this.chart.judgeLines[0];
     }
-    addIndentedLineEditor(line: JudgeLine, indentLevel: number) {
+    private addIndentedLineEditor(line: JudgeLine, indentLevel: number) {
         const isFather = line.children.size > 0;
         const $collapse = isFather ? new ZCollapseController(false) : $("div");
         const editer = new JudgeLineEditor(this, line, $collapse);
@@ -97,7 +97,7 @@ class JudgeLinesEditor extends Z<"div"> {
             this.collapseStack.pop();
         }
     }
-    groupedLayout() {
+    private groupedLayout() {
         this._selectedLine = null;
         this.appendMass(() => {
             this.html("");
@@ -127,7 +127,6 @@ class JudgeLinesEditor extends Z<"div"> {
     reflow(type: JudgeLinesEditorLayoutType = this.layoutType) {
         if (type !== this.layoutType) {
             this.layoutType = type;
-
         }
         switch (type) {
             case JudgeLinesEditorLayoutType.ordered:
@@ -140,6 +139,7 @@ class JudgeLinesEditor extends Z<"div"> {
                 this.treeLayout();
                 break;
         }
+        this.dispatchEvent(new Event("reflow"));
     }
 }
 
@@ -368,6 +368,7 @@ class Editor extends EventTarget {
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
     eventEditor: EventEditor;
+    judgeLineInfoEditor: JudgeLineInfoEditor;
     userScriptEditor: UserScriptEditor;
     multiNoteEditor: MultiNoteEditor;
     multiNodeEditor: MultiNodeEditor;
@@ -478,8 +479,15 @@ class Editor extends EventTarget {
             });
 
         this.$switchButton.onClick(() => {
-            if (this.shownSideEditor !== this.userScriptEditor) {
-                this.switchSide(this.userScriptEditor)
+            switch (this.shownSideEditor) {
+                case this.eventEditor:
+                case this.noteEditor:
+                case this.multiNodeEditor:
+                case this.multiNoteEditor:
+                    editor.switchSide(this.judgeLineInfoEditor);
+                    break;
+                case this.judgeLineInfoEditor:
+                    editor.switchSide(this.userScriptEditor)
             }
         })
 
@@ -514,6 +522,7 @@ class Editor extends EventTarget {
             // @ts-expect-error
             this.operationList.addEventListener("needsreflow", (ev: NeedsReflowEvent) => {
                 if (this.judgeLinesEditor.layoutType & ev.condition) {
+                    notify("Reflow")
                     this.judgeLinesEditor.reflow()
                 }
             })
@@ -657,19 +666,23 @@ class Editor extends EventTarget {
 
         this.eventEditor = new EventEditor();
         this.noteEditor = new NoteEditor();
+        this.judgeLineInfoEditor = new JudgeLineInfoEditor();
         this.userScriptEditor = new UserScriptEditor();
         this.multiNoteEditor = new MultiNoteEditor();
         this.multiNodeEditor = new MultiNodeEditor();
         this.$noteInfo.append(
             this.eventEditor,
             this.noteEditor,
+            this.judgeLineInfoEditor,
             this.userScriptEditor,
             this.multiNoteEditor,
             this.multiNodeEditor
             );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
+        this.judgeLineInfoEditor.target = chart.judgeLines[0]
         this.eventEditor.update()
         this.eventEditor.hide()
+        this.judgeLineInfoEditor.hide();
         this.userScriptEditor.hide()
         this.multiNoteEditor.hide()
         this.multiNodeEditor.hide()
