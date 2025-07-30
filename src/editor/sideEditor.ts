@@ -1,10 +1,24 @@
 
 
-abstract class SideEditor<T extends object> extends Z<"div"> {
-    
+abstract class SideEditor extends Z<"div"> {
     element: HTMLDivElement;
     $title: Z<"div">
     $body: Z<"div">
+    constructor() {
+        super("div");
+        this.addClass("side-editor");
+        this.$title = $("div").addClass("side-editor-title");
+        this.$body = $("div").addClass("side-editor-body");
+        this.append(this.$title, this.$body)
+    }
+    abstract update(): void
+}
+
+
+
+
+abstract class SideEntityEditor<T extends object> extends SideEditor {
+    
     _target: WeakRef<T>;
     get target() {
         return this._target?.deref();
@@ -15,34 +29,36 @@ abstract class SideEditor<T extends object> extends Z<"div"> {
     }
     abstract update(): void
     constructor() {
-        super("div");
-        this.addClass("side-editor");
-        this.$title = $("div").addClass("side-editor-title");
-        this.$body = $("div").addClass("side-editor-body");
-        this.append(this.$title, this.$body)
+        super();
     }
 }
 
 
-class NoteEditor extends SideEditor<Note> {
+class NoteEditor extends SideEntityEditor<Note> {
     aboveOption: BoxOption = new BoxOption("above", () => this.target.above = true);
     belowOption: BoxOption = new BoxOption("below", () => this.target.above = false);
+    realOption: BoxOption = new BoxOption("true", () => this.target.isFake = false);
+    fakeOption: BoxOption = new BoxOption("fake", () => this.target.isFake = true);
     noteTypeOptions: BoxOption[] = ["tap", "hold", "flick", "drag"]
         .map((v) => new BoxOption(v, () => {
             editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]))
         }));
 
-    $time         = new ZFractionInput();;
-    $endTime      = new ZFractionInput();;
-    $type         = new ZDropdownOptionBox(this.noteTypeOptions);
-    $position     = new ZInputBox();;
-    $dir          = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
-    $speed        = new ZInputBox();
-    $alpha        = new ZInputBox();
-    $size         = new ZInputBox();
-    $yOffset      = new ZInputBox();
-    $visibleBeats = new ZInputBox();
-    $delete       = new ZButton("Delete").addClass("destructive");
+    $time          = new ZFractionInput();;
+    $endTime       = new ZFractionInput();;
+    $type          = new ZDropdownOptionBox(this.noteTypeOptions);
+    $position      = new ZInputBox();;
+    $dir           = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
+    $speed         = new ZInputBox();
+    $fake          = new ZDropdownOptionBox([this.fakeOption, this.realOption]);
+    $alpha         = new ZInputBox();
+    $size          = new ZInputBox();
+    $yOffset       = new ZInputBox();
+    $visibleBeats  = new ZInputBox();
+    $tint          = new ZInputBox();
+    $tintHitEffect = new ZInputBox();
+    $judgeSize     = new ZInputBox();
+    $delete        = new ZButton("Delete").addClass("destructive");
     constructor() {
         super()
         this.$title.text("Note")
@@ -53,11 +69,15 @@ class NoteEditor extends SideEditor<Note> {
             $("span").text("type"), this.$type,
             $("span").text("pos"), this.$position,
             $("span").text("dir"), this.$dir,
+            $("span").text("real"), this.$fake,
             $("span").text("alpha"), this.$alpha,
             $("span").text("size"), this.$size,
             $("span").text("AbsYOffset"), this.$yOffset,
             $("span").text("visibleBeats"), this.$visibleBeats,
-            $("span").text("del"), this.$delete
+            $("span").text("tint"), this.$tint,
+            $("span").text("tintHitEffects"), this.$tintHitEffect,
+            $("span").text("judgeSize"), this.$judgeSize,
+            $("span").text("del"), this.$delete,
         )
         this.$time.onChange((t) => {
             editor.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)))
@@ -90,6 +110,15 @@ class NoteEditor extends SideEditor<Note> {
         });
         this.$delete.onClick(() => {
             editor.operationList.do(new NoteDeleteOperation(this.target));
+        });
+        this.$tint.whenValueChange((str) => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "tint", str === "" ? undefined : parseInt(str, 16)));
+        });
+        this.$tintHitEffect.whenValueChange((str) => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "tintHitEffects", str === "" ? undefined : parseInt(str, 16)));
+        });
+        this.$judgeSize.whenValueChange(() => {
+            editor.operationList.do(new NoteValueChangeOperation(this.target, "judgeSize", this.$judgeSize.getNum()))
         })
     }
     update() {
@@ -108,15 +137,19 @@ class NoteEditor extends SideEditor<Note> {
         this.$type.value = this.noteTypeOptions[note.type - 1];
         this.$position.setValue(note.positionX + "")
         this.$dir.value = note.above ? this.aboveOption : this.belowOption
+        this.$fake.value = note.isFake ? this.fakeOption : this.realOption
         this.$speed.setValue(note.speed + "")
         this.$alpha.setValue(note.alpha + "")
         this.$yOffset.setValue(note.yOffset + "")
         this.$visibleBeats.setValue(note.visibleBeats + "")
-        this.$size.setValue(note.size + "")
+        this.$size.setValue(note.size + "");
+        this.$tint.setValue(note.tint ? note.tint.toString(16).padStart(6, "0") : "");
+        this.$tintHitEffect.setValue(note.tintHitEffects ? note.tintHitEffects.toString(16).padStart(6, "0") : "");
+        this.$judgeSize.setValue(note.judgeSize + "")
     }
 }
 
-class MultiNoteEditor extends SideEditor<Set<Note>> {
+class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
     $reverse: ZButton;
     $delete: ZButton;
     constructor() {
@@ -140,7 +173,7 @@ class MultiNoteEditor extends SideEditor<Set<Note>> {
     }
 }
 
-class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
+class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     $reverse: ZButton;
     $delete: ZButton;
     constructor() {
@@ -165,12 +198,18 @@ class MultiNodeEditor extends SideEditor<Set<EventStartNode>> {
     }
 } 
 
-class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
+class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
 
     $time           = new ZFractionInput();
     $value          = new ZInputBox();
+    $normalOuter    = $("div");
+    $normalLeft     = new ZInputBox().attr("placeholder", "left").setValue("0.0");
+    $normalRight    = new ZInputBox().attr("placeholder", "right").setValue("1.0");
     $easing         = new ZEasingBox();
+    $templateOuter  = $("div");
     $templateEasing = new ZInputBox().addClass("template-easing-box");
+    $templateLeft   = new ZInputBox().attr("placeholder", "left").setValue("0.0");
+    $templateRight  = new ZInputBox().attr("placeholder", "right").setValue("1.0");
     $parametric     = new ZInputBox();
     $bezierEditor   = new BezierEditor(window.innerWidth * 0.2);
     $delete: ZButton;
@@ -179,9 +218,13 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         super()
         this.$title.text("Event")
         this.addClass("event-editor")
-        this.$bezierEditor 
+        this.$normalOuter.append(
+            this.$easing,
+            this.$normalLeft,
+            this.$normalRight
+        );
         this.$radioTabs = new ZRadioTabs("easing-type", {
-            "Normal": this.$easing,
+            "Normal": this.$normalOuter,
             "Template": this.$templateEasing,
             "Bezier": this.$bezierEditor,
             "Parametric": this.$parametric
@@ -219,7 +262,37 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
             } else if (id === 3) { // Parametric
                 this.setParametricEasing(this.$parametric.getValue());
             }
-        })
+        });
+        for (const $input of [this.$normalLeft, this.$normalRight, this.$templateLeft, this.$templateRight]) {
+            $input.whenValueChange(() => {
+                const isNormal = $input === this.$normalLeft || $input === this.$normalRight;
+                const left = isNormal ? this.$normalLeft.getNum() : this.$templateLeft.getNum();
+                const right = isNormal ? this.$normalRight.getNum() : this.$templateRight.getNum();
+                if (left < 0 || right > 1 || left > right) {
+                    editor.update();
+                    return;
+                }
+                const isOriginallySegmented = this.target.easing instanceof SegmentedEasing;
+                // 如果本来就是被分段的，就不改回纯的了
+                // 否则能不分就不分
+                const needsSegmentation = isOriginallySegmented || left !== 0 || right !== 1;
+                if (needsSegmentation) {
+                    if (isOriginallySegmented) {
+                        editor.operationList.do(
+                            new EventNodeEasingChangeOperation(this.target,
+                                new SegmentedEasing((this.target.easing as SegmentedEasing).easing, left, right)
+                            )
+                        );
+                    } else {
+                        editor.operationList.do(
+                            new EventNodeEasingChangeOperation(this.target,
+                                new SegmentedEasing(this.target.easing, left, right)
+                            )
+                        );
+                    }
+                }
+            });
+        }
     }
     setNormalEasing(id: number): void {
         editor.operationList.do(new EventNodeInnerEasingChangeOperation(this.target, easingArray[id]))
@@ -246,6 +319,10 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         if (eventNode.innerEasing instanceof NormalEasing) {
             this.$radioTabs.switchTo(0)
             this.$easing.setValue(eventNode.innerEasing);
+            if (eventNode.easing instanceof SegmentedEasing) {
+                this.$normalLeft.setValue(eventNode.easing.left + "");
+                this.$normalRight.setValue(eventNode.easing.right + "");
+            }
         } else if (eventNode.innerEasing instanceof TemplateEasing) {
             this.$radioTabs.switchTo(1)
             this.$templateEasing.setValue(eventNode.innerEasing.name);
@@ -259,6 +336,99 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         
     }
 }
+
+class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
+    readonly $father      = new ZInputBox("-1");
+    readonly $group       = new ZDropdownOptionBox([new BoxOption("Default")]);
+    readonly $newGroup    = new ZInputBox("");
+    readonly $createGroup = new ZButton("Create");
+    readonly $createLine  = new ZButton("Create");
+    readonly $del         = new ZButton("Delete");
+    constructor() {
+        super();
+        this.$body.append(
+            $("span").text("Father"), this.$father,
+            $("span").text("Group"), this.$group,
+            $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup),
+            $("span").text("New Line"), this.$createLine,
+            $("span").text("del"), this.$del
+        );
+        this.$father.whenValueChange((content) => {
+            if (!this.target) {
+                notify("GC了");
+                return;
+            }
+            if (content === "-1") {
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, null));
+            }
+            if (isAllDigits(content)) {
+                const lineId = parseInt(content);
+                const father = editor.chart.judgeLines[lineId];
+                if (!father) {
+                    notify("Line ID out of range");
+                    return false;
+                }
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, father));
+            } else {
+                const father = editor.chart.judgeLines.find(line => line.name === content);
+                if (!father) {
+                    notify("Line name not found");
+                    return false;
+                }
+                editor.operationList.do(new JudgeLineInheritanceChangeOperation(this.target, father));
+            }
+        });
+        this.$createGroup.onClick(() => {
+            if (!this.target) {
+                notify("GC了");
+                return;
+            }
+            const name = this.$newGroup.getValue().trim();
+            if (name === "") {
+                notify("Please input a name");
+                return;
+            }
+            if (editor.chart.judgeLineGroups.some(group => group.name === name)) {
+                notify(`'${name}' already exists`);
+                return;
+            }
+            const group = new JudgeLineGroup(name);
+            editor.chart.judgeLineGroups.push(group);
+            editor.operationList.do(new JudgeLineRegroupOperation(this.target, group))
+        });
+        this.$createLine.onClick(() => {
+            const line = new JudgeLine(editor.chart);
+            editor.operationList.do(new JudgeLineCreateOperation(editor.chart, line));
+            this.target = line;
+            editor.judgeLinesEditor.selectedLine = line;
+        })
+        this.$del.onClick(() => {
+            if (!this.target) {
+                notify("GC了")
+                return;
+            }
+            editor.operationList.do(new JudgeLineDeleteOperation(editor.chart, this.target));
+        })
+    }
+    update(): void {
+        const judgeLine = this.target;
+        if (!judgeLine) {
+            return;
+        }
+        this.$father.setValue(judgeLine.father ? judgeLine.father.id + "" : "-1");
+        this.updateGroups(editor.chart.judgeLineGroups);
+    }
+    updateGroups(groups: JudgeLineGroup[]) {
+        this.$group.replaceWithOptions(groups.map(group => {
+            const option = new BoxOption(group.name, () => {
+                if (!this.target) return;
+                editor.operationList.do(new JudgeLineRegroupOperation(this.target, group))
+            });
+            return option
+        }));
+    }
+}
+
 class UserScriptEditor extends SideEditor {
     $script = new ZTextArea().addClass("user-script-editor-script").setValue("");
     $runBtn = new ZButton("Run").addClass("user-script-editor-run", "progressive");

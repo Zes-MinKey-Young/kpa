@@ -1,3 +1,6 @@
+
+const HIT_FX_SIZE = 1024;
+
 const TAP = new Image(135);
 const DRAG = new Image(135);
 const FLICK = new Image(135);
@@ -9,7 +12,7 @@ const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
-const HIT_FX = new Image(1024, 1024);
+const HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
 const SELECT_NOTE = new Image(135);
 const TRUCK = new Image(135);
 
@@ -33,10 +36,10 @@ const fetchImage = () => {
 
 
 
-const drawNthFrame = (context: CanvasRenderingContext2D, nth: number, dx: number, dy: number, dw: number, dh: number) => {
+const drawNthFrame = (context: CanvasRenderingContext2D, source: CanvasImageSource, nth: number, dx: number, dy: number, dw: number, dh: number) => {
     const x = nth % 4;
     const y = (nth - x) / 4
-    context.drawImage(HIT_FX, x * 256, y * 256, 256, 256, dx, dy, dw, dh)
+    context.drawImage(source, x * 256, y * 256, 256, 256, dx, dy, dw, dh)
 }
 
 const getImageFromType = (noteType: NoteType) => {

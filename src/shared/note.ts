@@ -18,6 +18,15 @@ const node2string = (node: NoteNode | Tailer<NoteNode>) => {
     }
     return `NN(${node.notes.length}) at ${node.startTime}`
 }
+
+
+const rgb2hex = (rgb: RGB) => {
+    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+}
+
+const hex2rgb = (hex: number): RGB => {
+    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF]
+}
 /**
  * 音符
  * Basic element in music game.
@@ -56,6 +65,9 @@ class Note {
     */
 
     parentNode: NoteNode;
+    tint: HEX;
+    tintHitEffects: HEX;
+    judgeSize: number;
 
     // readonly chart: Chart;
     // readonly judgeLine: JudgeLine
@@ -79,6 +91,10 @@ class Note {
         // @ts-expect-error 若data是RPE数据，则为undefined，无影响。
         // 当然也有可能是KPA数据但是就是没有给
         this.visibleBeats = data.visibleBeats;
+
+        this.tint = data.tint ? rgb2hex(data.tint) : undefined;
+        this.tintHitEffects = data.tintHitEffects ? rgb2hex(data.tintHitEffects) : undefined;
+        this.judgeSize = data.judgeSize ?? this.size;
         /*
         this.previous = null;
         this.next = null;
@@ -144,7 +160,9 @@ class Note {
             type: this.type,
             visibleTime: visibleTime,
             yOffset: this.yOffset / this.speed,
-            speed: this.speed
+            speed: this.speed,
+            tint: this.tint !== undefined ? hex2rgb(this.tint) : undefined,
+            tintHitEffects: this.tint !== undefined ? hex2rgb(this.tintHitEffects) : undefined
         }
     }
     dumpKPA(): NoteDataKPA {
@@ -163,7 +181,10 @@ class Note {
             /** 新KPAJSON认为YOffset就应该是个绝对的值，不受速度影响 */
             /** 但是有历史包袱，所以加字段 */
             absoluteYOffset: this.yOffset,
-            speed: this.speed
+            speed: this.speed,
+            tint: this.tint !== undefined ? hex2rgb(this.tint) : undefined,
+            tintHitEffects: this.tint !== undefined ? hex2rgb(this.tintHitEffects) : undefined,
+            judgeSize: this.judgeSize && this.judgeSize !== 1.0 ? this.judgeSize : undefined,
         }
     }
 }

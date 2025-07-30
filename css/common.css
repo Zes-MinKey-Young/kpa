@@ -143,3 +143,19 @@ dialog[open] {
 progress {
     height: 100%;
 }
+
+.collapse-folded {
+    width: 1em;
+    height: 1em;
+    background-image: url("../img/triangle-right.svg");
+    background-position: center;
+    background-size: cover;
+}
+
+.collapse-unfolded {
+    width: 1em;
+    height: 1em;
+    background-image: url("../img/triangle-down.svg");
+    background-position: center;
+    background-size: cover;
+}

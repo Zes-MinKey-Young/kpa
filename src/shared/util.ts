@@ -190,3 +190,4 @@ function getPercentile(sorted: number[], percentile: number): number {
     return sorted[Math.floor(sorted.length * percentile)]
 }
 
+const isAllDigits = (str: string) => /^\d+$/.test(str);

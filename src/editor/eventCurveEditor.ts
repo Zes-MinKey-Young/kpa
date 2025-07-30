@@ -281,10 +281,10 @@ const computeAttach = (sortedAttachable: number[], value: number) => {
  */
 function generateAttachable (linear: [k: number, b: number], range: readonly [number, number])  {
     const k = linear[0], b = linear[1];
-    if (k <= 0) {
-        debugger;
-    }
     const left = range[0], right = range[1];
+    if (k <= 1e-6) {
+        return [left, b, right];
+    }
     const startingX = Math.floor((left - b) / k);
     const attachable: number[] = [];
     for (let i = startingX; ; i++) {
@@ -525,11 +525,14 @@ class EventCurveEditor {
             }
         })
         
-        window.addEventListener("keypress", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
-            console.log("Key press:", e.key);
+        window.addEventListener("keydown", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
             if (!this.mouseIn) {
                 return;
             }
+            if (document.activeElement !== document.body) {
+                return;
+            }
+            e.preventDefault();
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();

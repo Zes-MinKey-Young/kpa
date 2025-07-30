@@ -9,13 +9,15 @@
     "watch": "ts-node fileWatcher.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.2.19"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "bun-types": "^1.2.19",
     "jsonc-parser": "^3.3.1",
-    "music-metadata": "^11.2.3"
+    "music-metadata": "^11.2.3",
+    "node-stream-zip": "^1.15.0"
   }
 }

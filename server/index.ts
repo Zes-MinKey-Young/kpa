@@ -6,6 +6,8 @@ import { resolve, relative } from 'path';
 import { parseBlob } from 'music-metadata';
 import { mkdir, exists, readdir } from 'fs/promises';
 import { parse, type ParseError } from 'jsonc-parser';
+import { parse as parseRPEMetadata } from "./RPEInfoParser.ts";
+import StreamZip from 'node-stream-zip';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 
 
@@ -18,6 +20,14 @@ function isSubPath(targetPath: string, parentPath: string): boolean {
 function isAbsolute(p: string): boolean {
     return resolve(p) === p;
 }
+
+
+async function extractZip(zipPath: string, extractTo: string) {
+  const zip = new StreamZip.async({ file: zipPath });
+  await zip.extract(null, extractTo);
+  await zip.close();
+}
+
 
 const defaultValues = {
     [EventType.moveX]: 0,
@@ -197,6 +207,9 @@ Bun.serve({
                 const title = formData.get("title");
                 const music = formData.get("music");
                 const illustration = formData.get("illustration");
+
+                console.log(illustration);
+                console.log(illustration.exists)
                 const id = formData.get("id");
                 const baseBPM = formData.get("bpm");
                 if (!music || !illustration || !id || !title || !baseBPM
@@ -248,10 +261,61 @@ Bun.serve({
                 const illustration = formData.get("illustration");
                 const id = formData.get("id");
                 const chart = formData.get("chart");
-                if (!id || !music || !illustration || !chart
+                const compression = formData.get("compression");
+                if (!id || typeof id !== "string") {
+                    return new Response("Invalid form data", { status: 400 });
+                }
+                if (compression) {
+                    let chartPath, illustrationPath, musicPath;
+                    console.log("Importing compressed chart");
+                    const path = `../Resources/${id}/imported.zip`;
+                    await Bun.write(path, compression);
+                    const zip = new StreamZip.async({ file: path});
+                    const info = await zip.entry("info.txt");
+                    if (info) {
+                        const buffer = await zip.entryData(info);
+                        const text = buffer.toString().replaceAll("\r\n", "\n");
+                        const rpeInfo = parseRPEMetadata(text);
+                        chartPath = rpeInfo.chart;
+                        musicPath = rpeInfo.music;
+                        illustrationPath = rpeInfo.illustration;
+                    }
+                    const prefix = `../Resources/${id}/`
+                    const entries = await zip.entries();
+                    for (const entry of Object.values(entries)) {
+                        if (entry.isDirectory) continue;
+                        const name = entry.name;
+                        console.log("File:", name);
+                        console.log("Size:", entry.size);
+                        console.log("Compressed size:", entry.compressedSize);
+                        if (chartPath ? name === chartPath : name.endsWith(".json")) {
+                            chartPath = "chart.json";
+                            console.log(`Extracting ${name} to chart.json...`);
+                            await zip.extract(entry, prefix + "chart.json");
+                        } else if (illustrationPath ? illustrationPath === name : name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif")) {
+                            console.log(`Extracting Illustration ${name}...`);
+                            illustrationPath = name;
+                            await zip.extract(entry, prefix + name);
+                        } else if (musicPath ? musicPath === name : name.endsWith(".mp3") || name.endsWith(".wav") || name.endsWith(".ogg")) {
+                            console.log(`Extracting Music ${name}...`);
+                            musicPath = name;
+                            await zip.extract(entry, prefix + name);
+                        } else {
+                            console.log(`Extracting ${name}...`);
+                            await zip.extract(entry, prefix + name);
+                        }
+                    }
+                    await Bun.write(`../Resources/${id}/metadata.json`, JSON.stringify({
+                        Song: musicPath,
+                        Picture: illustrationPath,
+                        Chart: chartPath
+                    }));
+                    zip.close();
+                    return Response.redirect(`/Resources/${id}`);
+                }
+                if (!music || !illustration || !chart
                     || typeof music === "string"
                     || typeof illustration === "string"
-                    || typeof id !== "string"
                     || typeof chart == "string"
                 ) {
                     return new Response("Invalid form data", { status: 400 });

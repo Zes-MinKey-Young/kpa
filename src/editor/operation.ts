@@ -1,4 +1,11 @@
 
+class NeedsReflowEvent extends Event {
+    constructor(public condition: number) {
+        super("needsreflow");
+    }
+}
+
+
 class OperationList extends EventTarget {
     operations: Operation[];
     undoneOperations: Operation[];
@@ -33,7 +40,10 @@ class OperationList extends EventTarget {
             this.operations.push(op)
             op.do()
             if (op.updatesEditor) {
-                editor.update()
+                this.dispatchEvent(new Event("needsupdate"))
+            }
+            if (op.reflows) {
+                this.dispatchEvent(new NeedsReflowEvent(op.reflows))
             }
         } else {
             this.dispatchEvent(new Event("noredo"))
@@ -65,13 +75,18 @@ class OperationList extends EventTarget {
         }
         this.operations.push(operation);
     }
+    clear() {
+        this.operations = [];
+    }
 }
 
 
 
 abstract class Operation {
-    ineffective: boolean
-    updatesEditor: boolean
+    ineffective: boolean;
+    updatesEditor: boolean;
+    // 用于判定线编辑区的重排，若操作完成时的布局为这个值就会重排
+    reflows: number;
     constructor() {
 
     }
@@ -106,7 +121,9 @@ class ComplexOperation<T extends Operation[]> extends Operation {
     }
 }
 
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset";
+type NoteValueFieldPhiZone = "judgeSize" | "tint" | "tintHitEffects";
+
+type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset" | NoteValueFieldPhiZone;
 
 class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
     field: T;
@@ -707,3 +724,105 @@ function encapsule(templateEasingLib: TemplateEasingLib, sourceSequence: EventNo
 }
 
 
+class JudgeLineInheritanceChangeOperation extends Operation {
+    originalValue: JudgeLine | null;
+    updatesEditor = true;
+    reflows = JudgeLinesEditorLayoutType.tree;
+    constructor(public judgeLine: JudgeLine, public value: JudgeLine | null) {
+        super();
+        this.originalValue = judgeLine.father;
+    }
+    do() {
+        const line = this.judgeLine;
+        line.father = this.value;
+        if (this.originalValue) {
+            this.originalValue.children.delete(line);
+        }
+        if (this.value) {
+            this.value.children.add(line);
+        }
+    }
+    undo() {
+        this.judgeLine.father = this.originalValue;
+        if (this.originalValue) {
+            this.originalValue.children.add(this.judgeLine);
+        }
+        if (this.value) {
+            this.value.children.delete(this.judgeLine);
+        }
+    }
+}
+
+class JudgeLineRenameOperation extends Operation { 
+    updatesEditor = true;
+    originalValue: string;
+    constructor(public judgeLine: JudgeLine, public value: string) {
+        super();
+        this.originalValue = judgeLine.name;
+    }
+    do() {
+        this.judgeLine.name = this.value;
+    }
+    undo() {
+        this.judgeLine.name = this.originalValue;
+    }
+}
+
+class JudgeLineRegroupOperation extends Operation {
+    updatesEditor = true;
+    reflows = JudgeLinesEditorLayoutType.grouped;
+    originalValue: JudgeLineGroup;
+    constructor(public judgeLine: JudgeLine, public value: JudgeLineGroup) {
+        super();
+        this.originalValue = judgeLine.group;
+    }
+    do() {
+        this.judgeLine.group = this.value;
+        this.value.add(this.judgeLine);
+        this.originalValue.remove(this.judgeLine);
+    }
+    undo() {
+        this.judgeLine.group = this.originalValue;
+        this.originalValue.add(this.judgeLine);
+        this.value.remove(this.judgeLine);
+    }
+}
+
+class JudgeLineCreateOperation extends Operation {
+    constructor(public chart: Chart, public judgeLine: JudgeLine) {
+        super();
+    }
+    do() {
+        this.chart.judgeLines.push(this.judgeLine);
+        this.chart.orphanLines.push(this.judgeLine);
+        this.chart.judgeLineGroups[0].add(this.judgeLine);
+    }
+    undo() {
+        this.chart.judgeLineGroups[0].remove(this.judgeLine);
+        this.chart.judgeLines.splice(this.chart.judgeLines.indexOf(this.judgeLine), 1);
+        this.chart.orphanLines.splice(this.chart.orphanLines.indexOf(this.judgeLine), 1);
+    }
+}
+
+class JudgeLineDeleteOperation extends Operation {
+    readonly originalGroup: JudgeLineGroup;
+    constructor(public chart: Chart, public judgeLine: JudgeLine) {
+        super();
+        if (!this.chart.judgeLines.includes(this.judgeLine)) {
+            this.ineffective = true;
+        }
+        this.originalGroup = judgeLine.group;
+    }
+    do() {
+        this.chart.judgeLines.splice(this.chart.judgeLines.indexOf(this.judgeLine), 1);
+        if (this.chart.orphanLines.includes(this.judgeLine)) {
+            this.chart.orphanLines.splice(this.chart.orphanLines.indexOf(this.judgeLine), 1);
+        }
+        this.originalGroup.remove(this.judgeLine);
+    }
+    undo() {
+        this.chart.judgeLines.push(this.judgeLine);
+        this.chart.orphanLines.push(this.judgeLine);
+        this.originalGroup.add(this.judgeLine);
+    }
+}

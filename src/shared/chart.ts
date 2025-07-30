@@ -120,35 +120,22 @@ class Chart {
         */
         
         // let line = data.judgeLineList[0];
-        const judgeLineList: JudgeLineDataRPEExtended[] = <JudgeLineDataRPEExtended[]>data.judgeLineList;
-        const length = judgeLineList.length
-        const orphanLines: JudgeLineDataRPEExtended[] = [];
+        const judgeLineDataList: JudgeLineDataRPE[] = <JudgeLineDataRPE[]>data.judgeLineList;
+        const judgeLineList: JudgeLine[] = judgeLineDataList.map(
+            (lineData, id) =>
+                JudgeLine.fromRPEJSON(chart, id, lineData, chart.templateEasingLib, chart.timeCalculator)
+        );
+        const length = judgeLineList.length;
+        chart.judgeLines = judgeLineList;
         for (let i = 0; i < length; i++) {
-            const lineData = data.judgeLineList[i];
-            lineData._id = i;
-            if (lineData.father === -1) {
-                orphanLines.push(<JudgeLineDataRPEExtended>lineData);
-                continue;
+            const data = judgeLineDataList[i];
+            const line = judgeLineList[i];
+            const father = data.father === -1 ? null : judgeLineList[data.father];
+            if (father) {
+                father.children.add(line);
+            } else {
+                chart.orphanLines.push(line);
             }
-            const father: JudgeLineDataRPEExtended = <JudgeLineDataRPEExtended>data.judgeLineList[lineData.father];
-            const children = father.children || (father.children = []);
-            children.push(i);
-        }
-        const readOne = (lineData: JudgeLineDataRPEExtended) => {
-            const line: JudgeLine = JudgeLine.fromRPEJSON(chart, lineData._id, lineData, chart.templateEasingLib, chart.timeCalculator)
-            chart.judgeLines.push(line)
-            if (lineData.children) {
-                for (let each of lineData.children) {
-                    const child = readOne(judgeLineList[each]);
-                    child.father = line;
-                    line.children.push(child)
-                }
-            }
-            return line;
-        }
-        for (let lineData of judgeLineList) {
-            const line = readOne(lineData);
-            chart.orphanLines.push(line)
         }
         return chart
     }
@@ -189,6 +176,7 @@ class Chart {
             const line: JudgeLine = JudgeLine.fromKPAJSON(isOld, chart, lineData.id, lineData, chart.templateEasingLib, chart.timeCalculator)
             chart.orphanLines.push(line)
         }
+        chart.judgeLines.sort((a, b) => a.id - b.id);
 
         return chart;
     }
@@ -254,14 +242,35 @@ class Chart {
 }
 
 class JudgeLineGroup {
+    judgeLines: JudgeLine[];
     constructor(public name: string) {
         this.judgeLines = []
     }
-    addJudgeLine(judgeLine: JudgeLine) {
-        this.judgeLines.push(judgeLine)
-        judgeLine.group = this
+    add(judgeLine: JudgeLine) {
+        // 加入之前已经按照ID升序排列
+        // 加入时将新判定线插入到正确位置
+        if (judgeLine.group) {
+            judgeLine.group.remove(judgeLine);
+        }
+        judgeLine.group = this;
+        
+        // 找到正确的位置插入，保持按ID升序排列
+        for (let i = 0; i < this.judgeLines.length; i++) {
+            if (this.judgeLines[i].id > judgeLine.id) {
+                this.judgeLines.splice(i, 0, judgeLine);
+                return;
+            }
+        }
+        // 如果没有找到比它大的ID，则插入到末尾
+        this.judgeLines.push(judgeLine);
+        
     }
-    judgeLines: JudgeLine[];
+    remove(judgeLine: JudgeLine) {
+        const index = this.judgeLines.indexOf(judgeLine);
+        if (index !== -1) {
+            this.judgeLines.splice(index, 1);
+        }
+    }
 }
 
 /*

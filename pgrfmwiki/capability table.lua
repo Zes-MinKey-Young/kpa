@@ -52,7 +52,7 @@ local softwares = {
         name = "PhiZone",
         type = softwareTypes.community,
         abbr = "PZ",
-        icon = "Phizone icon.ico"
+        icon = "PhiZone Logo.png"
     },
     {
         name = "Phigrim",
@@ -63,7 +63,8 @@ local softwares = {
     {
         name = "Half Step Project",
         type = softwareTypes.community,
-        abbr = "HSP"
+        abbr = "HSP",
+        icon = "HSP Logo.png"
     },
     {
         name = "Phigros Simulator",
@@ -73,7 +74,8 @@ local softwares = {
     {
         name = "RE:Phigros",
         type = softwareTypes.player,
-        abbr = "REP"
+        abbr = "REP",
+        icon = "REPhigros Logo.png"
     },
     {
         name = "Phispler",
@@ -84,6 +86,11 @@ local softwares = {
         name = "RPE Recorder",
         type = softwareTypes.renderer,
         abbr = "RPER"
+    },
+    {
+    	name = "PhiRecorder",
+    	type = softwareTypes.renderer,
+    	abbr = "PRER"
     }
 }
 
@@ -149,12 +156,13 @@ function p.table(data, tname, frame)
             :tag("abbr")
                 :wikitext(software.abbr)
     end
-    for name, capability in pairs(data.features) do
+    for i, name in ipairs(data.features) do
+        local compatibility = data.features[name]
         local tr = root:tag("tr")
         tr:tag("td"):wikitext(name)
         for _, software in ipairs(includedSoftwares) do
             local td = tr:tag("td")
-            local entities = capability[software.abbr]
+            local entities = compatibility[software.abbr]
             if entities then
                 if type(entities) == "string" then
                     entities = {support=entities}

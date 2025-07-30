@@ -238,7 +238,7 @@ abstract class EventNode {
      */
     set innerEasing(easing: Exclude<Easing, SegmentedEasing>) {
         if (this.easing instanceof SegmentedEasing) {
-            (this.easing as SegmentedEasing).easing = easing;
+            (this.easing as SegmentedEasing).replace(easing);
         } else {
             this.easing = easing;
         }

@@ -11,6 +11,7 @@ const HALF_HIT = HIT_EFFECT_SIZE / 2
 const RENDER_SCOPE = 900;
 
 const getVector = (theta: number): [Vector, Vector] => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]]
+type HEX = number;
 
 class Player {
     canvas: HTMLCanvasElement;
@@ -27,6 +28,9 @@ class Player {
     noteHeight: number;
     soundQueue: SoundEntity[];
     lastBeats: number
+
+    tintNotesMapping: Map<HEX, OffscreenCanvas | ImageBitmap> = new Map();
+    tintEffectMapping: Map<HEX, OffscreenCanvas | ImageBitmap> = new Map();
 
     greenLine: number = 0;
     
@@ -67,16 +71,11 @@ class Player {
         
         const RATIO = 1.0
         // 计算最终的变换矩阵
-        const sx1 = width / 1350
-        const sy1 = height / 900
-        const sx = sx1 * RATIO;
-        const sy = (-sy1) * RATIO;
         const tx = width / 2;
         const ty = height / 2;
 
         // 设置变换矩阵
-        context.setTransform(sx, 0, 0, sy, tx, ty);
-        hitContext.setTransform(sx1, 0, 0, sy1, tx, ty);
+        context.setTransform(RATIO, 0, 0, RATIO, tx, ty);
         //hitContext.scale(0.5, 0.5)
         context.save()
         hitContext.save()
@@ -84,7 +83,6 @@ class Player {
     }
     renderDropScreen() {
         const {canvas, context} = this;
-        context.scale(1, -1);
         context.fillStyle = "#6cf"
         context.fillRect(-675, -450, 1350, 900);
         context.fillStyle = "#444"
@@ -96,7 +94,6 @@ class Player {
     }
     renderGreyScreen() {
         const {canvas, context} = this;
-        context.scale(1, -1);
         context.fillStyle = "#AAA"
         context.fillRect(-675, -450, 1350, 900);
         context.fillStyle = "#444"
@@ -117,8 +114,7 @@ class Player {
         // console.time("render")
         const context = this.context;
         const hitContext = this.hitContext;
-        hitContext.clearRect(675, -450, -1350, 900);
-        context.scale(1, -1)
+        hitContext.clearRect(0, 0, 1350, 900);
         context.drawImage(this.background, -675, -450, 1350, 900);
         // 涂灰色（背景变暗）
         context.fillStyle = "#2227";
@@ -136,18 +132,19 @@ class Player {
         
         // console.log("rendering")
         for (let line of this.chart.orphanLines) {
-            this.renderLine(0, 0, line);
+            this.renderLine(identity.translate(675, 450).scale(1, -1), line);
             context.restore()
             context.save()
         }
-        context.scale(1, -1)
+        hitContext.strokeStyle = "#66ccff";
+        hitContext.lineWidth = 5;
+        drawLine(hitContext, 0, 900, 1350, 0)
         context.drawImage(this.hitCanvas, -675, -450, 1350, 900)
         context.restore()
         context.save()
 
         const showInfo = settings.get("playerShowInfo");
         if (showInfo) {
-            context.scale(1, -1);
             context.fillStyle = "#ddd"
             context.font = "50px phigros"
             const chart = this.chart;
@@ -174,7 +171,7 @@ class Player {
         
         // console.timeEnd("render")
     }
-    renderLine(baseX: number, baseY: number, judgeLine: JudgeLine) {
+    renderLine(matrix: Matrix, judgeLine: JudgeLine) {
         const context = this.context;
         const timeCalculator = this.chart.timeCalculator
         const beats = this.beats;
@@ -185,17 +182,19 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         // console.log(x, y, theta, alpha);
-        context.translate(x, y);
-        const transformedX = x + baseX;
-        const transformedY = y + baseY;
-        if (judgeLine.children.length !== 0) {
-            context.save();
+        const {x: transformedX, y: transformedY} = new Coordinate(x, y).mul(matrix);
+        console.log(judgeLine.id, x, y, transformedX, transformedY);
+        const MyMatrix = identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
+        context.setTransform(MyMatrix);
+        console.log(judgeLine.id, MyMatrix)
+
+        if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
-                this.renderLine(transformedX, transformedY, line);
+                context.save();
+                this.renderLine(MyMatrix, line);
+                context.restore();
             }
-            context.restore();
         }
-        context.rotate(-theta);
 
         context.lineWidth = LINE_WIDTH; // 判定线宽度
         // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
@@ -206,7 +205,7 @@ class Player {
 
         /** 判定线的法向量 */
         const nVector: Vector = getVector(theta)[1] // 奇变偶不变，符号看象限(
-        const toCenter: Vector = [-transformedX, -transformedY];
+        const toCenter: Vector = [675 - transformedX, 450 - transformedY];
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
         const innerProd = innerProduct(toCenter, nVector)
@@ -280,9 +279,9 @@ class Player {
                 // 打击特效
                 if (beats > 0) {
                     if (list instanceof HNList) {
-                        this.renderHoldHitEffects(judgeLine, list, beats, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                        this.renderHoldHitEffects(MyMatrix, list, beats, hitRenderLimit, beats, timeCalculator)
                     } else {
-                        this.renderHitEffects(judgeLine, list, hitRenderLimit, beats, this.hitContext, timeCalculator)
+                        this.renderHitEffects(MyMatrix, list, hitRenderLimit, beats, timeCalculator)
                     }
                 }
 
@@ -334,19 +333,16 @@ class Player {
             node = node.previous
         }
     }
-    renderHitEffects(judgeLine: JudgeLine, tree: NNList, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
+    renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
+        const {hitContext} = this;
+        console.log(hitContext.getTransform())
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
         }
         while (noteNode !== end) {
             const beats = TimeCalculator.toBeats(noteNode.startTime);
-            const base = judgeLine.getBaseCoordinate(beats);
-            const thisCoord = judgeLine.getThisCoordinate(beats);
-            const bx = base[0] + thisCoord[0]
-            const by = base[1] + thisCoord[1];
-            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
             const notes = noteNode.notes
             , len = notes.length
             for (let i = 0; i < len; i++) {
@@ -356,9 +352,11 @@ class Player {
                 }
                 const posX = note.positionX;
                 const yo = note.yOffset * (note.above ? 1 : -1);
-                const x = bx + posX * vx + yo * vy, y = by + posX * vy + yo * vx;
+                const {x, y} = new Coordinate(posX, yo).mul(matrix);
+                console.log("he", x, y);
+                const he = note.tintHitEffects;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
-                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
+                drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth,x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
             }
 
             noteNode = <NoteNode>noteNode.next
@@ -371,12 +369,12 @@ class Player {
      * @param beats 当前拍数
      * @param startBeats 
      * @param endBeats 截止拍数
-     * @param hitContext 
      * @param timeCalculator 
      * @returns 
      */
-    renderHoldHitEffects(judgeLine: JudgeLine, tree: HNList, beats: number, startBeats: number, endBeats: number, hitContext: CanvasRenderingContext2D, timeCalculator: TimeCalculator) {
+    renderHoldHitEffects(matrix: Matrix, tree: HNList, beats: number, startBeats: number, endBeats: number, timeCalculator: TimeCalculator) {
         const start = tree.getNodeAt(startBeats, true);
+        const {hitContext} = this;
         let noteNode = start;
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
@@ -385,11 +383,6 @@ class Player {
         if (noteNode !== end)
         console.log("start", start, startBeats, endBeats)
         while (noteNode !== end) {
-            const base = judgeLine.getBaseCoordinate(beats);
-            const thisCoord = judgeLine.getThisCoordinate(beats);
-            const bx = base[0] + thisCoord[0]
-            const by = base[1] + thisCoord[1];
-            const [vx, vy] = getVector(-judgeLine.getStackedValue("rotate", beats) * Math.PI / 180)[0];
             const notes = noteNode.notes
             , len = notes.length
             for (let i = 0; i < len; i++) {
@@ -401,9 +394,13 @@ class Player {
                     continue;
                 }
                 const posX = note.positionX;
-                const x = bx + posX * vx, y = by + posX * vy;
+                const yo = note.yOffset * (note.above ? 1 : -1);
+                const {x, y} = new Coordinate(posX, yo).mul(matrix);
                 const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
-                drawNthFrame(hitContext, nth, x - HALF_HIT, -y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
+                const he = note.tintHitEffects;
+                
+                drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth,
+                x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
             }
             noteNode = <NoteNode>noteNode.next
         }
@@ -445,7 +442,7 @@ class Player {
         if (TimeCalculator.toBeats(note.startTime) - note.visibleBeats > this.beats) {
             return;
         }
-        let image: HTMLImageElement = getImageFromType(note.type);
+        let image: HTMLImageElement | OffscreenCanvas | ImageBitmap = note.tint ? this.getTintNote(note.tint, note.type) : getImageFromType(note.type);
         const context = this.context;
         
         if (note.yOffset) {
@@ -467,9 +464,14 @@ class Player {
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {
-            context.drawImage(HOLD_BODY, note.positionX -  half,  positionY - 10, size, length)
+            const isJudging = TimeCalculator.toBeats(note.startTime) <= this.beats
+            positionY = isJudging ? 0 : positionY;
+            length = isJudging ? (endpositionY) : length;
+            context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, size, length);
         }
+            
         context.drawImage(image, note.positionX - half, positionY - 10, size, height)
+        
         if (chord) {
             context.drawImage(DOUBLE, note.positionX - half, positionY - 10, size, height);
         }
@@ -479,6 +481,49 @@ class Player {
         if (opac) {
             context.restore()
         }
+    }
+    getTintNote(tint: HEX, type: NoteType): OffscreenCanvas | ImageBitmap {
+        const map = this.tintNotesMapping;
+        const key = tint | type << 24; // 25位整形表示一个类型的Note贴图
+        const canBeSource = map.get(key);
+        if (canBeSource) {
+            return canBeSource;
+        }
+        const source = new OffscreenCanvas(NOTE_WIDTH, NOTE_HEIGHT);
+        const context = source.getContext('2d');
+        context.drawImage(getImageFromType(type), 0, 0, NOTE_WIDTH, NOTE_HEIGHT);
+        context.globalCompositeOperation = 'multiply';
+        context.fillStyle = "#" + tint.toString(16).padStart(6, "0");
+        context.fillRect(0, 0, NOTE_WIDTH, NOTE_HEIGHT);
+        map.set(key, source); // 在ImageBitmap创建完成之前，先使用Canvas临时代替
+        createImageBitmap(source).then((bmp: ImageBitmap) => {
+            map.set(key, bmp);
+        })
+        return source;
+    }
+    getTintHitEffect(tint: HEX): OffscreenCanvas | ImageBitmap {
+        const map = this.tintEffectMapping;
+        const key = tint;
+        const canBeSource = map.get(key);
+        if (canBeSource) {
+            return canBeSource;
+        }
+        const source = new OffscreenCanvas(HIT_FX_SIZE, HIT_FX_SIZE);
+        const context = source.getContext('2d');
+        context.clearRect(0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        context.drawImage(HIT_FX, 0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+
+        context.globalCompositeOperation = 'source-in';
+        context.fillStyle = "#" + tint.toString(16);
+        context.fillRect(0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+
+        context.globalCompositeOperation = 'multiply';
+        context.drawImage(HIT_FX, 0, 0, HIT_FX_SIZE, HIT_FX_SIZE);
+        map.set(key, source);
+        createImageBitmap(source).then((bmp: ImageBitmap) => {
+            map.set(key, bmp);
+        })
+        return source;
     }
     private update() {
         if (!this.playing) {
@@ -569,6 +614,7 @@ class ZProgressBar extends Z<"progress"> {
         })
     }
 }
+
 
 
 class SoundEntity {

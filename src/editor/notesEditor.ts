@@ -262,11 +262,15 @@ class NotesEditor extends Z<"div"> {
             this.mouseIn = false;
         })
         const map = {q: NoteType.tap, w: NoteType.drag, e: NoteType.flick, r: NoteType.hold}
-        window.addEventListener("keypress", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
-            console.log("Key press:", e.key);
+        window.addEventListener("keydown", (e: KeyboardEvent) => { // 踩坑：Canvas不能获得焦点
+            console.log("Key down:", e.key);
             if (!this.mouseIn) {
                 return;
             }
+            if (document.activeElement !== document.body) {
+                return;
+            }
+            e.preventDefault();
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();

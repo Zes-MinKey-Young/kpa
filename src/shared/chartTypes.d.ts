@@ -82,6 +82,8 @@ interface NoteDataRPE {
     zIndexHitEffects?: number;
     /** Sets the tint for the hit effects of the note. Defaults to null. */
     tint?: RGB;
+    tintHitEffects?: RGB;
+    
     /** Determines the width of the judgment area of the note. Defaults to size. */
     judgeSize?: number;
 }

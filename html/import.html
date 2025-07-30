@@ -14,6 +14,10 @@
                 <input type="text" name="id" id="id" placeholder="Id">
             </li>
             <li>
+                <label for="compression">PEZ File</label>
+                <input type="file" name="compression" id="compression">
+            </li>
+            <li>
                 <label for="illustration">Illustration</label>
                 <input type="file" name="illustration" id="illustration">
             </li>
@@ -30,8 +34,46 @@
             </li>
         </ul>
     </form>
+    <form action="/import" method="POST" enctype="multipart/form-data">
+        <ul>
+            <li>
+                <label for="id">Identifier</label>
+                <input type="text" name="id" id="id" placeholder="Id">
+            </li>
+
+            </li>
+            <li>
+                <input type="submit" value="Create"></input>
+            </li>
+        </ul>
+    </form>
     
     <script>
+        const nameInput = document.getElementById("id");
+        const chartInput = document.getElementById("chart");
+        const musicInput = document.getElementById("music");
+        const illustrationInput = document.getElementById("illustration");
+        const compressionInput = document.getElementById("compression");
+        compressionInput.addEventListener("change", (_e) => {
+            if (compressionInput.files[0]) {
+                chartInput.disabled = true;
+                musicInput.disabled = true;
+                illustrationInput.disabled = true;
+            } else {
+                chartInput.disabled = false;
+                musicInput.disabled = false;
+                illustrationInput.disabled = false;
+            }
+        });
+        for (const input of [nameInput, chartInput, musicInput, illustrationInput]) {
+            input.addEventListener("change", (_e) => {
+                if (input.files[0]) {
+                    compressionInput.disabled = true;
+                } else {
+                    compressionInput.disabled = false;
+                }
+            });
+        }
         let supportsServer = false;
         fetch("/status")
             .then(res => {
@@ -42,22 +84,24 @@
                 return supportsServer = res.status === 204;
             })
         document.querySelector("form").addEventListener("submit", function (e) {
-            const nameInput = document.getElementById("id");
-            const chartInput = document.getElementById("chart");
             if (nameInput.value.trim() === "") {
                 e.preventDefault();
                 alert("请填写谱面标识符");
                 return;
             }
-            const music = document.getElementById("music").files[0];
+            const compression = compressionInput.files[0];
+            if (compression) {
+                return;
+            }
+            const music = musicInput.files[0];
     
-            const illustration = document.getElementById("illustration").files[0];
+            const illustration = illustrationInput.files[0];
 
             const chart = chartInput.files[0];
     
             if (!illustration || !music || !chart) {
                 e.preventDefault();
-                alert("请选择插图、音乐和谱面文件");
+                alert("请选择插图、音乐和谱面文件，或上传一个压缩包");
                 return;
             }
 

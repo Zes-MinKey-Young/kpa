@@ -4,66 +4,155 @@ const NODE_HEIGHT = 20;
 const NOTE_WIDTH = 54;
 const NOTE_HEIGHT = 6
 
-const round = (n: number, r: number) => Math.round(n * 10 ** r) / 10 ** r + ""
 
 
+enum JudgeLinesEditorLayoutType {
+    ordered = 0b001,
+    tree    = 0b010,
+    grouped = 0b100
+}
 
-
-class JudgeLinesEditor {
+class JudgeLinesEditor extends Z<"div"> {
     editor: Editor;
     chart: Chart;
     element: HTMLDivElement;
     // orphans: JudgeLine[]
-    editors: JudgeLineEditor[];
+    editors: Map<JudgeLine, JudgeLineEditor>;
     metaLineAdded = false;
+    layoutType: JudgeLinesEditorLayoutType = JudgeLinesEditorLayoutType.ordered;
     constructor(editor: Editor, element: HTMLDivElement) {
+        super("div", false);
         this.chart = editor.chart;
         this.editor = editor
         this.element = element;
-        this.editors = []
-        // this.orphans = [];
-        for (let each of this.chart.orphanLines) {
-            this.addJudgeLine(each)
-        }
+        this.orderedLayout();
     }
-    _selectedLine: JudgeLineEditor;
+    private _selectedLine: JudgeLine;
     get selectedLine() {
         return this._selectedLine
     }
-    set selectedLine(lineEditor: JudgeLineEditor) {
-        if (this._selectedLine === lineEditor) {
+    set selectedLine(line: JudgeLine) {
+        if (this._selectedLine === line) {
             return;
         }
-        if (this.selectedLine) {
-            
-            this._selectedLine.element.classList.remove("judge-line-editor-selected")
+        if (this._selectedLine) {
+            const editors = this.editors.get(this._selectedLine);
+            editors.removeClass("judge-line-editor-selected");
         }
-        this._selectedLine = lineEditor;
-        this.editor.notesEditor.target = lineEditor.judgeLine;
-        this.editor.eventCurveEditors.changeTarget(lineEditor.judgeLine)
-        lineEditor.element.classList.add("judge-line-editor-selected")
-        this.editor.player.greenLine = lineEditor.judgeLine.id;
+        this._selectedLine = line;
+        this.editor.notesEditor.target = line;
+        this.editor.eventCurveEditors.changeTarget(line)
+        const editr = this.editors.get(line);
+        editr.addClass("judge-line-editor-selected")
+        
+        this.editor.player.greenLine = line.id;
         this.editor.eventCurveEditors.draw();
-        this.editor.notesEditor.draw()
+        this.editor.notesEditor.draw();
     }
-    addJudgeLine(judgeLine: JudgeLine) {
-        const editor = new JudgeLineEditor(this, judgeLine)
-        this.editors.push(editor);
-        this.element.appendChild(editor.element);
-        if (!this.metaLineAdded) {
-            this.metaLineAdded = true;
-            this.selectedLine = editor
+    orderedLayout() {
+        this._selectedLine = null; // Set as null first so that the editor is correctly selected
+        // 用这个减少回流（内部实现用了文档碎片）
+        this.appendMass(() => {
+            this.html("");
+            this.editors = new Map();
+            for (const line of this.chart.judgeLines) {
+                const editor = new JudgeLineEditor(this, line);
+                this.registerEditor(editor);
+                this.append(editor);
+            }
+        });
+        this.selectedLine = this.chart.judgeLines[0];
+    }
+    private collapseStack: Array<ZCollapseController>;
+    treeLayout() {
+        this._selectedLine = null;
+        this.appendMass(() => {
+            this.html("");
+            this.editors = new Map();
+            this.collapseStack = [];
+            for (const line of this.chart.orphanLines) {
+                this.addIndentedLineEditor(line, 0);
+            }
+        });
+        this.selectedLine = this.chart.judgeLines[0];
+    }
+    addIndentedLineEditor(line: JudgeLine, indentLevel: number) {
+        const isFather = line.children.size > 0;
+        const $collapse = isFather ? new ZCollapseController(false) : $("div");
+        const editer = new JudgeLineEditor(this, line, $collapse);
+        for (const $col of this.collapseStack) {
+            $col.attach(editer);
         }
+        if (isFather) {
+            editer.addClass("judge-line-editor-father");
+            this.collapseStack.push($collapse as ZCollapseController);
+        }
+        this.registerEditor(editer);
+        this.append(editer);
+        editer.css("marginLeft", indentLevel * 2 + "em");
+        for (const child of [...line.children].sort((a, b) => a.id - b.id)) {
+            this.addIndentedLineEditor(child, indentLevel + 1);
+        }
+        if (isFather) {
+            this.collapseStack.pop();
+        }
+    }
+    groupedLayout() {
+        this._selectedLine = null;
+        this.appendMass(() => {
+            this.html("");
+            this.editors = new Map();
+            for (const group of this.chart.judgeLineGroups) {
+                const groupEditor = new GroupEditor(group);
+                this.append(groupEditor);
+                for (const line of group.judgeLines) {
+                    const editr = new JudgeLineEditor(this, line);
+                    this.registerEditor(editr);
+                    this.append(editr);
+                    groupEditor.$collapse.attach(editr);
+                }
+            }
+        });
+        this.selectedLine = this.chart.judgeLineGroups[0].judgeLines[0];
+    }
+    registerEditor(editor: JudgeLineEditor) {
+        const line = editor.judgeLine;
+        this.editors.set(line, editor);
     }
     update() {
-        for (let each of this.editors) {
-            each.update()
+        for (const [_line, editr] of this.editors) {
+                editr.update();
+        }
+    }
+    reflow(type: JudgeLinesEditorLayoutType = this.layoutType) {
+        if (type !== this.layoutType) {
+            this.layoutType = type;
+
+        }
+        switch (type) {
+            case JudgeLinesEditorLayoutType.ordered:
+                this.orderedLayout();
+                break;
+            case JudgeLinesEditorLayoutType.grouped:
+                this.groupedLayout();
+                break;
+            case JudgeLinesEditorLayoutType.tree:
+                this.treeLayout();
+                break;
         }
     }
 }
 
-class JudgeLineEditor {
-    linesEditor: JudgeLinesEditor;
+class GroupEditor extends Z<"div"> {
+    $collapse = new ZCollapseController(false);
+    constructor(public target: JudgeLineGroup) {
+        super("div");
+        this.addClass("group-editor")
+        this.append(this.$collapse, $("span").text(target.name));
+    }
+}
+
+class JudgeLineEditor extends Z<"div"> {
     element: HTMLDivElement;
     judgeLine: JudgeLine;
     $id: Z<"div">;
@@ -72,44 +161,68 @@ class JudgeLineEditor {
     $ySpan: Z<"span">;
     $thetaSpan: Z<"span">;
     $alphaSpan: Z<"span">;
-    constructor(linesEditor: JudgeLinesEditor, judgeLine: JudgeLine) {
-        this.linesEditor = linesEditor;
+    constructor(public readonly linesEditor: JudgeLinesEditor, judgeLine: JudgeLine, $collapse: Z<"div"> = $("div")) {
+        super("div");
         this.judgeLine = judgeLine;
-        const element = document.createElement("div");
-        element.classList.add("judge-line-editor")
-        this.element = element;
+        this.addClass("judge-line-editor")
         this.$id = $("div").addClass("judgeline-info-id");
         this.$id.text(this.judgeLine.id + "")
         this.$name = new ZInputBox()
         this.$name
             .addClass("judgeline-info-name")
             .setValue(judgeLine.name)
-            .whenValueChange((s) => judgeLine.name = s);
+            .whenValueChange((s) => {
+                let m = s.match(/^\.(father|group)\s+?\=\s+?(.+)$/);
+                if (m) {
+                    let [_, type, name] = m;
+                    if (type == "father") {
+                        if (!name.match(/^[0-9]+$/)) {
+                            return false;
+                        }
+                        const id = parseInt(name);
+                        const lines = editor.chart.judgeLines;
+                        if (id >= lines.length) {
+                            return false;
+                        }
+
+                        judgeLine.father = lines[id];
+                    } else if (type == "group") {
+                        const mayBeGroup = editor.chart.judgeLineGroups.find(group => group.name === name);
+                        mayBeGroup.add(judgeLine);
+                    }
+                    return false;
+                }
+                judgeLine.name = s
+            });
         this.$xSpan = $("span");
         this.$ySpan = $("span");
         this.$thetaSpan = $("span");
         this.$alphaSpan = $("span");
-        element.append(
-            this.$id.release(),
-            this.$name.release(),
-            $("span").text("x: ").release(),
-            this.$xSpan.release(),
-            $("span").text("y: ").release(),
-            this.$ySpan.release(),
-            $("span").text("θ: ").release(),
-            this.$thetaSpan.release(),
-            $("span").text("α: ").release(),
-            this.$alphaSpan.release()
+        this.append(
+            this.$id,
+            this.$name,
+            $collapse,
+            $("span").text("x: "),
+            this.$xSpan,
+            $("span").text("y: "),
+            this.$ySpan,
+            $("span").text("θ: "),
+            this.$thetaSpan,
+            $("span").text("α: "),
+            this.$alphaSpan
         )
-        element.addEventListener("click", () => {
-            this.linesEditor.selectedLine = this;
-        })
+        this.onClick(() => {
+            this.linesEditor.selectedLine = this.judgeLine;
+        });
+        this.update();
     }
     update() {
-        this.$xSpan.text(round(this.judgeLine.moveX, 2))
-        this.$ySpan.text(round(this.judgeLine.moveY, 2))
-        this.$thetaSpan.text(round(this.judgeLine.rotate / Math.PI * 180, 2))
-        this.$alphaSpan.text(Math.round(this.judgeLine.alpha) + "(" + Math.round(this.judgeLine.alpha).toString(16) + ")")
+        const line = this.judgeLine
+        const {moveX, moveY, rotate, alpha} = line;
+        this.$xSpan.text(typeof moveX === "number" ? shortenFloat(moveX, 2) + "" : "N/A")
+        this.$ySpan.text(typeof moveY === "number" ? shortenFloat(moveY, 2) + "" : "N/A")
+        this.$thetaSpan.text(typeof rotate === "number" ? shortenFloat(rotate / Math.PI * 180, 2) + "" : "N/A")
+        this.$alphaSpan.text(typeof alpha === "number" ? Math.round(alpha) + "(" + Math.round(alpha).toString(16) + ")" : "N/A")
     }
 }
 
@@ -118,7 +231,8 @@ class JudgeLineEditor {
 
 class SaveDialog extends ZDialog {
     $message: ZInputBox
-    chartData: ChartDataKPA
+    chartData: ChartDataKPA;
+    $clearsOperationList= new ZSwitch("Clears operation list");
     constructor() {
         super()
         this.append($("span").text("Message"));
@@ -134,6 +248,7 @@ class SaveDialog extends ZDialog {
         this.append(new ZButton("Cancel")
             .addClass("destructive")
             .onClick(() => this.close()));
+        this.append(this.$clearsOperationList)
         // @ts-expect-error Here customEvent must be CustomEvent
         this.addEventListener("save", (customEvent: CustomEvent) => {
             console.log("save", customEvent.detail)
@@ -229,16 +344,25 @@ class Editor extends EventTarget {
     eventCurveEditors: EventCurveEditors
 
     
-    $topbar: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("topbar"));
-    $preview: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("preview"));
-    $noteInfo: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"));
-    $eventSequence: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"));
-    lineInfoEle: HTMLDivElement = <HTMLDivElement>document.getElementById("lineInfo");
-    playButton: HTMLButtonElement;
-    $timeDivisor: ZArrowInputBox;
+    readonly $topbar: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("topbar"));
+    readonly $preview: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("preview"));
+    readonly $noteInfo: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"));
+    readonly $eventSequence: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"));
+    readonly lineInfoEle: HTMLDivElement = <HTMLDivElement>document.getElementById("lineInfo");
+    readonly playButton: HTMLButtonElement;
+    readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number
+    readonly $saveButton = new ZButton("保存");
+    readonly $compileButton = new ZButton("编译");
+    readonly $playbackRate: ZDropdownOptionBox;
     readonly $offsetInput = new ZInputBox().attr("size", "3");
     readonly $switchButton = new ZButton("切换");
+    readonly $judgeLinesEditorLayoutSelector = new ZDropdownOptionBox([
+        new BoxOption("Ordered", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.ordered) }),
+        new BoxOption("Grouped", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.grouped) }),
+        new BoxOption("Tree", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.tree) })
+    ]);
+    readonly $tipsLabel: Z<"div">;
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -332,6 +456,9 @@ class Editor extends EventTarget {
                 this.$saveDialog.show();
                 this.$saveDialog.chartData = json;
                 this.$saveDialog.addEventListener("saved", () => {
+                    if (this.$saveDialog.$clearsOperationList.checked) {
+                        this.operationList.clear();
+                    }
                     this.chart.modified = false;
                     this.$saveButton.disabled = true;
                 }, {once: true});
@@ -365,6 +492,7 @@ class Editor extends EventTarget {
             this.$saveDialog,
             this.$compileButton,
             this.$switchButton,
+            this.$judgeLinesEditorLayoutSelector,
             this.$tipsLabel
         )
 
@@ -380,6 +508,15 @@ class Editor extends EventTarget {
             this.operationList.addEventListener("noredo", () => {
                 notify("Nothing to redo");
             });
+            this.operationList.addEventListener("needsupdate", () => {
+                this.update();
+            });
+            // @ts-expect-error
+            this.operationList.addEventListener("needsreflow", (ev: NeedsReflowEvent) => {
+                if (this.judgeLinesEditor.layoutType & ev.condition) {
+                    this.judgeLinesEditor.reflow()
+                }
+            })
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {

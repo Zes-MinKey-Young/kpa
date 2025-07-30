@@ -121,7 +121,10 @@ abstract class Easing {
     segmentedValueGetter(easingLeft: number, easingRight: number) {
         const leftValue = this.getValue(easingLeft);
         const rightValue =  this.getValue(easingRight);
-        return (t: number) => (this.getValue(t) - leftValue) / (rightValue - leftValue);
+        const timeDelta = easingRight - easingLeft;
+        const delta = rightValue - leftValue;
+        console.log("lr", easingLeft, leftValue, easingRight, rightValue);
+        return (t: number) => (this.getValue(easingLeft + timeDelta * t) - leftValue) / delta;
     }
     drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number): void {
         const delta = endY - startY;
@@ -143,14 +146,21 @@ type TupleCoordinate = [number, number]
 
 type CurveDrawer = (context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number) => void
 
+
+/**
+ * @immutable
+ */
 class SegmentedEasing extends Easing {
     getter: (t: number) => number;
-    constructor(public easing: Easing, public left: number, public right: number) {
+    constructor(public readonly easing: Easing, public readonly left: number, public readonly right: number) {
         super()
         this.getter = easing.segmentedValueGetter(left, right)
     }
     getValue(t: number): number {
         return this.getter(t)
+    }
+    replace(easing: Easing): Easing {
+        return new SegmentedEasing(easing, this.left, this.right)
     }
 }
 

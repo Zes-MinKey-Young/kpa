@@ -14,11 +14,11 @@ class JudgeLine {
     cover: boolean;
     hnLists = new Map<string, HNList>();
     nnLists = new Map<string, NNList>();
-    eventLayers: EventLayer[];
+    eventLayers: EventLayer[] = [];
     // notePosition: Float64Array;
     // noteSpeeds: NoteSpeeds;
     father: JudgeLine;
-    children: JudgeLine[];
+    children: Set<JudgeLine> = new Set();
 
     moveX: number;
     moveY: number;
@@ -31,8 +31,6 @@ class JudgeLine {
     constructor(chart: Chart) {
         //this.notes = [];
         this.chart = chart;
-        this.eventLayers = [];
-        this.children = [];
         this.texture = "line.png";
         this.cover = true;
         // this.noteSpeeds = {};
@@ -41,7 +39,7 @@ class JudgeLine {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
-        chart.judgeLineGroups[data.Group].addJudgeLine(line);
+        chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
 
         const noteNodeTree = chart.nnnList;
@@ -119,7 +117,7 @@ class JudgeLine {
         let line = new JudgeLine(chart)
         line.id = id;
         line.name = data.Name;
-        chart.judgeLineGroups[data.group].addJudgeLine(line);
+        chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
             const key: "hnLists" | "nnLists" = `${isHold ? "hn" : "nn"}Lists`
@@ -138,7 +136,7 @@ class JudgeLine {
             }
         }
         for (let child of data.children) {
-            line.children.push(JudgeLine.fromKPAJSON(isOld, chart, id, child, templates, timeCalculator));
+            line.children.add(JudgeLine.fromKPAJSON(isOld, chart, child.id, child, templates, timeCalculator));
         }
         for (let eventLayerData of data.eventLayers) {
             let eventLayer: EventLayer = {} as EventLayer;
@@ -348,29 +346,9 @@ class JudgeLine {
             this.getStackedValue("alpha", beats, usePrev),
         ]
     }
-    /**
-     * 求该时刻坐标，不考虑父线
-     * @param beats 
-     * @param usePrev 
-     * @returns 
-     */
-    getThisCoordinate(beats: number, usePrev: boolean=false): TupleCoordinate {
-        return [this.getStackedValue("moveX", beats, usePrev),
-        this.getStackedValue("moveY", beats, usePrev)]
-    }
-    /**
-     * 求父线锚点坐标，无父线返回原点
-     * @param beats 
-     * @param usePrev 
-     * @returns 
-     */
-    getBaseCoordinate(beats: number, usePrev: boolean=false): TupleCoordinate {
-        if (!this.father) {
-            return [0, 0]
-        }
-        const baseBase = this.father.getBaseCoordinate(beats, usePrev);
-        const base = this.father.getThisCoordinate(beats, usePrev);
-        return [baseBase[0] + base[0], baseBase[1] + base[1]]
+    getMatrix(beats: number, usePrev = false) {
+        const base = this.father.getMatrix(beats, usePrev);
+        const x = this
     }
     getStackedValue(type: keyof EventLayer, beats: number, usePrev: boolean = false) {
         const length = this.eventLayers.length;
