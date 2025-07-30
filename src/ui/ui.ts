@@ -5,8 +5,7 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
     | "parentRule" | "item" | "getPropertyValue" 
     | "getPropertyPriority" | "setProperty" | "removeProperty">
 
-
-
+type HTMLElementTagName = keyof HTMLElementTagNameMap
 
 /**
  * Z is just like jQuery, but it's much simpler.
@@ -20,7 +19,7 @@ type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
  * But $("input") in Z is obviously inferred as Z<"input">.
  * Supports chaining, like jQuery.
  */
-class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
+class Z<K extends HTMLElementTagName> extends EventTarget {
     element: HTMLElementTagNameMap[K];
     get parent() {
         return Z.from(this.element.parentElement);
@@ -82,6 +81,18 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
         this.element.append(...elements)
         return this;
     }
+    after($e: Z<keyof HTMLElementTagNameMap>) {
+        this.parent.element.insertBefore($e.element, this.element.nextSibling);
+    }
+    before($e: Z<keyof HTMLElementTagNameMap>) {
+        this.parent.element.insertBefore($e.element, this.element);
+    }
+    insertAfter($e: Z<keyof HTMLElementTagNameMap>) {
+        this.parent.element.insertBefore(this.element, $e.element.nextSibling);
+    }
+    insertBefore($e: Z<keyof HTMLElementTagNameMap>) {
+        this.parent.element.insertBefore(this.element, $e.element);
+    }
     appendTo(element: HTMLElement | Z<keyof HTMLElementTagNameMap>) {
         element.append(this.element)
         return this;
@@ -120,6 +131,18 @@ class Z<K extends keyof HTMLElementTagNameMap> extends EventTarget {
         const $ele = new Z(element.localName as K);
         $ele.element = element;
         return $ele;
+    }
+    appendMass(callback: () => void) {
+        const originalAppend = this.append;
+        const fragment = document.createDocumentFragment();
+        this.append = (...$elements) => {
+            fragment.append(...$elements.map(element => element instanceof Z ? element.element : element));
+            return this;
+        }
+        callback();
+        this.append = originalAppend;
+        this.element.append(fragment);
+        return this;
     }
 }
 
@@ -233,9 +256,15 @@ class ZInputBox extends Z<"input"> {
         this.element.value = val
         return this;
     }
+    private _lastValue: string;
     whenValueChange(callback: (content: string, e: Event) => any) {
         this.addEventListener("valueChange", (event) => {
-            callback(this.getValue(), event);
+            const changesValue = callback(this.getValue(), event) !== false;
+            if (!changesValue) {
+                this.element.value = this._lastValue
+            } else {
+                this._lastValue = this.element.value
+            }
         })
         return this;
     }
@@ -346,14 +375,10 @@ class ZFractionInput extends Z<"span"> {
 class BoxOption {
     $elementMap: Map<ZDropdownOptionBox, Z<"div">>;
     text: string;
-    onChangedTo: (option: BoxOption) => void;
-    onChanged: (option: BoxOption) => void;
 
-    constructor(text: string, onChangedTo?: (option: BoxOption) => void, onChanged?: (option: BoxOption) => void) {
+    constructor(text: string, public onChangedTo?: (option: BoxOption) => void, public onChanged?: (option: BoxOption) => void) {
         this.$elementMap = new Map();
         this.text = text;
-        this.onChangedTo = onChangedTo;
-        this.onChanged = onChanged;
     }
     getElement(box: ZDropdownOptionBox) {
         if (!this.$elementMap.has(box)) {
@@ -793,4 +818,66 @@ class ZNotification extends Z<"div"> {
 
 function notify(message: string) {
     $(document.body).append(new ZNotification(message))
+}
+
+class ZTextArea extends Z<"textarea"> {
+    constructor(rows: number = 20, cols: number = 40) {
+        super("textarea")
+        this.attr("rows", rows + "")
+        this.attr("cols", cols + "")
+    }
+    getValue() {
+        return this.element.value
+    }
+    setValue(value: string): this {
+        this.element.value = value
+        return this;
+    }
+    get value() {
+        return this.element.value
+    }
+    set value(value: string) {
+        this.element.value = value
+    }
+}
+
+class ZCollapseController extends Z<"div"> {
+    targets: Z<HTMLElementTagName>[] = [];
+    constructor(private _folded: boolean, stopsPropagation: boolean = true) {
+        super("div");
+        if (_folded) {
+            this.addClass("collapse-folded");
+        } else {
+            this.addClass("collapse-unfolded");
+        }
+        this.onClick((e) => {
+            if (stopsPropagation) e.stopPropagation();
+            this.folded = !this.folded;
+        });
+    }
+    get folded() {
+        return this._folded;
+    }
+    set folded(value: boolean) {
+        if (value === this._folded) {
+            return;
+        }
+        this._folded = value;
+        if (value) {
+            this.removeClass("collapse-unfolded");
+            this.addClass("collapse-folded");
+            for (const $target of this.targets) {
+                $target.hide();
+            }
+        } else {
+            this.addClass("collapse-unfolded");
+            this.removeClass("collapse-folded");
+            for (const $target of this.targets) {
+                $target.show();
+            }
+        }
+    }
+    attach($element: Z<HTMLElementTagName>) {
+        this.targets.push($element);
+    }
 }

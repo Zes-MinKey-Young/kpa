@@ -259,3 +259,50 @@ class EventEditor extends SideEditor<EventStartNode | EventEndNode> {
         
     }
 }
+class UserScriptEditor extends SideEditor {
+    $script = new ZTextArea().addClass("user-script-editor-script").setValue("");
+    $runBtn = new ZButton("Run").addClass("user-script-editor-run", "progressive");
+    constructor() {
+        super();
+        this.addClass("user-script-editor");
+        this.$body.append(
+            this.$script,
+            this.$runBtn
+        );
+        const log = (content: any) => {
+            const $d = $("div").addClass("user-script-editor-output").text(content + "");
+            this.$script.before($d)
+        }
+        this.$runBtn.onClick(() => {
+            try {
+                const script = new Function("log", "return " + this.$script.getValue().trim());
+                const result = script(log);
+                if (typeof result === "function") {
+                    result.isUserScript = true;
+                    if (result.name !== "") {
+                        if (!globalThis[result.name]?.isUserScript) {
+                            notify("Cannot override built-in Global Variable. Please use a different name.")
+                        } else {
+                            globalThis[result.name] = result;
+                            log(result.toString())
+                        }
+                    }
+                    if (result.main && typeof result.main === "function") {
+                        if (editor.chart.modified && !result.trusted) {
+                            notify("This script is not trusted. Please make sure it is safe to run. You'd better save the chart before running it.")
+                            notify("To trust this script, please add a line `trusted = true`.");
+                            return;
+                        }
+                        result.main(editor.operationList, editor.chart);
+                    }
+                } else {
+                    log(result)
+                }
+            } catch (error) {
+                const $d = $("div").addClass("user-script-editor-error").text(error.message);
+                this.$script.before($d);
+            }
+        })
+    }
+    update() {}
+}

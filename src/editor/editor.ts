@@ -221,7 +221,6 @@ class Editor extends EventTarget {
 
     player: Player;
     notesEditor: NotesEditor;
-    eventEditor: EventEditor
     chart: Chart;
     operationList?: OperationList;
     chartType: "rpejson" | "kpajson";
@@ -238,15 +237,14 @@ class Editor extends EventTarget {
     playButton: HTMLButtonElement;
     $timeDivisor: ZArrowInputBox;
     timeDivisor: number
-    $saveButton = new ZButton("保存");
-    $compileButton = new ZButton("编译");
-    $playbackRate: ZDropdownOptionBox;
-    $offsetInput = new ZInputBox().attr("size", "3");
-    $tipsLabel: Z<"div">;
+    readonly $offsetInput = new ZInputBox().attr("size", "3");
+    readonly $switchButton = new ZButton("切换");
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
+    eventEditor: EventEditor;
+    userScriptEditor: UserScriptEditor;
     multiNoteEditor: MultiNoteEditor;
     multiNodeEditor: MultiNodeEditor;
 
@@ -351,6 +349,13 @@ class Editor extends EventTarget {
         this.$offsetInput.whenValueChange(() => {
                 this.chart.offset = this.$offsetInput.getInt();
             });
+
+        this.$switchButton.onClick(() => {
+            if (this.shownSideEditor !== this.userScriptEditor) {
+                this.switchSide(this.userScriptEditor)
+            }
+        })
+
         this.$tipsLabel = generateTipsLabel();
         this.$topbar.append(
             this.$timeDivisor,
@@ -359,6 +364,7 @@ class Editor extends EventTarget {
             this.$saveButton,
             this.$saveDialog,
             this.$compileButton,
+            this.$switchButton,
             this.$tipsLabel
         )
 
@@ -381,7 +387,12 @@ class Editor extends EventTarget {
                 e.returnValue = "Unsaved Changes";
             }
         })
-        window.addEventListener("keypress", (e: KeyboardEvent) => {
+        window.addEventListener("keydown", (e: KeyboardEvent) => {
+            if ((e.key ==="z" || e.key === "y") && document.activeElement === document.body) {
+                e.preventDefault();
+            } else {
+                return;
+            }
             if (e.key === "z") {
                 this.operationList?.undo();
             } else if (e.key === "y") {
@@ -399,14 +410,14 @@ class Editor extends EventTarget {
         })
             */
     }
-    shownSideEditor: SideEditor<any>;
-    switchSide(editor: SideEditor<any>) {
-        if (editor === this.shownSideEditor) {
+    shownSideEditor: SideEditor;
+    switchSide(editr: SideEditor) {
+        if (editr === this.shownSideEditor) {
             return;
         }
         this.shownSideEditor.hide()
-        editor.show()
-        this.shownSideEditor = editor
+        editr.show()
+        this.shownSideEditor = editr
     }
     checkAndInit() {
         if (this.initialized) {
@@ -509,17 +520,20 @@ class Editor extends EventTarget {
 
         this.eventEditor = new EventEditor();
         this.noteEditor = new NoteEditor();
+        this.userScriptEditor = new UserScriptEditor();
         this.multiNoteEditor = new MultiNoteEditor();
         this.multiNodeEditor = new MultiNodeEditor();
         this.$noteInfo.append(
             this.eventEditor,
             this.noteEditor,
+            this.userScriptEditor,
             this.multiNoteEditor,
             this.multiNodeEditor
             );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.eventEditor.update()
         this.eventEditor.hide()
+        this.userScriptEditor.hide()
         this.multiNoteEditor.hide()
         this.multiNodeEditor.hide()
         this.shownSideEditor = this.noteEditor
