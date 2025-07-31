@@ -7,6 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+const VERSION = "1.6.1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -65,33 +66,65 @@ class AudioProcessor {
     }
 }
 const HIT_FX_SIZE = 1024;
-const TAP = new Image(135);
-const DRAG = new Image(135);
-const FLICK = new Image(135);
-const HOLD = new Image(135);
-const HOLD_HEAD = new Image(135);
-const HOLD_BODY = new Image(135);
+let TAP = new Image(135);
+let DRAG = new Image(135);
+let FLICK = new Image(135);
+let HOLD_HEAD = new Image(135);
+let HOLD_BODY = new Image(135);
 const DOUBLE = new Image(135);
 const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
-const HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
+let HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
 const SELECT_NOTE = new Image(135);
 const TRUCK = new Image(135);
+let fetched = false;
 const fetchImage = () => {
+    if (fetched)
+        return;
+    fetched = true;
     TAP.src = serverApi.resolvePath("/img/tap.png");
     DRAG.src = serverApi.resolvePath("/img/drag.png");
     FLICK.src = serverApi.resolvePath("/img/flick.png");
-    HOLD.src = serverApi.resolvePath("/img/hold.png");
     HOLD_HEAD.src = serverApi.resolvePath("/img/holdHead.png");
     HOLD_BODY.src = serverApi.resolvePath("/img/holdBody.png");
+    TAP.onload = () => {
+        createImageBitmap(TAP).then((bmp) => {
+            TAP = bmp;
+        });
+    };
+    DRAG.onload = () => {
+        createImageBitmap(DRAG).then((bmp) => {
+            DRAG = bmp;
+        });
+    };
+    FLICK.onload = () => {
+        createImageBitmap(FLICK).then((bmp) => {
+            FLICK = bmp;
+        });
+    };
+    HOLD_BODY.onload = () => {
+        createImageBitmap(HOLD_BODY).then((bmp) => {
+            HOLD_BODY = bmp;
+        });
+    };
+    HOLD_HEAD.onload = () => {
+        createImageBitmap(HOLD_HEAD).then((bmp) => {
+            HOLD_HEAD = bmp;
+        });
+    };
     ANCHOR.src = serverApi.resolvePath("/img/anchor.png");
     BELOW.src = serverApi.resolvePath("/img/below.png");
     DOUBLE.src = serverApi.resolvePath("/img/double.png");
     NODE_START.src = serverApi.resolvePath("/img/south.png");
     NODE_END.src = serverApi.resolvePath("/img/north.png");
     HIT_FX.src = serverApi.resolvePath("/img/hit_fx.png");
+    HIT_FX.onload = () => {
+        createImageBitmap(HIT_FX).then((bmp) => {
+            HIT_FX = bmp;
+        });
+    };
     SELECT_NOTE.src = serverApi.resolvePath("/img/selectNote.png");
     TRUCK.src = serverApi.resolvePath("/img/Truck.png");
 };
@@ -3297,14 +3330,13 @@ class Z extends EventTarget {
         return $ele;
     }
     appendMass(callback) {
-        const originalAppend = this.append;
         const fragment = document.createDocumentFragment();
         this.append = (...$elements) => {
             fragment.append(...$elements.map(element => element instanceof Z ? element.element : element));
             return this;
         };
         callback();
-        this.append = originalAppend;
+        delete this.append;
         this.element.append(fragment);
         return this;
     }
@@ -4131,11 +4163,13 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         // console.log(x, y, theta, alpha);
+        // console.time("calculate coordinate");
         const { x: transformedX, y: transformedY } = new Coordinate(x, y).mul(matrix);
-        console.log(judgeLine.id, x, y, transformedX, transformedY);
         const MyMatrix = identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
+        // console.timeEnd("calculate coordinate");
+        // console.time("transform");
         context.setTransform(MyMatrix);
-        console.log(judgeLine.id, MyMatrix);
+        // console.timeEnd("transform");
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
                 context.save();
@@ -4182,18 +4216,23 @@ class Player {
         const holdTrees = judgeLine.hnLists;
         const noteTrees = judgeLine.nnLists;
         const soundQueue = this.soundQueue;
+        // console.time("Updating integral");
         if (holdTrees.size || noteTrees.size) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator);
         }
+        // console.timeEnd("Updating integral");
         for (let trees of [holdTrees, noteTrees]) {
             for (const [_, list] of trees) {
                 const speedVal = list.speed;
                 if (DRAWS_NOTES) {
                     // debugger
                     // 渲染音符
+                    // console.time("computeTimeRange")
                     const [startY, endY] = getYs(list.medianYOffset);
                     const timeRanges = speedVal !== 0 ? judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal) : [[0, Infinity]];
                     list.timeRanges = timeRanges;
+                    // console.timeEnd("computeTimeRange");
+                    // console.time("Rendering notes");
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
                         const start = range[0];
@@ -4213,9 +4252,13 @@ class Player {
                             noteNode = noteNode.next;
                         }
                     }
+                    // console.timeEnd("Rendering notes");
                 }
+                // console.time("Rendering sounds");
                 // 处理音效
                 this.renderSounds(list, beats, soundQueue, timeCalculator);
+                // console.timeEnd("Rendering sounds");
+                // console.time("Rendering hit effects");
                 // 打击特效
                 if (beats > 0) {
                     if (list instanceof HNList) {
@@ -4225,6 +4268,7 @@ class Player {
                         this.renderHitEffects(MyMatrix, list, hitRenderLimit, beats, timeCalculator);
                     }
                 }
+                // console.timeEnd("Rendering hit effects");
             }
         }
         /*
@@ -4271,7 +4315,7 @@ class Player {
     renderHitEffects(matrix, tree, startBeats, endBeats, timeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
         const { hitContext } = this;
-        console.log(hitContext.getTransform());
+        // console.log(hitContext.getTransform())
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
@@ -4287,7 +4331,7 @@ class Player {
                 const posX = note.positionX;
                 const yo = note.yOffset * (note.above ? 1 : -1);
                 const { x, y } = new Coordinate(posX, yo).mul(matrix);
-                console.log("he", x, y);
+                // console.log("he", x, y);
                 const he = note.tintHitEffects;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
@@ -4314,26 +4358,26 @@ class Player {
             return;
         }
         if (noteNode !== end)
-            console.log("start", start, startBeats, endBeats);
-        while (noteNode !== end) {
-            const notes = noteNode.notes, len = notes.length;
-            for (let i = 0; i < len; i++) {
-                const note = notes[i];
-                if (note.isFake) {
-                    continue;
+            // console.log("start", start, startBeats, endBeats)
+            while (noteNode !== end) {
+                const notes = noteNode.notes, len = notes.length;
+                for (let i = 0; i < len; i++) {
+                    const note = notes[i];
+                    if (note.isFake) {
+                        continue;
+                    }
+                    if (startBeats > TimeCalculator.toBeats(note.endTime)) {
+                        continue;
+                    }
+                    const posX = note.positionX;
+                    const yo = note.yOffset * (note.above ? 1 : -1);
+                    const { x, y } = new Coordinate(posX, yo).mul(matrix);
+                    const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
+                    const he = note.tintHitEffects;
+                    drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
                 }
-                if (startBeats > TimeCalculator.toBeats(note.endTime)) {
-                    continue;
-                }
-                const posX = note.positionX;
-                const yo = note.yOffset * (note.above ? 1 : -1);
-                const { x, y } = new Coordinate(posX, yo).mul(matrix);
-                const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
-                const he = note.tintHitEffects;
-                drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
+                noteNode = noteNode.next;
             }
-            noteNode = noteNode.next;
-        }
     }
     renderSameTimeNotes(noteNode, chord, judgeLine, timeCalculator) {
         if (noteNode.isHold) {

@@ -1,35 +1,69 @@
 
 const HIT_FX_SIZE = 1024;
 
-const TAP = new Image(135);
-const DRAG = new Image(135);
-const FLICK = new Image(135);
-const HOLD = new Image(135);
-const HOLD_HEAD = new Image(135);
-const HOLD_BODY = new Image(135);
+let TAP: HTMLImageElement | ImageBitmap = new Image(135);
+let DRAG: HTMLImageElement | ImageBitmap = new Image(135);
+let FLICK: HTMLImageElement | ImageBitmap = new Image(135);
+let HOLD_HEAD: HTMLImageElement | ImageBitmap = new Image(135);
+let HOLD_BODY: HTMLImageElement | ImageBitmap = new Image(135);
 const DOUBLE = new Image(135);
 const BELOW = new Image(135);
 const ANCHOR = new Image(20, 20);
 const NODE_START = new Image(20, 10);
 const NODE_END = new Image(20, 10);
-const HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
+let HIT_FX = new Image(HIT_FX_SIZE, HIT_FX_SIZE);
 const SELECT_NOTE = new Image(135);
 const TRUCK = new Image(135);
 
+let fetched = false;
+
 
 const fetchImage = () => {
+    if (fetched) return;
+    fetched = true;
     TAP.src = serverApi.resolvePath("/img/tap.png");
     DRAG.src = serverApi.resolvePath("/img/drag.png");
     FLICK.src = serverApi.resolvePath("/img/flick.png");
-    HOLD.src = serverApi.resolvePath("/img/hold.png");
     HOLD_HEAD.src = serverApi.resolvePath("/img/holdHead.png");
     HOLD_BODY.src = serverApi.resolvePath("/img/holdBody.png");
+    TAP.onload = () => {
+        createImageBitmap(TAP).then((bmp) => {
+            TAP = bmp;
+        })
+    }
+    DRAG.onload = () => {
+        createImageBitmap(DRAG).then((bmp) => {
+            DRAG = bmp;
+        })
+    }
+    FLICK.onload = () => {
+        createImageBitmap(FLICK).then((bmp) => {
+            FLICK = bmp;
+        })
+    }
+    HOLD_BODY.onload = () => {
+        createImageBitmap(HOLD_BODY).then((bmp) => {
+            HOLD_BODY = bmp;
+        })
+    }
+    HOLD_HEAD.onload = () => {
+        createImageBitmap(HOLD_HEAD).then((bmp) => {
+            HOLD_HEAD = bmp;
+        })
+    }
+
+
     ANCHOR.src = serverApi.resolvePath("/img/anchor.png");
     BELOW.src = serverApi.resolvePath("/img/below.png");
     DOUBLE.src = serverApi.resolvePath("/img/double.png");
     NODE_START.src = serverApi.resolvePath("/img/south.png");
     NODE_END.src = serverApi.resolvePath("/img/north.png");
     HIT_FX.src = serverApi.resolvePath("/img/hit_fx.png");
+    HIT_FX.onload = () => {
+        createImageBitmap(HIT_FX).then((bmp: ImageBitmap) => {
+            HIT_FX = bmp;
+        })
+    }
     SELECT_NOTE.src = serverApi.resolvePath("/img/selectNote.png");
     TRUCK.src = serverApi.resolvePath("/img/Truck.png");
 }

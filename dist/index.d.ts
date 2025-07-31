@@ -1,3 +1,4 @@
+declare const VERSION = "1.6.1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -2168,23 +2169,23 @@ declare class AudioProcessor {
     playNoteSound(type: NoteType): void;
 }
 declare const HIT_FX_SIZE = 1024;
-declare const TAP: HTMLImageElement;
-declare const DRAG: HTMLImageElement;
-declare const FLICK: HTMLImageElement;
-declare const HOLD: HTMLImageElement;
-declare const HOLD_HEAD: HTMLImageElement;
-declare const HOLD_BODY: HTMLImageElement;
+declare let TAP: HTMLImageElement | ImageBitmap;
+declare let DRAG: HTMLImageElement | ImageBitmap;
+declare let FLICK: HTMLImageElement | ImageBitmap;
+declare let HOLD_HEAD: HTMLImageElement | ImageBitmap;
+declare let HOLD_BODY: HTMLImageElement | ImageBitmap;
 declare const DOUBLE: HTMLImageElement;
 declare const BELOW: HTMLImageElement;
 declare const ANCHOR: HTMLImageElement;
 declare const NODE_START: HTMLImageElement;
 declare const NODE_END: HTMLImageElement;
-declare const HIT_FX: HTMLImageElement;
+declare let HIT_FX: HTMLImageElement;
 declare const SELECT_NOTE: HTMLImageElement;
 declare const TRUCK: HTMLImageElement;
+declare let fetched: boolean;
 declare const fetchImage: () => void;
 declare const drawNthFrame: (context: CanvasRenderingContext2D, source: CanvasImageSource, nth: number, dx: number, dy: number, dw: number, dh: number) => void;
-declare const getImageFromType: (noteType: NoteType) => HTMLImageElement;
+declare const getImageFromType: (noteType: NoteType) => ImageBitmap | HTMLImageElement;
 declare const ENABLE_PLAYER = true;
 declare const DRAWS_NOTES = true;
 declare const DEFAULT_ASPECT_RATIO: number;

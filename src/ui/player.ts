@@ -182,11 +182,13 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         // console.log(x, y, theta, alpha);
+        // console.time("calculate coordinate");
         const {x: transformedX, y: transformedY} = new Coordinate(x, y).mul(matrix);
-        console.log(judgeLine.id, x, y, transformedX, transformedY);
         const MyMatrix = identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
+        // console.timeEnd("calculate coordinate");
+        // console.time("transform");
         context.setTransform(MyMatrix);
-        console.log(judgeLine.id, MyMatrix)
+        // console.timeEnd("transform");
 
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
@@ -237,9 +239,12 @@ class Player {
         const holdTrees = judgeLine.hnLists;
         const noteTrees = judgeLine.nnLists;
         const soundQueue = this.soundQueue
+        // console.time("Updating integral");
         if (holdTrees.size || noteTrees.size) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator)
         }
+        
+        // console.timeEnd("Updating integral");
         
         for (let trees of [holdTrees, noteTrees]) {
             for (const [_, list] of trees) {
@@ -247,9 +252,12 @@ class Player {
                 if (DRAWS_NOTES) {
                     // debugger
                     // 渲染音符
+                    // console.time("computeTimeRange")
                     const [startY, endY] = getYs(list.medianYOffset)
                     const timeRanges = speedVal !== 0 ? judgeLine.computeTimeRange(beats, timeCalculator, startY / speedVal, endY / speedVal) : [[0, Infinity] as [number, number]];
                     list.timeRanges = timeRanges
+                    // console.timeEnd("computeTimeRange");
+                    // console.time("Rendering notes");
                     // console.log(timeRanges, startY, endY);
                     for (let range of timeRanges) {
                         const start = range[0];
@@ -273,9 +281,13 @@ class Player {
                         }
                         
                     }
+                    // console.timeEnd("Rendering notes");
                 }
+                // console.time("Rendering sounds");
                 // 处理音效
-                this.renderSounds(list, beats, soundQueue, timeCalculator)
+                this.renderSounds(list, beats, soundQueue, timeCalculator);
+                // console.timeEnd("Rendering sounds");
+                // console.time("Rendering hit effects");
                 // 打击特效
                 if (beats > 0) {
                     if (list instanceof HNList) {
@@ -284,6 +296,7 @@ class Player {
                         this.renderHitEffects(MyMatrix, list, hitRenderLimit, beats, timeCalculator)
                     }
                 }
+                // console.timeEnd("Rendering hit effects");
 
             }
 
@@ -336,7 +349,7 @@ class Player {
     renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
         const {hitContext} = this;
-        console.log(hitContext.getTransform())
+        // console.log(hitContext.getTransform())
         const end = tree.getNodeAt(endBeats);
         if ("tailing" in noteNode) {
             return;
@@ -353,7 +366,7 @@ class Player {
                 const posX = note.positionX;
                 const yo = note.yOffset * (note.above ? 1 : -1);
                 const {x, y} = new Coordinate(posX, yo).mul(matrix);
-                console.log("he", x, y);
+                // console.log("he", x, y);
                 const he = note.tintHitEffects;
                 const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
                 drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth,x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE)
@@ -381,7 +394,7 @@ class Player {
             return;
         }
         if (noteNode !== end)
-        console.log("start", start, startBeats, endBeats)
+        // console.log("start", start, startBeats, endBeats)
         while (noteNode !== end) {
             const notes = noteNode.notes
             , len = notes.length

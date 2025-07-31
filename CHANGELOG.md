@@ -1,5 +1,44 @@
 ## Changelog
 
+### [v1.6.1](https://github.com/Zes-Minkey-Young/kpa/compare/v1.6.0...v1.6.1)
+#### 修复
+- 由于构建脚本中的路径错误，之前的版本中无法获得最新服务器二进制文件导致出现错误，现进行修复。
+- 删除了导入页面的多余表单。
+- 部分图片使用ImageBitmap进行了优化，以提升性能。
+
+### [v1.6.0](https://github.com/Zes-Minkey-Young/kpa/compare/v1.5.0...v1.6.0) - 30 July 2025
+#### 新增功能
+- 增加用户脚本编辑器
+- 支持上传PEZ
+- 支持切换判定线管理区的布局，共有三种布局：顺序、树形、分组
+- 支持增加删除判定线、编辑父线和分组
+- 支持了[PhiZone Player](https://github.com/PhiZone/player)引入的染色属性
+
+#### New Features
+- Added user script editor
+- Supported uploading PEZ
+- Supported switching the layout of the judge line management area, there are three layouts: ordered, tree, grouped.
+- Supported adding, deleting, editing parent lines and groups
+- Supported the tint property introduced by [PhiZone Player](https://github.com/PhiZone/player)
+
+#### 修复
+- 修复了变速Hold被判定时的渲染错误，现在变速Hold被判定时Hold头保持在判定线上。
+- 修复了父子线位置计算不正确的问题
+- 修复了Ctrl+C/V/Z/Y检测不到的问题（但现在仍然不需要Ctrl就可实现这几个操作，想按也没人拦你）
+
+#### Bug Fixes
+- Fixed the rendering error when Hold is judged. Now Hold head is always on the judge line when Hold is judged.
+- Fixed the incorrect father-child line position calculation.
+
+
+#### 重构
+- 优化了对RPEJSON中判定线的读取
+- 现在操作模块`operation.ts`内容与编辑器解耦程度加大（但仍然有相互依赖）
+
+#### Refactor
+- Optimized the reading of judge lines in RPEJSON
+- The operation module `operation.ts` is decoupled from the editor more, but still has dependencies with each other
+
 
 ### [v1.5.0](https://github.com/Zes-Minkey-Young/kpa/compare/v1.4.0...v1.5.0) - 22 July 2025
 

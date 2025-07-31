@@ -133,14 +133,13 @@ class Z<K extends HTMLElementTagName> extends EventTarget {
         return $ele;
     }
     appendMass(callback: () => void) {
-        const originalAppend = this.append;
         const fragment = document.createDocumentFragment();
         this.append = (...$elements) => {
             fragment.append(...$elements.map(element => element instanceof Z ? element.element : element));
             return this;
         }
         callback();
-        this.append = originalAppend;
+        delete this.append;
         this.element.append(fragment);
         return this;
     }

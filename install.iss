@@ -3,11 +3,11 @@
 
 [Setup]
 AppName=KPA
-AppVersion=1.6.0
+AppVersion=1.6.1
 DefaultDirName={autopf}\KPA
 DefaultGroupName=KPA
 ; 输出安装包名称
-OutputBaseFilename=KPA_Setup_v1.6.0
+OutputBaseFilename=KPA_Setup_v1.6.1
 ; 压缩方式
 Compression=lzma
 ; 压缩级别

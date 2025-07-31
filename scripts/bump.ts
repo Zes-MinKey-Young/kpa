@@ -23,7 +23,7 @@ if (!nextVersion) {
 }
 
 console.log("编译一下server/index.ts");
-await runProgramAndPrintToConsole(["bun", "build", "../server/index.ts", "--compile"]);
+await runProgramAndPrintToConsole(["bun", "build", "index.ts", "--compile"], "../server");
 
 
 const versionTsFileText = await versionTsFile.text();
