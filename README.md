@@ -54,3 +54,13 @@ Under the scripts folder, there is a watch script compilerOnSave.ts (executable 
 
 Since this repository includes the .vscode folder, no additional configuration is typically required.
 
+# 配置
+奇谱发生器本地服务端使用Bun编译，至少Windows 10系统方可使用。若遇到BUG或有一些好的建议，请在本仓库创建一个Issue。亦可加入奇谱发生器QQ群：478824121。
+
+后续可能会推出不使用Bun的版本。
+
+# Configuration
+
+KPA uses Bun to compile local server, at least Windows 10 is required. If you encounter a bug or have some good suggestions, please create an issue in this repository. You can also join the KPA QQ group: 478824121.
+
+Versions without Bun may be released in the future.
